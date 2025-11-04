@@ -1,19 +1,25 @@
 import express from "express";
-import { signup, signin, updateProfile } from "../controllers/customerAuthController.js";
+import {
+  signup,
+  verifyOtp,
+  signin,
+  updateProfile,
+} from "../controllers/customerAuthController.js";
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
-import { upload } from "../middlewares/upload.js"; // ✅ only import once
+import { upload } from "../middlewares/upload.js";
 
 const router = express.Router();
 
-// 🧩 Auth routes
-router.post("/signup", signup);
-router.post("/signin", signin);
+// 🧩 Auth routes (OTP-based)
+router.post("/signup", signup);          // Step 1: register + send OTP
+router.post("/verify-otp", verifyOtp);   // Step 2: verify OTP
+router.post("/signin", signin);          // Step 3: normal login after verification
 
-// 🧑‍💼 Profile update route (with Cloudinary upload)
+// 🧑‍💼 Profile update (with Cloudinary upload)
 router.put(
   "/profile",
   authenticateCustomer,
-  upload.single("avatar"), // ✅ use .single() to handle a single file field
+  upload.single("avatar"),
   updateProfile
 );
 
