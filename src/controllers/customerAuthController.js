@@ -1,3 +1,7 @@
+// ============================================
+// BACKEND: customerController.js - FIXED
+// ============================================
+
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import Customer from "../models/customerModel.js";
@@ -27,7 +31,7 @@ const sendOtpEmail = async (email, otp) => {
         <h1 style="color:#2f54eb;">${otp}</h1>
         <p>This code expires in <strong>10 minutes</strong>.</p>
         <hr />
-        <p style="font-size:12px;color:#888;">If you didn’t request this, please ignore this email.</p>
+        <p style="font-size:12px;color:#888;">If you didn't request this, please ignore this email.</p>
       </div>
     `,
   };
@@ -47,17 +51,24 @@ export const signup = async (req, res) => {
     const existing = await Customer.findOne({ email });
 
     if (existing) {
+      // ✅ If already verified, reject signup
       if (existing.isEmailVerified) {
-        return res.json({ status: "exists", message: "Email already registered" });
+        return res.json({ 
+          status: "exists", 
+          message: "Account already exists. Please sign in instead." 
+        });
       } else {
-        // Resend OTP for unverified account
+        // ✅ If not verified, resend OTP (allow retry)
         const otp = generateOtp();
         existing.otp = otp;
         existing.otpExpiry = Date.now() + 10 * 60 * 1000;
         await existing.save();
 
         await sendOtpEmail(email, otp);
-        return res.json({ status: "otp_resent", message: "OTP resent to your email" });
+        return res.json({ 
+          status: "otp_sent", 
+          message: "OTP sent to your email. Please verify your account." 
+        });
       }
     }
 
@@ -86,7 +97,10 @@ export const signup = async (req, res) => {
     // Send OTP email
     await sendOtpEmail(email, otp);
 
-    return res.json({ status: "otp_sent", message: "OTP sent to your email" });
+    return res.json({ 
+      status: "otp_sent", 
+      message: "OTP sent to your email" 
+    });
   } catch (error) {
     console.error("Signup error:", error);
     res.status(500).json({ message: "Server error during signup" });
@@ -99,16 +113,29 @@ export const verifyOtp = async (req, res) => {
     const { email, otp } = req.body;
 
     const customer = await Customer.findOne({ email });
-    if (!customer) return res.status(404).json({ message: "Customer not found" });
+    if (!customer) 
+      return res.status(404).json({ 
+        status: "error",
+        message: "Customer not found" 
+      });
 
     if (!customer.otp || !customer.otpExpiry)
-      return res.json({ status: "invalid", message: "No OTP found" });
+      return res.json({ 
+        status: "invalid", 
+        message: "No OTP found. Please request a new one." 
+      });
 
     if (customer.otp !== otp)
-      return res.json({ status: "invalid", message: "Invalid OTP" });
+      return res.json({ 
+        status: "invalid", 
+        message: "Invalid OTP. Please check and try again." 
+      });
 
     if (customer.otpExpiry < Date.now())
-      return res.json({ status: "expired", message: "OTP expired" });
+      return res.json({ 
+        status: "expired", 
+        message: "OTP expired. Please request a new one." 
+      });
 
     // Mark as verified
     customer.isEmailVerified = true;
@@ -139,7 +166,10 @@ export const verifyOtp = async (req, res) => {
     });
   } catch (error) {
     console.error("OTP verification error:", error);
-    res.status(500).json({ message: "Server error during OTP verification" });
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during OTP verification" 
+    });
   }
 };
 
@@ -149,16 +179,36 @@ export const signin = async (req, res) => {
     const { email, password } = req.body;
 
     const customer = await Customer.findOne({ email });
-    if (!customer) return res.status(404).json({ message: "Account not found" });
+    if (!customer) 
+      return res.json({ 
+        status: "invalid_credentials", 
+        message: "Invalid email or password" 
+      });
 
-    if (!customer.isEmailVerified)
-      return res.json({ status: "not_verified", message: "Email not verified" });
-
+    // ✅ Check password FIRST before checking verification
     const isMatch = await bcrypt.compare(password, customer.password);
     if (!isMatch)
-      return res.json({ status: "invalid_credentials", message: "Invalid credentials" });
+      return res.json({ 
+        status: "invalid_credentials", 
+        message: "Invalid email or password" 
+      });
 
-    // Generate JWT
+    // ✅ If credentials are correct but NOT verified, send OTP
+    if (!customer.isEmailVerified) {
+      const otp = generateOtp();
+      customer.otp = otp;
+      customer.otpExpiry = Date.now() + 10 * 60 * 1000;
+      await customer.save();
+
+      await sendOtpEmail(email, otp);
+      
+      return res.json({ 
+        status: "not_verified", 
+        message: "Email not verified. OTP sent to your email." 
+      });
+    }
+
+    // ✅ Generate JWT for verified user
     const token = jwt.sign(
       { customerId: customer._id, email: customer.email },
       process.env.JWT_SECRET,
@@ -181,14 +231,14 @@ export const signin = async (req, res) => {
     });
   } catch (error) {
     console.error("Signin error:", error);
-    res.status(500).json({ message: "Server error during signin" });
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during signin" 
+    });
   }
 };
 
-
-
-
-// UPDATE PROFILE
+// ---------------------- UPDATE PROFILE ----------------------
 export const updateProfile = async (req, res) => {
   try {
     const customer = req.customer; // from authenticateCustomer middleware

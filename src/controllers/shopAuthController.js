@@ -1,12 +1,12 @@
+
 import bcrypt from "bcryptjs";
 import Shop from "../models/shopModel.js";
 import crypto from "crypto";
 import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
-
-// Configure SendGrid
 
 // Helper: generate 6-digit OTP
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -24,16 +24,13 @@ const sendOtpEmail = async (email, otp) => {
         <h1 style="color:#2f54eb;">${otp}</h1>
         <p>This code expires in <strong>10 minutes</strong>.</p>
         <hr />
-        <p style="font-size:12px;color:#888;">If you didn’t request this, please ignore this email.</p>
+        <p style="font-size:12px;color:#888;">If you didn't request this, please ignore this email.</p>
       </div>
     `,
   };
 
   await sgMail.send(msg);
 };
-
-
-
 
 // ---------------------- SIGNUP (send OTP) ----------------------
 export const registerShop = async (req, res) => {
@@ -48,17 +45,24 @@ export const registerShop = async (req, res) => {
     const existing = await Shop.findOne({ email });
 
     if (existing) {
+      // ✅ If already verified, reject signup
       if (existing.isEmailVerified) {
-        return res.json({ status: "exists", message: "Email already registered" });
+        return res.json({ 
+          status: "exists", 
+          message: "Account already exists. Please sign in instead." 
+        });
       } else {
-        // Resend OTP for unverified account
+        // ✅ If not verified, resend OTP (allow retry)
         const otp = generateOtp();
         existing.otp = otp;
-        existing.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 mins
+        existing.otpExpiry = Date.now() + 10 * 60 * 1000;
         await existing.save();
 
         await sendOtpEmail(email, otp);
-        return res.json({ status: "otp_resent", message: "OTP resent to your email" });
+        return res.json({ 
+          status: "otp_sent", 
+          message: "OTP sent to your email. Please verify your account." 
+        });
       }
     }
 
@@ -81,15 +85,15 @@ export const registerShop = async (req, res) => {
       startDate: new Date(),
       insuranceCarrier: "Insurance Carrier (Pending)",
       policyNumber: "Policy Number (Pending)",
-      policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // +1 year
+      policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       insuranceCertificate: "Pending",
       storeFrontPhoto: "Pending",
       workSpacePhoto: "Pending",
       certificateFiles: [],
-      plan: "basic", // default plan
+      plan: "basic",
       isEmailVerified: false,
       otp,
-      otpExpiry: Date.now() + 10 * 60 * 1000, // 10 min expiry
+      otpExpiry: Date.now() + 10 * 60 * 1000,
     });
 
     await newShop.save();
@@ -97,7 +101,10 @@ export const registerShop = async (req, res) => {
     // Send OTP email
     await sendOtpEmail(email, otp);
 
-    return res.json({ status: "otp_sent", message: "OTP sent to your email" });
+    return res.json({ 
+      status: "otp_sent", 
+      message: "OTP sent to your email" 
+    });
 
   } catch (error) {
     console.error("Signup error:", error);
@@ -105,24 +112,35 @@ export const registerShop = async (req, res) => {
   }
 };
 
-
-
 // ---------------------- VERIFY OTP ----------------------
 export const verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
     const shop = await Shop.findOne({ email });
 
-    if (!shop) return res.status(404).json({ message: "Shop not found" });
+    if (!shop) 
+      return res.status(404).json({ 
+        status: "error",
+        message: "Shop not found" 
+      });
 
     if (!shop.otp || !shop.otpExpiry)
-      return res.json({ status: "invalid", message: "No OTP found" });
+      return res.json({ 
+        status: "invalid", 
+        message: "No OTP found. Please request a new one." 
+      });
 
     if (shop.otp !== otp)
-      return res.json({ status: "invalid", message: "Invalid OTP" });
+      return res.json({ 
+        status: "invalid", 
+        message: "Invalid OTP. Please check and try again." 
+      });
 
     if (shop.otpExpiry < Date.now())
-      return res.json({ status: "expired", message: "OTP expired" });
+      return res.json({ 
+        status: "expired", 
+        message: "OTP expired. Please request a new one." 
+      });
 
     // Verify shop email
     shop.isEmailVerified = true;
@@ -130,41 +148,168 @@ export const verifyOtp = async (req, res) => {
     shop.otpExpiry = undefined;
     await shop.save();
 
-    res.json({ status: "verified", message: "Email verified successfully" });
+    res.json({ 
+      status: "verified", 
+      message: "Email verified successfully" 
+    });
   } catch (error) {
     console.error("OTP verification error:", error);
-    res.status(500).json({ message: "Server error during OTP verification" });
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during OTP verification" 
+    });
   }
 };
 
 // ---------------------- SIGNIN ----------------------
-export const signInShop = async (req, res) => {
+export const signin = async (req, res) => {
   try {
     const { email, password } = req.body;
+
     const shop = await Shop.findOne({ email });
+    if (!shop) 
+      return res.json({ 
+        status: "invalid_credentials", 
+        message: "Invalid email or password" 
+      });
 
-    if (!shop) return res.status(404).json({ message: "Shop not found" });
-    if (!shop.isEmailVerified)
-      return res.json({ status: "not_verified", message: "Email not verified" });
-
+    // ✅ Check password FIRST before checking verification
     const isMatch = await bcrypt.compare(password, shop.password);
     if (!isMatch)
-      return res.json({ status: "invalid_credentials", message: "Invalid credentials" });
+      return res.json({ 
+        status: "invalid_credentials", 
+        message: "Invalid email or password" 
+      });
+
+    // ✅ If credentials are correct but NOT verified, send OTP
+    if (!shop.isEmailVerified) {
+      const otp = generateOtp();
+      shop.otp = otp;
+      shop.otpExpiry = Date.now() + 10 * 60 * 1000;
+      await shop.save();
+
+      await sendOtpEmail(email, otp);
+      
+      return res.json({ 
+        status: "not_verified", 
+        message: "Email not verified. OTP sent to your email." 
+      });
+    }
+
+    // ✅ Generate JWT for verified shop
+    const token = jwt.sign(
+      { shopId: shop._id, email: shop.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.json({
       status: "success",
+      message: "Login successful",
+      token,
       shop: {
         id: shop._id,
         email: shop.email,
         businessName: shop.businessName,
+        ownerName: shop.ownerName,
         plan: shop.plan,
+        avatar: shop.profilePic,
+        // Add all other fields as needed
       },
     });
   } catch (error) {
     console.error("Signin error:", error);
-    res.status(500).json({ message: "Server error during signin" });
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during signin" 
+    });
   }
 };
+
+
+
+
+
+
+export const signInShop = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const shop = await Shop.findOne({ email });
+    if (!shop) {
+      return res.status(404).json({ status: "error", message: "Shop not found" });
+    }
+
+    if (!shop.isEmailVerified) {
+      return res.json({ status: "not_verified", message: "Email not verified" });
+    }
+
+    const isMatch = await bcrypt.compare(password, shop.password);
+    if (!isMatch) {
+      return res.json({ status: "invalid_credentials", message: "Invalid credentials" });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: shop._id, email: shop.email, role: "shop" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Map shop data to frontend Partner interface
+    const shopData = {
+      id: shop._id,
+      email: shop.email,
+      businessName: shop.businessName,
+      ownerName: shop.ownerName,
+      plan: shop.plan,
+      avatar: shop.profilePic || null,
+
+      // Editable fields
+      countryCode: shop.countryCode,
+      phone: shop.phone,
+      website: shop.website,
+      serviceArea: shop.serviceArea,
+      services: shop.services,
+      vinylFilms: shop.vinylFilms,
+      certificates: shop.certificates,
+      startDate: shop.startDate,
+      instagramLink: shop.socialMedia?.instagram || "",
+      facebookLink: shop.socialMedia?.facebook || "",
+      linkedinLink: shop.socialMedia?.linkedin || "",
+      bio: shop.additionalInfo || "",
+
+      // Non-editable fields
+      legalEntityName: shop.legalEntityName,
+      address: shop.address,
+      insuranceCarrier: shop.insuranceCarrier,
+      policyNumber: shop.policyNumber,
+      policyExpiration: shop.policyExpiration,
+
+      // ✅ Add these
+      storeFrontPhoto: shop.storeFrontPhoto || null,
+      workSpacePhoto: shop.workSpacePhoto || null,
+    };
+
+
+    res.json({
+      status: "success",
+      token,
+      shop: shopData,
+    });
+  } catch (error) {
+    console.error("Signin error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Server error during signin",
+    });
+  }
+};
+
+
+
+
+
 
 
 
@@ -295,5 +440,65 @@ export const completeRegistration = async (req, res) => {
       message: "Failed to complete registration",
       error: error.message,
     });
+  }
+};
+
+
+
+
+
+export const updateShopProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("🟦 Incoming PUT /profile/:id", id);
+    console.log("📦 req.body:", req.body);
+    console.log("📸 req.files:", req.files);
+
+    const shop = await Shop.findById(id);
+    if (!shop) {
+      console.log("❌ Shop not found for ID:", id);
+      return res.status(404).json({ message: "Shop not found" });
+    }
+
+    const files = req.files || {};
+
+    // 🧩 Use Cloudinary-style URL if available, else fallback to existing DB value
+    const profilePic = files.profilePic?.[0]?.path || shop.profilePic;
+    const storeFrontPhoto = files.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
+    const workSpacePhoto = files.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
+    const insuranceCertificate =
+      files.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
+    const certificateFiles = files.certificateFiles
+      ? files.certificateFiles.map((f) => f.path)
+      : shop.certificateFiles || [];
+
+    // Merge body fields and uploaded files
+    const updatedData = {
+      ...req.body,
+      profilePic,
+      storeFrontPhoto,
+      workSpacePhoto,
+      insuranceCertificate,
+      certificateFiles,
+    };
+
+    console.log("🟢 Final update payload:", updatedData);
+
+    const updatedShop = await Shop.findByIdAndUpdate(id, { $set: updatedData }, { new: true });
+
+    if (!updatedShop) {
+      console.log("❌ Shop not found after update");
+      return res.status(404).json({ message: "Shop not found after update" });
+    }
+
+    console.log("✅ Shop updated successfully!");
+    res.status(200).json({
+      message: "Shop profile updated successfully",
+      shop: updatedShop,
+    });
+  } catch (error) {
+    console.error("🔥 Update shop profile error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
