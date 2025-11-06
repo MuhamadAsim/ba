@@ -189,6 +189,9 @@ const shopSchema = new mongoose.Schema(
     verifiedAt: {
       type: Date,
     },
+
+    resetPasswordOtp: { type: String, default: null },
+    resetPasswordOtpExpiry: { type: Date, default: null },
     
     // Policy Acceptance
     acceptedPolicy: {

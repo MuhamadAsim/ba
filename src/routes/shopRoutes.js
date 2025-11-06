@@ -1,6 +1,6 @@
 import express from "express";
-import { registerShop, verifyOtp, signInShop, completeRegistration,updateShopProfile,signin } from "../controllers/shopAuthController.js";
-import {upload} from "../middlewares/upload.js"
+import { registerShop, verifyOtp, signInShop, completeRegistration, updateShopProfile, signin, forgotPassword, resetPassword } from "../controllers/shopAuthController.js";
+import { upload } from "../middlewares/upload.js"
 
 const router = express.Router();
 
@@ -9,19 +9,20 @@ const router = express.Router();
 router.post("/signup", registerShop);
 router.post("/verify-otp", verifyOtp);
 router.post("/signin", signin);
-
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 //Registration
 
 router.post(
-    "/complete-registration",
-    upload.fields([
-        { name: "insuranceCertificate", maxCount: 1 },
-        { name: "storeFrontPhoto", maxCount: 1 },
-        { name: "workSpacePhoto", maxCount: 1 },
-        { name: "certificateFiles", maxCount: 5 },
-    ]),
-    completeRegistration
+  "/complete-registration",
+  upload.fields([
+    { name: "insuranceCertificate", maxCount: 1 },
+    { name: "storeFrontPhoto", maxCount: 1 },
+    { name: "workSpacePhoto", maxCount: 1 },
+    { name: "certificateFiles", maxCount: 5 },
+  ]),
+  completeRegistration
 );
 
 //profile
@@ -30,7 +31,7 @@ router.post(
 router.put(
   "/profile/:id",
   upload.fields([
-    { name: "profilePic", maxCount: 1 }, 
+    { name: "profilePic", maxCount: 1 },
     { name: "insuranceCertificate", maxCount: 1 },
     { name: "storeFrontPhoto", maxCount: 1 },
     { name: "workSpacePhoto", maxCount: 1 },

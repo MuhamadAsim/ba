@@ -231,6 +231,186 @@ export const signin = async (req, res) => {
 
 
 
+
+
+// ---------------------- FORGOT PASSWORD (send OTP) ----------------------
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ 
+        status: "error",
+        message: "Email is required" 
+      });
+    }
+
+    // Find shop by email
+    const shop = await Shop.findOne({ email });
+
+    if (!shop) {
+      return res.json({ 
+        status: "not_found", 
+        message: "No account found with this email address" 
+      });
+    }
+
+    // Check if email is verified
+    if (!shop.isEmailVerified) {
+      return res.json({ 
+        status: "not_verified", 
+        message: "Please verify your email first before resetting password" 
+      });
+    }
+
+    // Generate new OTP for password reset
+    const otp = generateOtp();
+    
+    // Store OTP in shop document
+    shop.resetPasswordOtp = otp;
+    shop.resetPasswordOtpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+    await shop.save();
+
+    // Send OTP email
+    await sendPasswordResetEmail(email, otp);
+
+    return res.json({ 
+      status: "otp_sent", 
+      message: "Password reset code sent to your email" 
+    });
+
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during password reset request" 
+    });
+  }
+};
+
+
+
+
+
+
+
+// ---------------------- RESET PASSWORD ----------------------
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ 
+        status: "error",
+        message: "Email, OTP, and new password are required" 
+      });
+    }
+
+    // Validate password length
+    if (newPassword.length < 6) {
+      return res.json({ 
+        status: "error",
+        message: "Password must be at least 6 characters long" 
+      });
+    }
+
+    // Find shop
+    const shop = await Shop.findOne({ email });
+
+    if (!shop) {
+      return res.status(404).json({ 
+        status: "error",
+        message: "shop not found" 
+      });
+    }
+
+    // Check if OTP exists
+    if (!shop.resetPasswordOtp || !shop.resetPasswordOtpExpiry) {
+      return res.json({ 
+        status: "invalid_otp", 
+        message: "No reset code found. Please request a new one." 
+      });
+    }
+
+    // Verify OTP
+    if (shop.resetPasswordOtp !== otp) {
+      return res.json({ 
+        status: "invalid_otp", 
+        message: "Invalid reset code. Please check and try again." 
+      });
+    }
+
+    // Check if OTP expired
+    if (shop.resetPasswordOtpExpiry < Date.now()) {
+      return res.json({ 
+        status: "invalid_otp", 
+        message: "Reset code expired. Please request a new one." 
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password and clear OTP fields
+    shop.password = hashedPassword;
+    shop.resetPasswordOtp = undefined;
+    shop.resetPasswordOtpExpiry = undefined;
+    await shop.save();
+
+    return res.json({
+      status: "success",
+      message: "Password reset successfully. You can now sign in with your new password.",
+    });
+
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ 
+      status: "error",
+      message: "Server error during password reset" 
+    });
+  }
+};
+
+
+
+// ---------------------- SEND PASSWORD RESET EMAIL ----------------------
+const sendPasswordResetEmail = async (email, otp) => {
+  const msg = {
+    to: email,
+    from: process.env.SENDGRID_SENDER,
+    subject: "Password Reset Code - PrimeBank",
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;background:#f9f9f9;padding:20px;border-radius:8px;">
+        <h2 style="color:#333;">Reset Your Password</h2>
+        <p>You requested to reset your password. Use the following code to continue:</p>
+        <h1 style="color:#2f54eb;">${otp}</h1>
+        <p>This code expires in <strong>10 minutes</strong>.</p>
+        <p style="margin-top:20px;">If you didn't request a password reset, you can safely ignore this email.</p>
+        <hr />
+        <p style="font-size:12px;color:#888;">This is an automated email. Please do not reply.</p>
+      </div>
+    `,
+  };
+
+  await sgMail.send(msg);
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export const signInShop = async (req, res) => {
   try {
     const { email, password } = req.body;

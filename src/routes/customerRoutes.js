@@ -4,6 +4,8 @@ import {
   verifyOtp,
   signin,
   updateProfile,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/customerAuthController.js";
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
@@ -14,6 +16,8 @@ const router = express.Router();
 router.post("/signup", signup);          // Step 1: register + send OTP
 router.post("/verify-otp", verifyOtp);   // Step 2: verify OTP
 router.post("/signin", signin);          // Step 3: normal login after verification
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 // 🧑‍💼 Profile update (with Cloudinary upload)
 router.put(
