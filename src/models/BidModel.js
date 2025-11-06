@@ -7,7 +7,7 @@ const bidSchema = new mongoose.Schema(
     vehicleModel: String,
     vehicleTrim: String,
     vehicleCondition: Number,
-    vehicleImages: [String], // store file paths
+    vehicleImages: [String], // store file path
 
     requestCategory: String,
     serviceDescription: String,

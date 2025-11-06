@@ -1,4 +1,4 @@
-// src/routes/bidRoutes.js
+//src/routes/bidRoutes.js
 import express from "express";
 import upload from "../utils/upload.js";
 import { createBid } from "../controllers/bidController.js";
