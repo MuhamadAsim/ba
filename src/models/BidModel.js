@@ -2,11 +2,11 @@ import mongoose from "mongoose";
 
 const bidSchema = new mongoose.Schema(
   {
-    // Link to the Customer (auto-created or logged-in user)
+    // Link to the Customer (who created this bid)
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
-      default: null,
+      required: true,
     },
 
     // Vehicle details
@@ -29,12 +29,7 @@ const bidSchema = new mongoose.Schema(
     artworkFiles: [{ type: String }],
     exampleFiles: [{ type: String }],
 
-    // Contact info
-    firstName: { type: String, trim: true },
-    lastName: { type: String, trim: true },
-    email: { type: String, trim: true },
-    zipCode: { type: String, trim: true },
-    contactMethod: { type: String, trim: true },
+    // Deadline or schedule info
     dueDate: { type: Date },
   },
   { timestamps: true }

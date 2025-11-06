@@ -20,57 +20,56 @@ export const createBid = async (req, res) => {
       brandingWrapCoverage,
       hasDesign,
       hasLogo,
-      firstName,
-      lastName,
-      email,
-      zipCode,
       contactMethod,
       dueDate,
+      email, // still needed for guest submissions
+      firstName,
+      lastName,
+      zipCode,
     } = req.body;
 
     // Extract file paths from Multer uploads
-    const vehicleImages = (req.files["vehicleImages"] || []).map(f => f.path);
-    const artworkFiles = (req.files["artworkFiles"] || []).map(f => f.path);
-    const exampleFiles = (req.files["exampleFiles"] || []).map(f => f.path);
+    const vehicleImages = (req.files?.["vehicleImages"] || []).map(f => f.path);
+    const artworkFiles = (req.files?.["artworkFiles"] || []).map(f => f.path);
+    const exampleFiles = (req.files?.["exampleFiles"] || []).map(f => f.path);
 
-    let user = req.user; // if logged in (middleware sets req.user)
+    let user = req.user; // middleware might attach authenticated user
 
+    // 🔹 Case 1: If user is NOT logged in (guest submission)
     if (!user) {
-      // Check if email already exists
-      const existingUser = await Customer.findOne({ email });
+      // Check if user with given email already exists
+      let existingUser = await Customer.findOne({ email });
 
       if (existingUser) {
-        user = existingUser;
+        user = existingUser; // reuse existing customer
       } else {
-        // ✅ Automatically register new customer
-        const generatedPassword = crypto.randomBytes(6).toString("hex"); // 12 chars password
+        // Auto-register a new user
+        const generatedPassword = crypto.randomBytes(6).toString("hex");
         const hashedPassword = await bcrypt.hash(generatedPassword, 10);
 
         user = new Customer({
-          name: `${firstName} ${lastName}`,
+          name: `${firstName || ""} ${lastName || ""}`.trim(),
           email,
           password: hashedPassword,
-          phone: "",
-          address: "",
-          zip: zipCode,
+          zip: zipCode || "",
           isAuthenticated: true,
         });
 
         await user.save();
 
-        // ✅ Email auto-generated password
+        // Send email with temporary password
         const emailContent = `
-          <p>Hello ${firstName},</p>
-          <p>Your account has been created automatically while submitting your bid.</p>
+          <p>Hello ${firstName || "there"},</p>
+          <p>Your account was automatically created when you submitted a bid.</p>
           <p><strong>Login Email:</strong> ${email}</p>
           <p><strong>Temporary Password:</strong> ${generatedPassword}</p>
-          <p>You can login and change your password later.</p>
+          <p>You can log in and change your password anytime.</p>
         `;
         await sendEmail(email, "Your New Account Details", emailContent);
       }
     }
 
-    // ✅ Create bid now associated with user
+    // 🔹 Case 2: Create the bid linked to user
     const newBid = new Bid({
       vehicleYear,
       vehicleMake,
@@ -85,16 +84,12 @@ export const createBid = async (req, res) => {
       brandingWrapCoverage,
       hasDesign,
       hasLogo,
-      firstName,
-      lastName,
-      email,
-      zipCode,
       contactMethod,
       dueDate,
       vehicleImages,
       artworkFiles,
       exampleFiles,
-      user_id: user._id, // add this field in Bid schema
+      user_id: user._id,
     });
 
     await newBid.save();
@@ -109,7 +104,7 @@ export const createBid = async (req, res) => {
     console.error("❌ Error creating bid:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error while creating bid",
       error: error.message,
     });
   }
