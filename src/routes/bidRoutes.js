@@ -1,7 +1,7 @@
 //src/routes/bidRoutes.js
 import express from "express";
 import upload from "../utils/upload.js";
-import { createBid } from "../controllers/bidController.js";
+import { createBid, getCustomerBidStats } from "../controllers/bidController.js";
 
 const router = express.Router();
 
@@ -14,5 +14,7 @@ const uploadFields = upload.fields([
 
 // POST /api/bids  → create a new bid
 router.post("/", uploadFields, createBid);
+router.get("/customer-stats/:userId", getCustomerBidStats);
+
 
 export default router;
