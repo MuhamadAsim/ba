@@ -63,6 +63,7 @@ const shopSchema = new mongoose.Schema(
       required: true,
       default: [],
     },
+    
     vinylFilms: {
       type: String,
       trim: true,

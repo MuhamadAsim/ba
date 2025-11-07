@@ -7,6 +7,7 @@ import {
   forgotPassword,
   resetPassword,
 } from "../controllers/customerAuthController.js";
+import {getCustomerBidStats} from "../controllers/customerController.js"
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
 
@@ -26,5 +27,12 @@ router.put(
   upload.single("avatar"),
   updateProfile
 );
+
+
+//bids
+router.get("/customer-stats/:userId", getCustomerBidStats);
+
+
+
 
 export default router;

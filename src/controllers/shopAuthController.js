@@ -47,9 +47,9 @@ export const registerShop = async (req, res) => {
     if (existing) {
       // ✅ If already verified, reject signup
       if (existing.isEmailVerified) {
-        return res.json({ 
-          status: "exists", 
-          message: "Account already exists. Please sign in instead." 
+        return res.json({
+          status: "exists",
+          message: "Account already exists. Please sign in instead."
         });
       } else {
         // ✅ If not verified, resend OTP (allow retry)
@@ -59,9 +59,9 @@ export const registerShop = async (req, res) => {
         await existing.save();
 
         await sendOtpEmail(email, otp);
-        return res.json({ 
-          status: "otp_sent", 
-          message: "OTP sent to your email. Please verify your account." 
+        return res.json({
+          status: "otp_sent",
+          message: "OTP sent to your email. Please verify your account."
         });
       }
     }
@@ -101,9 +101,9 @@ export const registerShop = async (req, res) => {
     // Send OTP email
     await sendOtpEmail(email, otp);
 
-    return res.json({ 
-      status: "otp_sent", 
-      message: "OTP sent to your email" 
+    return res.json({
+      status: "otp_sent",
+      message: "OTP sent to your email"
     });
 
   } catch (error) {
@@ -118,28 +118,28 @@ export const verifyOtp = async (req, res) => {
     const { email, otp } = req.body;
     const shop = await Shop.findOne({ email });
 
-    if (!shop) 
-      return res.status(404).json({ 
+    if (!shop)
+      return res.status(404).json({
         status: "error",
-        message: "Shop not found" 
+        message: "Shop not found"
       });
 
     if (!shop.otp || !shop.otpExpiry)
-      return res.json({ 
-        status: "invalid", 
-        message: "No OTP found. Please request a new one." 
+      return res.json({
+        status: "invalid",
+        message: "No OTP found. Please request a new one."
       });
 
     if (shop.otp !== otp)
-      return res.json({ 
-        status: "invalid", 
-        message: "Invalid OTP. Please check and try again." 
+      return res.json({
+        status: "invalid",
+        message: "Invalid OTP. Please check and try again."
       });
 
     if (shop.otpExpiry < Date.now())
-      return res.json({ 
-        status: "expired", 
-        message: "OTP expired. Please request a new one." 
+      return res.json({
+        status: "expired",
+        message: "OTP expired. Please request a new one."
       });
 
     // Verify shop email
@@ -148,15 +148,15 @@ export const verifyOtp = async (req, res) => {
     shop.otpExpiry = undefined;
     await shop.save();
 
-    res.json({ 
-      status: "verified", 
-      message: "Email verified successfully" 
+    res.json({
+      status: "verified",
+      message: "Email verified successfully"
     });
   } catch (error) {
     console.error("OTP verification error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       status: "error",
-      message: "Server error during OTP verification" 
+      message: "Server error during OTP verification"
     });
   }
 };
@@ -167,18 +167,18 @@ export const signin = async (req, res) => {
     const { email, password } = req.body;
 
     const shop = await Shop.findOne({ email });
-    if (!shop) 
-      return res.json({ 
-        status: "invalid_credentials", 
-        message: "Invalid email or password" 
+    if (!shop)
+      return res.json({
+        status: "invalid_credentials",
+        message: "Invalid email or password"
       });
 
     // ✅ Check password FIRST before checking verification
     const isMatch = await bcrypt.compare(password, shop.password);
     if (!isMatch)
-      return res.json({ 
-        status: "invalid_credentials", 
-        message: "Invalid email or password" 
+      return res.json({
+        status: "invalid_credentials",
+        message: "Invalid email or password"
       });
 
     // ✅ If credentials are correct but NOT verified, send OTP
@@ -189,10 +189,10 @@ export const signin = async (req, res) => {
       await shop.save();
 
       await sendOtpEmail(email, otp);
-      
-      return res.json({ 
-        status: "not_verified", 
-        message: "Email not verified. OTP sent to your email." 
+
+      return res.json({
+        status: "not_verified",
+        message: "Email not verified. OTP sent to your email."
       });
     }
 
@@ -212,16 +212,44 @@ export const signin = async (req, res) => {
         email: shop.email,
         businessName: shop.businessName,
         ownerName: shop.ownerName,
-        plan: shop.plan,
-        avatar: shop.profilePic,
-        // Add all other fields as needed
-      },
+        plan: shop.plan, // "basic" | "professional" | "enterprise"
+        avatar: shop.profilePic || "",
+
+        // Contact & basic info
+        countryCode: shop.countryCode,
+        phone: shop.phone,
+        website: shop.website,
+        serviceArea: shop.serviceArea,
+        services: shop.services,
+        vinylFilms: shop.vinylFilms,
+        certificates: shop.certificates,
+        startDate: shop.startDate,
+
+        // Social media (mapped correctly from nested socialMedia object)
+        instagramLink: shop.socialMedia?.instagram || "",
+        facebookLink: shop.socialMedia?.facebook || "",
+        linkedinLink: shop.socialMedia?.linkedin || "",
+
+        // Additional info
+        bio: shop.additionalInfo || "",
+        workSpacePhoto: shop.workSpacePhoto,
+        storeFrontPhoto: shop.storeFrontPhoto,
+
+        // Legal & insurance details
+        legalEntityName: shop.legalEntityName,
+        address: shop.address,
+        insuranceCarrier: shop.insuranceCarrier,
+        policyNumber: shop.policyNumber,
+        policyExpiration: shop.policyExpiration,
+      }
+
+
     });
   } catch (error) {
     console.error("Signin error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       status: "error",
-      message: "Server error during signin" 
+      message: "Server error during signin"
     });
   }
 };
@@ -239,9 +267,9 @@ export const forgotPassword = async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         status: "error",
-        message: "Email is required" 
+        message: "Email is required"
       });
     }
 
@@ -249,23 +277,23 @@ export const forgotPassword = async (req, res) => {
     const shop = await Shop.findOne({ email });
 
     if (!shop) {
-      return res.json({ 
-        status: "not_found", 
-        message: "No account found with this email address" 
+      return res.json({
+        status: "not_found",
+        message: "No account found with this email address"
       });
     }
 
     // Check if email is verified
     if (!shop.isEmailVerified) {
-      return res.json({ 
-        status: "not_verified", 
-        message: "Please verify your email first before resetting password" 
+      return res.json({
+        status: "not_verified",
+        message: "Please verify your email first before resetting password"
       });
     }
 
     // Generate new OTP for password reset
     const otp = generateOtp();
-    
+
     // Store OTP in shop document
     shop.resetPasswordOtp = otp;
     shop.resetPasswordOtpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
@@ -274,16 +302,16 @@ export const forgotPassword = async (req, res) => {
     // Send OTP email
     await sendPasswordResetEmail(email, otp);
 
-    return res.json({ 
-      status: "otp_sent", 
-      message: "Password reset code sent to your email" 
+    return res.json({
+      status: "otp_sent",
+      message: "Password reset code sent to your email"
     });
 
   } catch (error) {
     console.error("Forgot password error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       status: "error",
-      message: "Server error during password reset request" 
+      message: "Server error during password reset request"
     });
   }
 };
@@ -300,17 +328,17 @@ export const resetPassword = async (req, res) => {
     const { email, otp, newPassword } = req.body;
 
     if (!email || !otp || !newPassword) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         status: "error",
-        message: "Email, OTP, and new password are required" 
+        message: "Email, OTP, and new password are required"
       });
     }
 
     // Validate password length
     if (newPassword.length < 6) {
-      return res.json({ 
+      return res.json({
         status: "error",
-        message: "Password must be at least 6 characters long" 
+        message: "Password must be at least 6 characters long"
       });
     }
 
@@ -318,33 +346,33 @@ export const resetPassword = async (req, res) => {
     const shop = await Shop.findOne({ email });
 
     if (!shop) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         status: "error",
-        message: "shop not found" 
+        message: "shop not found"
       });
     }
 
     // Check if OTP exists
     if (!shop.resetPasswordOtp || !shop.resetPasswordOtpExpiry) {
-      return res.json({ 
-        status: "invalid_otp", 
-        message: "No reset code found. Please request a new one." 
+      return res.json({
+        status: "invalid_otp",
+        message: "No reset code found. Please request a new one."
       });
     }
 
     // Verify OTP
     if (shop.resetPasswordOtp !== otp) {
-      return res.json({ 
-        status: "invalid_otp", 
-        message: "Invalid reset code. Please check and try again." 
+      return res.json({
+        status: "invalid_otp",
+        message: "Invalid reset code. Please check and try again."
       });
     }
 
     // Check if OTP expired
     if (shop.resetPasswordOtpExpiry < Date.now()) {
-      return res.json({ 
-        status: "invalid_otp", 
-        message: "Reset code expired. Please request a new one." 
+      return res.json({
+        status: "invalid_otp",
+        message: "Reset code expired. Please request a new one."
       });
     }
 
@@ -364,9 +392,9 @@ export const resetPassword = async (req, res) => {
 
   } catch (error) {
     console.error("Reset password error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       status: "error",
-      message: "Server error during password reset" 
+      message: "Server error during password reset"
     });
   }
 };
@@ -554,19 +582,29 @@ export const completeRegistration = async (req, res) => {
       : shop.certificateFiles || [];
 
     // Parse JSON fields
+    // Parse JSON fields safely
     let parsedServices = [];
-    try {
-      parsedServices = JSON.parse(services || "[]");
-    } catch {
-      parsedServices = [];
+    if (Array.isArray(services)) {
+      parsedServices = services;
+    } else if (typeof services === "string") {
+      try {
+        parsedServices = JSON.parse(services);
+      } catch {
+        parsedServices = [];
+      }
     }
 
     let parsedPayment = {};
-    try {
-      parsedPayment = JSON.parse(paymentData || "{}");
-    } catch {
-      parsedPayment = {};
+    if (typeof paymentData === "string") {
+      try {
+        parsedPayment = JSON.parse(paymentData);
+      } catch {
+        parsedPayment = {};
+      }
+    } else if (typeof paymentData === "object" && paymentData !== null) {
+      parsedPayment = paymentData;
     }
+
 
     // Update shop data
     shop.businessName = businessName;
@@ -627,23 +665,18 @@ export const completeRegistration = async (req, res) => {
 
 
 
+
+
 export const updateShopProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log("🟦 Incoming PUT /profile/:id", id);
-    console.log("📦 req.body:", req.body);
-    console.log("📸 req.files:", req.files);
-
     const shop = await Shop.findById(id);
-    if (!shop) {
-      console.log("❌ Shop not found for ID:", id);
-      return res.status(404).json({ message: "Shop not found" });
-    }
+    if (!shop) return res.status(404).json({ message: "Shop not found" });
 
     const files = req.files || {};
 
-    // 🧩 Use Cloudinary-style URL if available, else fallback to existing DB value
+    // Normalize file uploads
     const profilePic = files.profilePic?.[0]?.path || shop.profilePic;
     const storeFrontPhoto = files.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
     const workSpacePhoto = files.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
@@ -653,9 +686,22 @@ export const updateShopProfile = async (req, res) => {
       ? files.certificateFiles.map((f) => f.path)
       : shop.certificateFiles || [];
 
-    // Merge body fields and uploaded files
+    // Parse JSON fields safely
+    let parsedServices = [];
+    if (Array.isArray(req.body.services)) {
+      parsedServices = req.body.services;
+    } else if (typeof req.body.services === "string") {
+      try {
+        parsedServices = JSON.parse(req.body.services);
+      } catch {
+        parsedServices = [];
+      }
+    }
+
+    // Merge all updates
     const updatedData = {
       ...req.body,
+      services: parsedServices,
       profilePic,
       storeFrontPhoto,
       workSpacePhoto,
@@ -663,16 +709,8 @@ export const updateShopProfile = async (req, res) => {
       certificateFiles,
     };
 
-    console.log("🟢 Final update payload:", updatedData);
-
     const updatedShop = await Shop.findByIdAndUpdate(id, { $set: updatedData }, { new: true });
 
-    if (!updatedShop) {
-      console.log("❌ Shop not found after update");
-      return res.status(404).json({ message: "Shop not found after update" });
-    }
-
-    console.log("✅ Shop updated successfully!");
     res.status(200).json({
       message: "Shop profile updated successfully",
       shop: updatedShop,

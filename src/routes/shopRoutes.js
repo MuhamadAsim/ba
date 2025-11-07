@@ -1,8 +1,11 @@
 import express from "express";
 import { registerShop, verifyOtp, signInShop, completeRegistration, updateShopProfile, signin, forgotPassword, resetPassword } from "../controllers/shopAuthController.js";
+import { getAvailableBidsForShops } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js"
 
 const router = express.Router();
+
+
 
 
 //Auth
@@ -12,8 +15,8 @@ router.post("/signin", signin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 
-//Registration
 
+//Registration
 router.post(
   "/complete-registration",
   upload.fields([
@@ -25,9 +28,8 @@ router.post(
   completeRegistration
 );
 
+
 //profile
-
-
 router.put(
   "/profile/:id",
   upload.fields([
@@ -39,5 +41,12 @@ router.put(
   ]),
   updateShopProfile
 );
+
+
+
+
+// bids
+router.get("/available-bids", getAvailableBidsForShops);
+
 
 export default router;
