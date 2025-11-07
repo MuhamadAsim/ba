@@ -667,6 +667,8 @@ export const completeRegistration = async (req, res) => {
 
 
 
+
+
 export const updateShopProfile = async (req, res) => {
   try {
     const { id } = req.params;
