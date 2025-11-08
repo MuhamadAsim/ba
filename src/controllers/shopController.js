@@ -142,3 +142,137 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// controllers/shopController.js
+export const getAllShops = async (req, res) => {
+  try {
+
+    console.log("Called");
+    const shops = [
+      {
+        _id: "1",
+        businessName: "Elite Auto Wraps",
+        address: "123 Main St, New York, NY",
+        zipcode: "10001",
+        country: "USA",
+        coordinates: { lat: 40.7128, lng: -74.006 },
+        services: ["PPF", "Wraps", "Tinting"],
+        phone: "(555) 123-4567",
+        rating: 4.8,
+        reviews: 124,
+        image: "https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=400",
+      },
+      {
+        _id: "2",
+        businessName: "Precision Detail Studio",
+        address: "456 Oak Ave, Brooklyn, NY",
+        zipcode: "11201",
+        country: "USA",
+        coordinates: { lat: 40.650002, lng: -73.949997 },
+        services: ["Ceramic Coating", "PPF", "Detailing"],
+        phone: "(555) 987-6543",
+        rating: 4.9,
+        reviews: 89,
+        image: "https://images.unsplash.com/photo-1487754180451-c456f719a1fc?w=400",
+      },
+      {
+        _id: "3",
+        businessName: "Custom Wrap Co",
+        address: "789 Pine Rd, Queens, NY",
+        zipcode: "11368",
+        country: "USA",
+        coordinates: { lat: 40.742054, lng: -73.769417 },
+        services: ["Custom Graphics", "Color Wraps", "Tinting"],
+        phone: "(555) 456-7890",
+        rating: 4.7,
+        reviews: 156,
+        image: "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=400",
+      },
+      {
+        _id: "4",
+        businessName: "Auto Detailing Pros",
+        address: "321 Sunset Blvd, Los Angeles, CA",
+        zipcode: "90028",
+        country: "USA",
+        coordinates: { lat: 34.052235, lng: -118.243683 },
+        services: ["Detailing", "Ceramic Coating", "Wraps"],
+        phone: "(555) 111-2222",
+        rating: 4.6,
+        reviews: 202,
+        image: "https://images.unsplash.com/photo-1617137968427-85924c800a22?w=400",
+      },
+      {
+        _id: "5",
+        businessName: "Chicago Auto Customs",
+        address: "555 Lake Shore Dr, Chicago, IL",
+        zipcode: "60611",
+        country: "USA",
+        coordinates: { lat: 41.8781, lng: -87.6298 },
+        services: ["Wraps", "Detailing", "Window Tint"],
+        phone: "(555) 333-4444",
+        rating: 4.9,
+        reviews: 310,
+        image: "https://images.unsplash.com/photo-1605559424843-9e4d1ccf3a47?w=400",
+      },
+        {
+        _id: "8",
+        businessName: "Precision Detail Studio",
+        address: "456 Oak Ave, Brooklyn, NY",
+        zipcode: "11201",
+        country: "USA",
+        coordinates: { lat: 41.650002, lng: -72.949997 },
+        services: ["Ceramic Coating", "PPF", "Detailing"],
+        phone: "(555) 987-6543",
+        rating: 4.9,
+        reviews: 89,
+        image: "https://images.unsplash.com/photo-1487754180451-c456f719a1fc?w=400",
+      },
+      {
+        _id: "7",
+        businessName: "Custom Wrap Co",
+        address: "789 Pine Rd, Queens, NY",
+        zipcode: "11368",
+        country: "USA",
+        coordinates: { lat: 43.742054, lng: -71.769417 },
+        services: ["Custom Graphics", "Color Wraps", "Tinting"],
+        phone: "(555) 456-7890",
+        rating: 4.7,
+        reviews: 156,
+        image: "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=400",
+      },
+      {
+        _id: "6",
+        businessName: "Auto Detailing Pros",
+        address: "321 Sunset Blvd, Los Angeles, CA",
+        zipcode: "90028",
+        country: "USA",
+        coordinates: { lat: 32.052235, lng: -116.243683 },
+        services: ["Detailing", "Ceramic Coating", "Wraps"],
+        phone: "(555) 111-2222",
+        rating: 4.6,
+        reviews: 202,
+        image: "https://images.unsplash.com/photo-1617137968427-85924c800a22?w=400",
+      },
+    ];
+
+    res.status(200).json({ shops });
+  } catch (error) {
+    console.error("Error fetching shops:", error);
+    res.status(500).json({ message: "Server error fetching shops" });
+  }
+};

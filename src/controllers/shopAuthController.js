@@ -523,9 +523,6 @@ export const signInShop = async (req, res) => {
 
 
 
-
-
-
 // ---------------------- COMPLETE REGISTRATION ----------------------
 export const completeRegistration = async (req, res) => {
   try {
@@ -560,18 +557,20 @@ export const completeRegistration = async (req, res) => {
     // Find verified shop
     const shop = await Shop.findOne({ email });
     if (!shop) {
-      return res
-        .status(404)
-        .json({ status: "error", message: "Shop not found" });
+      return res.status(404).json({
+        status: "error",
+        message: "Shop not found",
+      });
     }
 
     if (!shop.isEmailVerified) {
-      return res
-        .status(403)
-        .json({ status: "error", message: "Email not verified" });
+      return res.status(403).json({
+        status: "error",
+        message: "Email not verified",
+      });
     }
 
-    // Handle Cloudinary uploaded files
+    // Handle uploaded files (if any)
     const uploadedFiles = req.files || {};
 
     const insuranceCertificate =
@@ -586,7 +585,6 @@ export const completeRegistration = async (req, res) => {
       ? uploadedFiles.certificateFiles.map((f) => f.path)
       : shop.certificateFiles || [];
 
-    // Parse JSON fields
     // Parse JSON fields safely
     let parsedServices = [];
     if (Array.isArray(services)) {
@@ -610,7 +608,6 @@ export const completeRegistration = async (req, res) => {
       parsedPayment = paymentData;
     }
 
-
     // Update shop data
     shop.businessName = businessName;
     shop.legalEntityName = legalEntityName;
@@ -619,7 +616,7 @@ export const completeRegistration = async (req, res) => {
     shop.phone = phone;
     shop.website = website;
     shop.address = address;
-    shop.zipCode = zipCode
+    shop.zipCode = zipCode;
     shop.country = country;
     shop.services = parsedServices;
     shop.vinylFilms = vinylFilms;
@@ -647,14 +644,52 @@ export const completeRegistration = async (req, res) => {
 
     await shop.save();
 
+    // ✅ Generate JWT token just like signin
+    const token = jwt.sign(
+      { shopId: shop._id, email: shop.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // ✅ Return the same structure as signin
     res.json({
       status: "success",
       message: "Shop registration completed successfully!",
+      token,
       shop: {
         id: shop._id,
         email: shop.email,
         businessName: shop.businessName,
-        plan: shop.plan,
+        ownerName: shop.ownerName,
+        plan: shop.plan, // "basic" | "professional" | "enterprise"
+        avatar: shop.profilePic || "",
+
+        // Contact & basic info
+        countryCode: shop.countryCode,
+        phone: shop.phone,
+        website: shop.website,
+        country: shop.country,
+        services: shop.services,
+        vinylFilms: shop.vinylFilms,
+        certificates: shop.certificates,
+        startDate: shop.startDate,
+
+        // Social media (mapped correctly)
+        instagramLink: shop.socialMedia?.instagram || "",
+        facebookLink: shop.socialMedia?.facebook || "",
+        linkedinLink: shop.socialMedia?.linkedin || "",
+
+        // Additional info
+        bio: shop.additionalInfo || "",
+        workSpacePhoto: shop.workSpacePhoto,
+        storeFrontPhoto: shop.storeFrontPhoto,
+
+        // Legal & insurance details
+        legalEntityName: shop.legalEntityName,
+        address: shop.address,
+        insuranceCarrier: shop.insuranceCarrier,
+        policyNumber: shop.policyNumber,
+        policyExpiration: shop.policyExpiration,
       },
     });
   } catch (error) {
@@ -666,7 +701,6 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
-
 
 
 
