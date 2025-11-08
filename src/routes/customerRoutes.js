@@ -7,7 +7,7 @@ import {
   forgotPassword,
   resetPassword,
 } from "../controllers/customerAuthController.js";
-import {getCustomerBidStats} from "../controllers/customerController.js"
+import {getCustomerBidStats , getUserBidsWithOffers , getBidOffers , acceptOffer, cancelBid ,repostBid} from "../controllers/customerController.js"
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
 
@@ -21,16 +21,18 @@ router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 
 // 🧑‍💼 Profile update (with Cloudinary upload)
-router.put(
-  "/profile",
-  authenticateCustomer,
-  upload.single("avatar"),
-  updateProfile
-);
+router.put("/profile" , authenticateCustomer, upload.single("avatar"), updateProfile);
 
 
 //bids
 router.get("/customer-stats/:userId", getCustomerBidStats);
+router.get("/my-bids", authenticateCustomer, getUserBidsWithOffers);
+router.get("/:bidId/offers", authenticateCustomer, getBidOffers);
+router.post("/offers/:offerId/accept", authenticateCustomer, acceptOffer);
+router.patch("/:bidId/cancel", authenticateCustomer, cancelBid);
+router.post("/repost-bid", authenticateCustomer, repostBid);
+
+
 
 
 

@@ -81,7 +81,7 @@ export const registerShop = async (req, res) => {
       legalEntityName: "Legal Entity (Pending)",
       ownerName: "Owner Name (Pending)",
       address: "Business Address (Pending)",
-      serviceArea: "Service Area (Pending)",
+      country : "Usa (Pending)",
       startDate: new Date(),
       insuranceCarrier: "Insurance Carrier (Pending)",
       policyNumber: "Policy Number (Pending)",
@@ -90,6 +90,8 @@ export const registerShop = async (req, res) => {
       storeFrontPhoto: "Pending",
       workSpacePhoto: "Pending",
       certificateFiles: [],
+      country: "US",
+      zipCode: "9000",
       plan: "basic",
       isEmailVerified: false,
       otp,
@@ -219,7 +221,7 @@ export const signin = async (req, res) => {
         countryCode: shop.countryCode,
         phone: shop.phone,
         website: shop.website,
-        serviceArea: shop.serviceArea,
+        country: shop.country,
         services: shop.services,
         vinylFilms: shop.vinylFilms,
         certificates: shop.certificates,
@@ -477,7 +479,7 @@ export const signInShop = async (req, res) => {
       countryCode: shop.countryCode,
       phone: shop.phone,
       website: shop.website,
-      serviceArea: shop.serviceArea,
+      country: shop.country,
       services: shop.services,
       vinylFilms: shop.vinylFilms,
       certificates: shop.certificates,
@@ -533,10 +535,11 @@ export const completeRegistration = async (req, res) => {
       ownerName,
       email,
       countryCode,
+      zipCode,
       phone,
       website,
       address,
-      serviceArea,
+      country,
       services,
       vinylFilms,
       certificates,
@@ -551,6 +554,8 @@ export const completeRegistration = async (req, res) => {
       plan,
       paymentData,
     } = req.body;
+
+    console.log(req.body);
 
     // Find verified shop
     const shop = await Shop.findOne({ email });
@@ -614,7 +619,8 @@ export const completeRegistration = async (req, res) => {
     shop.phone = phone;
     shop.website = website;
     shop.address = address;
-    shop.serviceArea = serviceArea;
+    shop.zipCode = zipCode
+    shop.country = country;
     shop.services = parsedServices;
     shop.vinylFilms = vinylFilms;
     shop.certificates = certificates;

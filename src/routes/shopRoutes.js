@@ -1,11 +1,9 @@
 import express from "express";
-import { registerShop, verifyOtp, signInShop, completeRegistration, updateShopProfile, signin, forgotPassword, resetPassword } from "../controllers/shopAuthController.js";
-import { getAvailableBidsForShops } from "../controllers/shopController.js";
+import { registerShop, verifyOtp, signInShop, completeRegistration, updateShopProfile, signin, forgotPassword, resetPassword} from "../controllers/shopAuthController.js";
+import { getAvailableBidsForShops, makeOffer } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js"
-
+import { authenticateShop } from "../middlewares/authShopMiddleware.js";
 const router = express.Router();
-
-
 
 
 //Auth
@@ -46,7 +44,8 @@ router.put(
 
 
 // bids
-router.get("/available-bids", getAvailableBidsForShops);
+router.post("/offers", authenticateShop, makeOffer);
+router.get("/available-bids",authenticateShop, getAvailableBidsForShops);
 
 
 export default router;

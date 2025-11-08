@@ -49,7 +49,7 @@ const shopSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    serviceArea: {
+    country: {
       type: String,
       required: true,
     },
