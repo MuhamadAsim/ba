@@ -24,7 +24,7 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/bids", bidRoutes);
 app.use("/api/customer",customerRoutes);
 app.use("/api/shop", shopRoutes);
-app.use("/api/OAuth", shopRoutes);
+app.use("/api/OAuth", googleRoutes);
 
 
 // Error handler
