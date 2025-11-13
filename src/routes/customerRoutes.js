@@ -6,6 +6,9 @@ import {
   updateProfile,
   forgotPassword,
   resetPassword,
+  googleAuth,
+  googleCallback,
+  
 } from "../controllers/customerAuthController.js";
 import {getCustomerBidStats , getUserBidsWithOffers , getBidOffers , acceptOffer, cancelBid ,repostBid} from "../controllers/customerController.js"
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
@@ -31,6 +34,8 @@ router.get("/:bidId/offers", authenticateCustomer, getBidOffers);
 router.post("/offers/:offerId/accept", authenticateCustomer, acceptOffer);
 router.patch("/:bidId/cancel", authenticateCustomer, cancelBid);
 router.post("/repost-bid", authenticateCustomer, repostBid);
+
+router.get("/google-OAuth", googleAuth);
 
 
 
