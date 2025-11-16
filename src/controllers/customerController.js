@@ -157,9 +157,6 @@ export const getBidOffers = async (req, res) => {
 
 
 
-
-
-// Accwpt the offer
 export const acceptOffer = async (req, res) => {
   try {
     const { offerId } = req.params;
@@ -167,38 +164,34 @@ export const acceptOffer = async (req, res) => {
 
     // 1️⃣ Find the offer
     const offer = await Offer.findById(offerId);
-    if (!offer) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
+    if (!offer) return res.status(404).json({ message: "Offer not found" });
 
     // 2️⃣ Find the associated bid
     const bid = await Bid.findById(offer.bidId);
-    if (!bid) {
-      return res.status(404).json({ message: "Bid not found" });
-    }
+    if (!bid) return res.status(404).json({ message: "Bid not found" });
 
     // 3️⃣ Ensure this bid belongs to the current customer
     if (bid.user_id.toString() !== customerId.toString()) {
-      return res
-        .status(403)
-        .json({ message: "Unauthorized: This bid does not belong to you" });
+      return res.status(403).json({ message: "Unauthorized: This bid does not belong to you" });
     }
 
-    // 4️⃣ Update bid with accepted offer
+    // 4️⃣ Accept the offer: update bid and track current shop
     bid.acceptedOffer = offer._id;
     bid.status = "in_progress";
+    bid.currentShopId = offer.shopId; // 👈 track which shop owns the bid now
     await bid.save();
 
-    // 5️⃣ Update the offer status to "accepted"
+    // 5️⃣ Update offer status to accepted
     offer.status = "accepted";
     await offer.save();
 
-    // 6️⃣ Optionally reject all other offers on this bid
+    // 6️⃣ Reject all other offers for this bid
     await Offer.updateMany(
       { bidId: bid._id, _id: { $ne: offer._id } },
       { $set: { status: "rejected" } }
     );
 
+    // 7️⃣ Respond with updated bid and offer
     res.status(200).json({
       success: true,
       message: "Offer accepted successfully",
@@ -206,9 +199,11 @@ export const acceptOffer = async (req, res) => {
       updatedBid: {
         _id: bid._id,
         status: bid.status,
+        currentShopId: bid.currentShopId,
         acceptedOffer: bid.acceptedOffer,
       },
     });
+
   } catch (error) {
     console.error("❌ Error accepting offer:", error);
     res.status(500).json({
@@ -218,7 +213,6 @@ export const acceptOffer = async (req, res) => {
     });
   }
 };
-
 
 
 

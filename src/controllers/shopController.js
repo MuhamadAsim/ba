@@ -69,6 +69,133 @@ export const updateExpiredBids = async () => {
 
 
 
+// export const getAvailableBidsForShops = async (req, res) => {
+//   try {
+//     await updateExpiredBids();
+
+//     const shopId = req.shopId;
+
+//     // 1️⃣ Get all active bids
+//     const bids = await Bid.find({ status: "active" })
+//       .populate("user_id", "name address zip")
+//       .sort({ createdAt: -1 });
+
+//     // 2️⃣ Get all offers by this shop
+//     const shopOffers = await Offer.find({ shopId })
+//       .populate("counterOffers.createdBy", "name") // optional
+//       .lean();
+
+//     // 3️⃣ Make quick lookup table
+//     const offerMap = {};
+//     shopOffers.forEach((offer) => {
+//       offerMap[offer.bidId.toString()] = offer;
+//     });
+
+//     // 4️⃣ Attach hasOffered + myOffer (without changing old flow)
+//     const bidsWithOfferStatus = bids.map((bid) => {
+//       const bidObj = bid.toObject();
+//       const bidIdStr = bid._id.toString();
+
+//       const myOffer = offerMap[bidIdStr] || null;
+
+//       return {
+//         ...bidObj,
+//         hasOffered: !!myOffer,   // 👈 OLD FLOW (unchanged)
+//         myOffer: myOffer         // 👈 NEW DATA (safe addition)
+//       };
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       total: bids.length,
+//       bids: bidsWithOfferStatus,
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Error fetching bids for shops:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
+//   }
+// };
+
+
+
+
+
+
+// export const getAvailableBidsForShops = async (req, res) => {
+//   try {
+//     await updateExpiredBids();
+
+//     const shopId = req.shopId;
+
+//     // 1️⃣ Get all active bids
+//     const activeBids = await Bid.find({ status: "active" })
+//       .populate("user_id", "name address zip")
+//       .sort({ createdAt: -1 });
+
+//     // 2️⃣ Get all offers made by this shop (for any bid)
+//     const shopOffers = await Offer.find({ shopId })
+//       .populate("counterOffers.createdBy", "name")
+//       .lean();
+
+//     // 3️⃣ Build quick lookup table by bidId
+//     const offerMap = {};
+//     shopOffers.forEach((offer) => {
+//       offerMap[offer.bidId.toString()] = offer;
+//     });
+
+//     // 4️⃣ Get bids related to this shop (in-progress or completed)
+//     const relatedBidIds = shopOffers.map(o => o.bidId);
+//     const relatedBids = await Bid.find({
+//       _id: { $in: relatedBidIds },
+//       status: { $in: ["in_progress", "completed"] }
+//     })
+//       .populate("user_id", "name address zip")
+//       .sort({ createdAt: -1 });
+
+//     // 5️⃣ Merge active + related bids (avoid duplicates)
+//     const allBidsMap = {};
+//     [...activeBids, ...relatedBids].forEach(bid => {
+//       allBidsMap[bid._id.toString()] = bid.toObject();
+//     });
+
+//     // 6️⃣ Attach hasOffered + myOffer for each bid
+//     const bidsWithOfferStatus = Object.values(allBidsMap).map(bid => {
+//       const myOffer = offerMap[bid._id.toString()] || null;
+//       return {
+//         ...bid,
+//         hasOffered: !!myOffer,
+//         myOffer: myOffer
+//       };
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       total: bidsWithOfferStatus.length,
+//       bids: bidsWithOfferStatus,
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Error fetching bids for shops:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export const getAvailableBidsForShops = async (req, res) => {
   try {
     await updateExpiredBids();
@@ -76,46 +203,57 @@ export const getAvailableBidsForShops = async (req, res) => {
     const shopId = req.shopId;
 
     // 1️⃣ Get all active bids
-    const bids = await Bid.find({ status: "active" })
+    const activeBids = await Bid.find({ status: "active" })
       .populate("user_id", "name address zip")
       .sort({ createdAt: -1 });
 
-    // 2️⃣ Get all offers by this shop
+    // 2️⃣ Get all offers made by this shop
     const shopOffers = await Offer.find({ shopId })
-      .populate("counterOffers.createdBy", "name") // optional
+      .populate("counterOffers.createdBy", "name")
       .lean();
 
-    // 3️⃣ Make quick lookup table
+    // 3️⃣ Quick lookup table for offers
     const offerMap = {};
     shopOffers.forEach((offer) => {
       offerMap[offer.bidId.toString()] = offer;
     });
 
-    // 4️⃣ Attach hasOffered + myOffer (without changing old flow)
-    const bidsWithOfferStatus = bids.map((bid) => {
-      const bidObj = bid.toObject();
-      const bidIdStr = bid._id.toString();
+    // 4️⃣ Get in-progress or completed bids assigned to this shop
+    const relatedBids = await Bid.find({
+      currentShopId: shopId,
+      status: { $in: ["in_progress", "completed"] },
+    })
+      .populate("user_id", "name address zip")
+      .sort({ createdAt: -1 });
 
-      const myOffer = offerMap[bidIdStr] || null;
+    // 5️⃣ Merge active + related bids (avoid duplicates)
+    const allBidsMap = {};
+    [...activeBids, ...relatedBids].forEach((bid) => {
+      allBidsMap[bid._id.toString()] = bid.toObject();
+    });
 
+    // 6️⃣ Attach hasOffered + myOffer for each bid
+    const bidsWithOfferStatus = Object.values(allBidsMap).map((bid) => {
+      const myOffer = offerMap[bid._id.toString()] || null;
       return {
-        ...bidObj,
-        hasOffered: !!myOffer,   // 👈 OLD FLOW (unchanged)
-        myOffer: myOffer         // 👈 NEW DATA (safe addition)
+        ...bid,
+        hasOffered: !!myOffer,
+        myOffer,
       };
     });
 
     res.status(200).json({
       success: true,
-      total: bids.length,
+      total: bidsWithOfferStatus.length,
       bids: bidsWithOfferStatus,
     });
-
   } catch (error) {
     console.error("❌ Error fetching bids for shops:", error);
     res.status(500).json({ success: false, message: "Failed to fetch bids" });
   }
 };
+
+
 
 
 
@@ -695,7 +833,6 @@ export const getNearbyShops = async (req, res) => {
 
 
 
-
 // -------------------- ACCEPT COUNTER OFFER --------------------
 export const acceptCounterOffer = async (req, res) => {
   try {
@@ -703,7 +840,7 @@ export const acceptCounterOffer = async (req, res) => {
     const { bidId } = req.body;
     const shopId = req.shop._id; // From auth middleware
 
-    // Find the offer
+    // 1️⃣ Find the offer with this counter offer
     const offer = await Offer.findOne({
       bidId,
       shopId,
@@ -717,7 +854,7 @@ export const acceptCounterOffer = async (req, res) => {
       });
     }
 
-    // Find the specific counter offer
+    // 2️⃣ Find the specific counter offer
     const counterOffer = offer.counterOffers.id(counterId);
 
     if (!counterOffer) {
@@ -727,7 +864,7 @@ export const acceptCounterOffer = async (req, res) => {
       });
     }
 
-    // Check if already responded to
+    // 3️⃣ Check if already responded
     if (counterOffer.status !== "pending") {
       return res.status(400).json({
         success: false,
@@ -735,24 +872,24 @@ export const acceptCounterOffer = async (req, res) => {
       });
     }
 
-    // Update counter offer status
+    // 4️⃣ Accept counter offer
     counterOffer.status = "accepted";
     counterOffer.respondedAt = new Date();
 
-    // Update the main offer price to the counter offer price
+    // 5️⃣ Update main offer price and status
     offer.price = counterOffer.counterPrice;
-    offer.status = "accepted"; // Accept the main offer too
-
+    offer.status = "accepted"; // main offer accepted too
     await offer.save();
 
-    // Update the bid status to "in_progress" and set acceptedOffer
+    // 6️⃣ Update bid: in_progress + track current shop
     const bid = await Bid.findById(bidId);
     if (bid) {
       bid.status = "in_progress";
       bid.acceptedOffer = offer._id;
+      bid.currentShopId = shopId; // 👈 important: track current shop
       await bid.save();
 
-      // Optional: Reject all other offers for this bid
+      // 7️⃣ Reject all other pending offers for this bid
       await Offer.updateMany(
         {
           bidId: bidId,
@@ -778,6 +915,12 @@ export const acceptCounterOffer = async (req, res) => {
           price: counterOffer.counterPrice,
         },
       },
+      bid: {
+        id: bid._id,
+        status: bid.status,
+        currentShopId: bid.currentShopId,
+        acceptedOffer: bid.acceptedOffer,
+      },
     });
   } catch (error) {
     console.error("Error accepting counter offer:", error);
@@ -788,6 +931,10 @@ export const acceptCounterOffer = async (req, res) => {
     });
   }
 };
+
+
+
+
 
 // -------------------- REJECT COUNTER OFFER --------------------
 export const rejectCounterOffer = async (req, res) => {
@@ -854,6 +1001,76 @@ export const rejectCounterOffer = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to reject counter offer",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+// -------------------- MARK BID AS COMPLETED --------------------
+export const markBidCompleted = async (req, res) => {
+  try {
+    const { bidId } = req.params;
+    const shopId = req.shop._id; // From auth middleware
+
+    // Find the bid
+    const bid = await Bid.findById(bidId);
+
+    if (!bid) {
+      return res.status(404).json({
+        success: false,
+        message: "Bid not found",
+      });
+    }
+
+    // Check if bid is in progress
+    if (bid.status !== "in_progress") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot mark bid as completed. Current status: ${bid.status}`,
+      });
+    }
+
+    // Verify that this shop has the accepted offer
+    const acceptedOffer = await Offer.findOne({
+      _id: bid.acceptedOffer,
+      shopId: shopId,
+    });
+
+    if (!acceptedOffer) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to complete this bid",
+      });
+    }
+
+    // Update bid status to completed
+    bid.status = "completed";
+    await bid.save();
+
+    res.json({
+      success: true,
+      message: "Bid marked as completed successfully",
+      bid: {
+        id: bid._id,
+        status: bid.status,
+        completedAt: bid.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error marking bid as completed:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to mark bid as completed",
       error: error.message,
     });
   }
