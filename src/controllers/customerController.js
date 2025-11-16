@@ -346,3 +346,66 @@ export const repostBid = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+
+
+
+
+
+// Create Counter Offer
+export const counterOffer = async (req, res) => {
+  try {
+    const customerId = req.customer._id;  
+    const { offerId } = req.params;
+    const { counterPrice, message } = req.body;
+
+    // 1. Fetch the offer
+    const offer = await Offer.findById(offerId);
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    // 2. Check if this customer already made a counter offer
+    const alreadyCountered = offer.counterOffers.some(
+      (co) => co.createdBy.toString() === customerId.toString()
+    );
+
+    if (alreadyCountered) {
+      return res.status(400).json({
+        success: false,
+        message: "You already submitted a counter offer for this offer",
+      });
+    }
+
+    // 3. Create new counter offer object
+    const newCounterOffer = {
+      counterPrice,
+      message,
+      createdBy: customerId,
+      status: "pending",
+    };
+
+    // 4. Push to offer.counterOffers
+    offer.counterOffers.push(newCounterOffer);
+
+    // save the offer
+    await offer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Counter offer submitted successfully",
+      counterOffer: newCounterOffer,
+    });
+
+  } catch (error) {
+    console.error("❌ Error submitting counter offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while submitting counter offer",
+      error: error.message,
+    });
+  }
+};

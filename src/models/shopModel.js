@@ -29,7 +29,7 @@ const shopSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    
+
     // Contact Information
     countryCode: {
       type: String,
@@ -43,7 +43,7 @@ const shopSchema = new mongoose.Schema(
     website: {
       type: String,
     },
-    
+
     // Location
     address: {
       type: String,
@@ -56,19 +56,39 @@ const shopSchema = new mongoose.Schema(
     zipCode: {
       type: String,
     },
-    
+    latitude: {
+      type: Number,
+      default: null,
+    },
+    longitude: {
+      type: Number,
+      default: null,
+    },
+    // GeoJSON format for MongoDB geospatial queries
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: [0, 0],
+      },
+    },
+
     // Services
     services: {
       type: [String],
       required: true,
       default: [],
     },
-    
+
     vinylFilms: {
       type: String,
       trim: true,
     },
-    
+
     // Certificates
     certificates: {
       type: String,
@@ -78,13 +98,13 @@ const shopSchema = new mongoose.Schema(
       type: [String], // URLs of uploaded certificate files
       default: [],
     },
-    
+
     // Start Date
     startDate: {
       type: Date,
       required: true,
     },
-    
+
     // Insurance Information
     insuranceCarrier: {
       type: String,
@@ -104,7 +124,7 @@ const shopSchema = new mongoose.Schema(
       type: String, // URL of insurance certificate file
       required: true,
     },
-    
+
     // Social Media Links
     socialMedia: {
       instagram: {
@@ -120,13 +140,13 @@ const shopSchema = new mongoose.Schema(
         trim: true,
       },
     },
-    
+
     // Additional Information
     additionalInfo: {
       type: String,
       trim: true,
     },
-    
+
     // Photos
     storeFrontPhoto: {
       type: String, // URL of store front photo
@@ -140,7 +160,7 @@ const shopSchema = new mongoose.Schema(
       type: String, // URL of shop profile picture
       default: "",
     },
-    
+
     // Plan Information
     plan: {
       type: String,
@@ -154,14 +174,14 @@ const shopSchema = new mongoose.Schema(
     },
     trialEndDate: {
       type: Date,
-      default: function() {
+      default: function () {
         // Set trial to 1 month from now
         const date = new Date();
         date.setMonth(date.getMonth() + 1);
         return date;
       },
     },
-    
+
     // Payment Information (Store tokenized data only, never raw card details)
     paymentInfo: {
       last4: {
@@ -177,7 +197,19 @@ const shopSchema = new mongoose.Schema(
         type: String, // Stripe/Payment gateway token
       },
     },
-    
+    // Add these fields to your Shop model after the "profilePic" field:
+
+    rating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    reviewCount: {
+      type: Number,
+      default: 0,
+    },
+
     // Verification Status
     isEmailVerified: {
       type: Boolean,
@@ -193,7 +225,7 @@ const shopSchema = new mongoose.Schema(
 
     resetPasswordOtp: { type: String, default: null },
     resetPasswordOtpExpiry: { type: Date, default: null },
-    
+
     // Policy Acceptance
     acceptedPolicy: {
       type: Boolean,
@@ -204,14 +236,14 @@ const shopSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    
+
     // Account Status
     status: {
       type: String,
       enum: ["pending", "active", "suspended", "cancelled"],
       default: "pending",
     },
-    
+
     // OTP for verification
     otp: {
       type: String,
@@ -232,18 +264,21 @@ shopSchema.index({ zipCode: 1 });
 shopSchema.index({ status: 1 });
 shopSchema.index({ isVerified: 1, isEmailVerified: 1 });
 
+// Geospatial index for location-based queries
+shopSchema.index({ location: "2dsphere" });
+
 // Virtual for checking if trial is active
-shopSchema.virtual("isTrialActive").get(function() {
+shopSchema.virtual("isTrialActive").get(function () {
   return new Date() < this.trialEndDate;
 });
 
 // Method to check if shop needs payment
-shopSchema.methods.needsPayment = function() {
+shopSchema.methods.needsPayment = function () {
   return !this.isTrialActive() && !this.paymentInfo.paymentToken;
 };
 
 // Method to verify email
-shopSchema.methods.verifyEmail = function() {
+shopSchema.methods.verifyEmail = function () {
   this.isEmailVerified = true;
   this.otp = undefined;
   this.otpExpiry = undefined;
@@ -251,7 +286,7 @@ shopSchema.methods.verifyEmail = function() {
 };
 
 // Method to approve shop (admin action)
-shopSchema.methods.approveShop = function() {
+shopSchema.methods.approveShop = function () {
   this.isVerified = true;
   this.verifiedAt = new Date();
   this.status = "active";

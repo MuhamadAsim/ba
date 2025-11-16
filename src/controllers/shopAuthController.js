@@ -521,8 +521,6 @@ export const signInShop = async (req, res) => {
 
 
 
-
-
 // ---------------------- COMPLETE REGISTRATION ----------------------
 export const completeRegistration = async (req, res) => {
   try {
@@ -533,6 +531,8 @@ export const completeRegistration = async (req, res) => {
       email,
       countryCode,
       zipCode,
+      latitude,
+      longitude,
       phone,
       website,
       address,
@@ -608,6 +608,10 @@ export const completeRegistration = async (req, res) => {
       parsedPayment = paymentData;
     }
 
+    // Parse location coordinates
+    const parsedLatitude = latitude ? parseFloat(latitude) : null;
+    const parsedLongitude = longitude ? parseFloat(longitude) : null;
+
     // Update shop data
     shop.businessName = businessName;
     shop.legalEntityName = legalEntityName;
@@ -618,6 +622,17 @@ export const completeRegistration = async (req, res) => {
     shop.address = address;
     shop.zipCode = zipCode;
     shop.country = country;
+    
+    // Location coordinates
+    if (parsedLatitude !== null && parsedLongitude !== null) {
+      shop.location = {
+        type: "Point",
+        coordinates: [parsedLongitude, parsedLatitude] // GeoJSON format: [lng, lat]
+      };
+      shop.latitude = parsedLatitude;
+      shop.longitude = parsedLongitude;
+    }
+    
     shop.services = parsedServices;
     shop.vinylFilms = vinylFilms;
     shop.certificates = certificates;
@@ -669,6 +684,9 @@ export const completeRegistration = async (req, res) => {
         phone: shop.phone,
         website: shop.website,
         country: shop.country,
+        zipCode: shop.zipCode,
+        latitude: shop.latitude,
+        longitude: shop.longitude,
         services: shop.services,
         vinylFilms: shop.vinylFilms,
         certificates: shop.certificates,
@@ -701,9 +719,6 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 

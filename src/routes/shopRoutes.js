@@ -1,10 +1,25 @@
 import express from "express";
-import { registerShop, verifyOtp, signInShop, completeRegistration, updateShopProfile, signin, forgotPassword, resetPassword} from "../controllers/shopAuthController.js";
-import { getAllShops, getAvailableBidsForShops, makeOffer } from "../controllers/shopController.js";
-import { upload } from "../middlewares/upload.js"
+import {
+  registerShop,
+  verifyOtp,
+  signInShop,
+  completeRegistration,
+  updateShopProfile,
+  signin,
+  forgotPassword,
+  resetPassword,
+} from "../controllers/shopAuthController.js";
+import {
+  getAllShops,
+  getAvailableBidsForShops,
+  makeOffer,
+  getShops,
+  acceptCounterOffer,
+  rejectCounterOffer,
+} from "../controllers/shopController.js";
+import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
 const router = express.Router();
-
 
 //Auth
 router.post("/signup", registerShop);
@@ -12,7 +27,6 @@ router.post("/verify-otp", verifyOtp);
 router.post("/signin", signin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
-
 
 //Registration
 router.post(
@@ -25,7 +39,6 @@ router.post(
   ]),
   completeRegistration
 );
-
 
 //profile
 router.put(
@@ -40,18 +53,17 @@ router.put(
   updateShopProfile
 );
 
-
-
-
 // bids
 router.post("/offers", authenticateShop, makeOffer);
-router.get("/available-bids",authenticateShop, getAvailableBidsForShops);
+router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
+
+// counter offers
+router.post("/counter-offers/:counterId/accept", authenticateShop, acceptCounterOffer);
+router.post("/counter-offers/:counterId/reject", authenticateShop, rejectCounterOffer);
 
 
 
 //map
-router.get("/get-all-shops",getAllShops);
-
-
+router.get("/get-all-shops", getShops);
 
 export default router;
