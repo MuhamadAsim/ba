@@ -4,9 +4,10 @@ import morgan from "morgan";
 import dotenv from "dotenv";
 import connectDB from "./configs/db.js";
 import bidRoutes from "./routes/bidRoutes.js";
-import customerRoutes from "./routes/customerRoutes.js"
-import shopRoutes from "./routes/shopRoutes.js"
-import googleRoutes from "./routes/googleRoutes.js"
+import customerRoutes from "./routes/customerRoutes.js";
+import shopRoutes from "./routes/shopRoutes.js";
+import googleRoutes from "./routes/googleRoutes.js";
+import eventRoutes from "./routes/eventRoutes.js";
 import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
 dotenv.config();
@@ -22,10 +23,10 @@ app.use("/uploads", express.static("uploads"));
 
 // Routes
 app.use("/api/bids", bidRoutes);
-app.use("/api/customer",customerRoutes);
+app.use("/api/customer", customerRoutes);
 app.use("/api/shop", shopRoutes);
 app.use("/api/OAuth", googleRoutes);
-
+app.use("/api/events", eventRoutes);
 
 // Error handler
 app.use(errorHandler);

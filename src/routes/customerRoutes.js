@@ -17,6 +17,7 @@ import {
   cancelBid,
   repostBid,
   counterOffer,
+  getShopProfile,
 } from "../controllers/customerController.js";
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
@@ -46,6 +47,11 @@ router.post("/offers/:offerId/accept", authenticateCustomer, acceptOffer);
 router.patch("/:bidId/cancel", authenticateCustomer, cancelBid);
 router.post("/repost-bid", authenticateCustomer, repostBid);
 router.post("/offers/:offerId/counter", authenticateCustomer, counterOffer);
+
+
+// shop info
+router.get("/shop-info/:shopId", authenticateCustomer, getShopProfile);
+
 
 
 router.get("/google-OAuth", googleAuth);

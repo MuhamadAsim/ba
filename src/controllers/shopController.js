@@ -1,13 +1,9 @@
 
-import bcrypt from "bcryptjs";
 import Shop from "../models/shopModel.js";
-import crypto from "crypto";
-import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
 import Bid from "../models/bidModel.js";
-import Customer from "../models/customerModel.js";
 import Offer from "../models/offerModel.js";
+import Event from "../models/eventModel.js";
 
 dotenv.config();
 
@@ -25,167 +21,6 @@ export const updateExpiredBids = async () => {
     }
   }
 };
-
-
-
-
-
-
-// // get the bids to search and make offers
-// export const getAvailableBidsForShops = async (req, res) => {
-//   try {
-//     await updateExpiredBids();
-
-//     const shopId = req.shopId; // ✅ from authenticateShop middleware
-
-//     const bids = await Bid.find({ status: "active" })
-//       .populate("user_id", "name address zip")
-//       .sort({ createdAt: -1 });
-
-//     // 🔹 Fetch all offers made by this shop once
-//     const shopOffers = await Offer.find({ shopId }).select("bidId");
-
-//     // 🔹 Convert to Set for O(1) lookup
-//     const offeredBidIds = new Set(shopOffers.map(o => o.bidId.toString()));
-
-//     // 🔹 Add `hasOffered` flag for each bid
-//     const bidsWithOfferStatus = bids.map(bid => ({
-//       ...bid.toObject(),
-//       hasOffered: offeredBidIds.has(bid._id.toString()),
-//     }));
-
-//     res.status(200).json({
-//       success: true,
-//       total: bids.length,
-//       bids: bidsWithOfferStatus,
-//     });
-
-//   } catch (error) {
-//     console.error("❌ Error fetching bids for shops:", error);
-//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
-//   }
-// };
-
-
-
-
-// export const getAvailableBidsForShops = async (req, res) => {
-//   try {
-//     await updateExpiredBids();
-
-//     const shopId = req.shopId;
-
-//     // 1️⃣ Get all active bids
-//     const bids = await Bid.find({ status: "active" })
-//       .populate("user_id", "name address zip")
-//       .sort({ createdAt: -1 });
-
-//     // 2️⃣ Get all offers by this shop
-//     const shopOffers = await Offer.find({ shopId })
-//       .populate("counterOffers.createdBy", "name") // optional
-//       .lean();
-
-//     // 3️⃣ Make quick lookup table
-//     const offerMap = {};
-//     shopOffers.forEach((offer) => {
-//       offerMap[offer.bidId.toString()] = offer;
-//     });
-
-//     // 4️⃣ Attach hasOffered + myOffer (without changing old flow)
-//     const bidsWithOfferStatus = bids.map((bid) => {
-//       const bidObj = bid.toObject();
-//       const bidIdStr = bid._id.toString();
-
-//       const myOffer = offerMap[bidIdStr] || null;
-
-//       return {
-//         ...bidObj,
-//         hasOffered: !!myOffer,   // 👈 OLD FLOW (unchanged)
-//         myOffer: myOffer         // 👈 NEW DATA (safe addition)
-//       };
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       total: bids.length,
-//       bids: bidsWithOfferStatus,
-//     });
-
-//   } catch (error) {
-//     console.error("❌ Error fetching bids for shops:", error);
-//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
-//   }
-// };
-
-
-
-
-
-
-// export const getAvailableBidsForShops = async (req, res) => {
-//   try {
-//     await updateExpiredBids();
-
-//     const shopId = req.shopId;
-
-//     // 1️⃣ Get all active bids
-//     const activeBids = await Bid.find({ status: "active" })
-//       .populate("user_id", "name address zip")
-//       .sort({ createdAt: -1 });
-
-//     // 2️⃣ Get all offers made by this shop (for any bid)
-//     const shopOffers = await Offer.find({ shopId })
-//       .populate("counterOffers.createdBy", "name")
-//       .lean();
-
-//     // 3️⃣ Build quick lookup table by bidId
-//     const offerMap = {};
-//     shopOffers.forEach((offer) => {
-//       offerMap[offer.bidId.toString()] = offer;
-//     });
-
-//     // 4️⃣ Get bids related to this shop (in-progress or completed)
-//     const relatedBidIds = shopOffers.map(o => o.bidId);
-//     const relatedBids = await Bid.find({
-//       _id: { $in: relatedBidIds },
-//       status: { $in: ["in_progress", "completed"] }
-//     })
-//       .populate("user_id", "name address zip")
-//       .sort({ createdAt: -1 });
-
-//     // 5️⃣ Merge active + related bids (avoid duplicates)
-//     const allBidsMap = {};
-//     [...activeBids, ...relatedBids].forEach(bid => {
-//       allBidsMap[bid._id.toString()] = bid.toObject();
-//     });
-
-//     // 6️⃣ Attach hasOffered + myOffer for each bid
-//     const bidsWithOfferStatus = Object.values(allBidsMap).map(bid => {
-//       const myOffer = offerMap[bid._id.toString()] || null;
-//       return {
-//         ...bid,
-//         hasOffered: !!myOffer,
-//         myOffer: myOffer
-//       };
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       total: bidsWithOfferStatus.length,
-//       bids: bidsWithOfferStatus,
-//     });
-
-//   } catch (error) {
-//     console.error("❌ Error fetching bids for shops:", error);
-//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
-//   }
-// };
-
-
-
-
-
-
 
 
 
@@ -262,13 +97,75 @@ export const getAvailableBidsForShops = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+export const getPartnerStats = async (req, res) => {
+  try {
+    const shopId = req.shopId;
+
+    // 1️⃣ Get all offers made by this shop
+    const allOffers = await Offer.find({ shopId }).lean();
+
+    // 2️⃣ Get all bids related to this shop's offers
+    const bidIds = allOffers.map(offer => offer.bidId);
+    const relatedBids = await Bid.find({ _id: { $in: bidIds } }).lean();
+
+    // 3️⃣ Get bids currently assigned to this shop
+    const assignedBids = await Bid.find({ currentShopId: shopId }).lean();
+
+    // 4️⃣ Combine and remove duplicates
+    const allBidsMap = {};
+    [...relatedBids, ...assignedBids].forEach((bid) => {
+      allBidsMap[bid._id.toString()] = bid;
+    });
+
+    const allBids = Object.values(allBidsMap);
+
+    // 5️⃣ Calculate stats
+    const stats = {
+      total: allBids.length,
+      active: allBids.filter(bid => bid.status === "active").length,
+      inProgress: allBids.filter(bid => bid.status === "in_progress").length,
+      completed: allBids.filter(bid => bid.status === "completed").length,
+      expired: allBids.filter(bid => bid.status === "expired").length,
+      canceled: allBids.filter(bid => bid.status === "canceled").length,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching partner stats:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch partner statistics" 
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+// Make Offer
 export const makeOffer = async (req, res) => {
   try {
-    console.log("📥 Incoming offer request:", req.body);
     const { bidId, price, note } = req.body;
     const shopId = req.user?._id || req.shopId;
 
-    console.log("🔍 Parsed data =>", { bidId, price, note, shopId });
 
     // 1️⃣ Validate input
     if (!bidId || !price) {
@@ -287,6 +184,9 @@ export const makeOffer = async (req, res) => {
       console.log("❌ Bid not active:", bid.status);
       return res.status(400).json({ message: "Cannot make an offer on this bid." });
     }
+
+    // Customer ID (from bid)
+    const customerId = bid.user_id;
 
     // 3️⃣ Verify shop
     const shop = await Shop.findById(shopId);
@@ -313,13 +213,24 @@ export const makeOffer = async (req, res) => {
 
     await offer.save();
 
-    console.log("✅ Offer saved:", offer._id);
 
     // 6️⃣ Link offer to bid
     bid.offers.push(offer._id);
     await bid.save();
 
     console.log("🔗 Linked offer to bid successfully");
+
+    // ⭐ 7️⃣ CREATE EVENT for both shop & customer  
+    const event = new Event({
+      type: "new-offer",
+      bidId,
+      offerId: offer._id,
+      shopId,
+      customerId,
+      message: `A new offer was submitted for bid (${bid.serviceDescription})`,
+    });
+
+    await event.save();
 
     return res.status(201).json({
       success: true,
@@ -347,209 +258,6 @@ export const makeOffer = async (req, res) => {
 
 
 
-
-
-
-
-
-// controllers/shopController.js
-export const getAllShops = async (req, res) => {
-  try {
-
-    console.log("Called");
-    const shops = [
-      {
-        _id: "1",
-        businessName: "Elite Auto Wraps",
-        address: "123 Main St, New York, NY",
-        zipcode: "10001",
-        country: "USA",
-        coordinates: { lat: 40.7128, lng: -74.006 },
-        services: ["PPF", "Wraps", "Tinting"],
-        phone: "(555) 123-4567",
-        rating: 4.8,
-        reviews: 124,
-        image: "https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=400",
-      },
-      {
-        _id: "2",
-        businessName: "Precision Detail Studio",
-        address: "456 Oak Ave, Brooklyn, NY",
-        zipcode: "11201",
-        country: "USA",
-        coordinates: { lat: 40.650002, lng: -73.949997 },
-        services: ["Ceramic Coating", "PPF", "Detailing"],
-        phone: "(555) 987-6543",
-        rating: 4.9,
-        reviews: 89,
-        image: "https://images.unsplash.com/photo-1487754180451-c456f719a1fc?w=400",
-      },
-     
-    ];
-
-    res.status(200).json({ shops });
-  } catch (error) {
-    console.error("Error fetching shops:", error);
-    res.status(500).json({ message: "Server error fetching shops" });
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-// // ---------------------- GET ALL SHOPS ----------------------
-// export const getShops = async (req, res) => {
-//   try {
-//     const {
-//       lat,
-//       lng,
-//       radius, // in kilometers
-//       services, // comma-separated services filter
-//       zipcode,
-//       country,
-//       search, // search by business name
-//       page = 1,
-//       limit = 20,
-//     } = req.query;
-
-//     let query = {
-//       status: "active",
-//       isVerified: true,
-//       isEmailVerified: true,
-//     };
-
-//     // Filter by services
-//     if (services) {
-//       const serviceArray = services.split(",").map((s) => s.trim());
-//       query.services = { $in: serviceArray };
-//     }
-
-//     // Filter by zipcode
-//     if (zipcode) {
-//       query.zipCode = zipcode;
-//     }
-
-//     // Filter by country
-//     if (country) {
-//       query.country = { $regex: country, $options: "i" };
-//     }
-
-//     // Search by business name
-//     if (search) {
-//       query.businessName = { $regex: search, $options: "i" };
-//     }
-
-//     let shops;
-
-//     // Location-based search (if lat/lng provided)
-//     if (lat && lng) {
-//       const latitude = parseFloat(lat);
-//       const longitude = parseFloat(lng);
-//       const maxDistance = radius ? parseFloat(radius) * 1000 : 50000; // default 50km
-
-//       shops = await Shop.aggregate([
-//         {
-//           $geoNear: {
-//             near: {
-//               type: "Point",
-//               coordinates: [longitude, latitude],
-//             },
-//             distanceField: "distance",
-//             maxDistance: maxDistance,
-//             spherical: true,
-//             query: query,
-//           },
-//         },
-//         {
-//           $skip: (parseInt(page) - 1) * parseInt(limit),
-//         },
-//         {
-//           $limit: parseInt(limit),
-//         },
-//         {
-//           $project: {
-//             password: 0,
-//             otp: 0,
-//             otpExpiry: 0,
-//             resetPasswordOtp: 0,
-//             resetPasswordOtpExpiry: 0,
-//             paymentInfo: 0,
-//           },
-//         },
-//       ]);
-//     } else {
-//       // Regular query without location sorting
-//       shops = await Shop.find(query)
-//         .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo")
-//         .limit(parseInt(limit))
-//         .skip((parseInt(page) - 1) * parseInt(limit))
-//         .sort({ createdAt: -1 });
-//     }
-
-//     // Format response to match frontend structure
-//     const formattedShops = shops.map((shop) => ({
-//       _id: shop._id || shop.id,
-//       businessName: shop.businessName,
-//       address: shop.address,
-//       zipcode: shop.zipCode,
-//       country: shop.country,
-//       coordinates: {
-//         lat: shop.latitude,
-//         lng: shop.longitude,
-//       },
-//       services: shop.services || [],
-//       phone: `${shop.countryCode} ${shop.phone}`,
-//       rating: shop.rating || 0, // ⚠️ MISSING FIELD - Need to add to schema
-//       reviews: shop.reviewCount || 0, // ⚠️ MISSING FIELD - Need to add to schema
-//       image: shop.storeFrontPhoto || shop.profilePic || "",
-//       distance: shop.distance ? (shop.distance / 1000).toFixed(2) : null, // Convert to km
-      
-//       // Additional useful data
-//       ownerName: shop.ownerName,
-//       website: shop.website,
-//       vinylFilms: shop.vinylFilms,
-//       certificates: shop.certificates,
-//       socialMedia: shop.socialMedia,
-//       workSpacePhoto: shop.workSpacePhoto,
-//       plan: shop.plan,
-//       startDate: shop.startDate,
-//     }));
-
-//     // Get total count for pagination
-//     const total = await Shop.countDocuments(query);
-
-//     res.json({
-//       status: "success",
-//       data: {
-//         shops: formattedShops,
-//         pagination: {
-//           total,
-//           page: parseInt(page),
-//           limit: parseInt(limit),
-//           pages: Math.ceil(total / parseInt(limit)),
-//         },
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Get shops error:", error);
-//     res.status(500).json({
-//       status: "error",
-//       message: "Failed to fetch shops",
-//       error: error.message,
-//     });
-//   }
-// };
-
-
-
-// controllers/shopController.js
 
 export const getShops = async (req, res) => {
   try {
@@ -669,6 +377,10 @@ export const getShops = async (req, res) => {
 
 
 
+
+
+
+
 // ---------------------- GET SINGLE SHOP BY ID ----------------------
 export const getShopById = async (req, res) => {
   try {
@@ -738,6 +450,12 @@ export const getShopById = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
 
 
 
@@ -833,7 +551,11 @@ export const getNearbyShops = async (req, res) => {
 
 
 
-// -------------------- ACCEPT COUNTER OFFER --------------------
+
+
+
+
+
 export const acceptCounterOffer = async (req, res) => {
   try {
     const { counterId } = req.params;
@@ -878,29 +600,42 @@ export const acceptCounterOffer = async (req, res) => {
 
     // 5️⃣ Update main offer price and status
     offer.price = counterOffer.counterPrice;
-    offer.status = "accepted"; // main offer accepted too
+    offer.status = "accepted";
     await offer.save();
 
-    // 6️⃣ Update bid: in_progress + track current shop
+    // 6️⃣ Update bid
     const bid = await Bid.findById(bidId);
     if (bid) {
       bid.status = "in_progress";
       bid.acceptedOffer = offer._id;
-      bid.currentShopId = shopId; // 👈 important: track current shop
+      bid.currentShopId = shopId;
       await bid.save();
 
-      // 7️⃣ Reject all other pending offers for this bid
+      // Reject all other pending offers
       await Offer.updateMany(
         {
           bidId: bidId,
           _id: { $ne: offer._id },
           status: "pending",
         },
-        {
-          $set: { status: "rejected" },
-        }
+        { $set: { status: "rejected" } }
       );
     }
+
+    // ⭐⭐⭐ 7️⃣ CREATE EVENT (ADDED ONLY — DOES NOT CHANGE OLD FLOW)
+    const customerId = bid.user_id; // from bid model
+
+    await Event.create({
+      type: "counter-offer-accepted",
+      bidId,
+      offerId: offer._id,
+      counterOfferId: counterOffer._id,
+      shopId,          // shop accepted customer's counter offer
+      customerId,      // customer should be notified
+      message: `Counter offer for bid "${bid.service}" was accepted (${counterOffer.counterPrice}).`,
+    });
+
+    // ⭐ No other logic modified above this point
 
     res.json({
       success: true,
@@ -936,6 +671,18 @@ export const acceptCounterOffer = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // -------------------- REJECT COUNTER OFFER --------------------
 export const rejectCounterOffer = async (req, res) => {
   try {
@@ -943,7 +690,7 @@ export const rejectCounterOffer = async (req, res) => {
     const { bidId } = req.body;
     const shopId = req.shop._id; // From auth middleware
 
-    // Find the offer
+    // ------------------ FIND OFFER ------------------
     const offer = await Offer.findOne({
       bidId,
       shopId,
@@ -957,7 +704,6 @@ export const rejectCounterOffer = async (req, res) => {
       });
     }
 
-    // Find the specific counter offer
     const counterOffer = offer.counterOffers.id(counterId);
 
     if (!counterOffer) {
@@ -967,7 +713,6 @@ export const rejectCounterOffer = async (req, res) => {
       });
     }
 
-    // Check if already responded to
     if (counterOffer.status !== "pending") {
       return res.status(400).json({
         success: false,
@@ -975,13 +720,28 @@ export const rejectCounterOffer = async (req, res) => {
       });
     }
 
-    // Update counter offer status
+    // ------------------ UPDATE COUNTER OFFER ------------------
     counterOffer.status = "rejected";
     counterOffer.respondedAt = new Date();
 
-    // Keep the original offer active (don't change main offer status)
     await offer.save();
 
+    // ------------------ ADD ACTIVITY LOG ------------------
+    await Activity.create({
+      userId: offer.userId,           // Who created the original bid
+      shopId: shopId,                 // Shop rejecting the counter offer
+      bidId: bidId,
+      type: "counter-offer-rejected", // New activity type
+      message: `Rejected counter offer of Rs ${counterOffer.counterPrice}`,
+      metadata: {
+        offerId: offer._id,
+        counterOfferId: counterOffer._id,
+        previousPrice: offer.price,
+        counterPrice: counterOffer.counterPrice,
+      },
+    });
+
+    // ------------------ RESPONSE ------------------
     res.json({
       success: true,
       message: "Counter offer rejected. Your original offer remains active.",
@@ -1005,7 +765,6 @@ export const rejectCounterOffer = async (req, res) => {
     });
   }
 };
-
 
 
 
@@ -1056,6 +815,20 @@ export const markBidCompleted = async (req, res) => {
     // Update bid status to completed
     bid.status = "completed";
     await bid.save();
+
+    // -------------------- SAVE EVENT --------------------
+    await Event.create({
+      userId: bid.userId,
+      shopId: shopId,
+      bidId: bidId,
+      type: "bid-completed",
+      message: `The bid has been completed ${bid.serviceDescription}.`,
+      metadata: {
+        bidId: bid._id,
+        offerId: acceptedOffer._id,
+
+      },
+    });
 
     res.json({
       success: true,

@@ -10,13 +10,13 @@ import {
   resetPassword,
 } from "../controllers/shopAuthController.js";
 import {
-  getAllShops,
   getAvailableBidsForShops,
   makeOffer,
   getShops,
   acceptCounterOffer,
   rejectCounterOffer,
   markBidCompleted,
+  getPartnerStats,
 } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
@@ -53,16 +53,24 @@ router.put(
   ]),
   updateShopProfile
 );
+router.get("/stats", authenticateShop, getPartnerStats);
+
 
 // bids
 router.post("/offers", authenticateShop, makeOffer);
 router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
 router.post("/bids/:bidId/complete", authenticateShop, markBidCompleted);
 // counter offers
-router.post("/counter-offers/:counterId/accept", authenticateShop, acceptCounterOffer);
-router.post("/counter-offers/:counterId/reject", authenticateShop, rejectCounterOffer);
-
-
+router.post(
+  "/counter-offers/:counterId/accept",
+  authenticateShop,
+  acceptCounterOffer
+);
+router.post(
+  "/counter-offers/:counterId/reject",
+  authenticateShop,
+  rejectCounterOffer
+);
 
 //map
 router.get("/get-all-shops", getShops);
