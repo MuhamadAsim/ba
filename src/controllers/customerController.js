@@ -3,25 +3,19 @@ import Offer from "../models/offerModel.js";
 import Event from "../models/eventModel.js";
 import Shop from "../models/shopModel.js";
 
-
-
-
-
-
-
-
 // get the status
 export const getCustomerBidStats = async (req, res) => {
   try {
     const userId = req.customer?._id || req.params.userId;
 
-    const [active, inProgress, completed, expired, canceled] = await Promise.all([
-      Bid.countDocuments({ user_id: userId, status: "active" }),
-      Bid.countDocuments({ user_id: userId, status: "in_progress" }),
-      Bid.countDocuments({ user_id: userId, status: "completed" }),
-      Bid.countDocuments({ user_id: userId, status: "expired" }),
-      Bid.countDocuments({ user_id: userId, status: "canceled" }),
-    ]);
+    const [active, inProgress, completed, expired, canceled] =
+      await Promise.all([
+        Bid.countDocuments({ user_id: userId, status: "active" }),
+        Bid.countDocuments({ user_id: userId, status: "in_progress" }),
+        Bid.countDocuments({ user_id: userId, status: "completed" }),
+        Bid.countDocuments({ user_id: userId, status: "expired" }),
+        Bid.countDocuments({ user_id: userId, status: "canceled" }),
+      ]);
 
     const total = active + inProgress + completed + expired + canceled;
 
@@ -31,9 +25,21 @@ export const getCustomerBidStats = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching bid stats:", error);
-    res.status(500).json({ status: "error", message: "Server error fetching stats" });
+    res
+      .status(500)
+      .json({ status: "error", message: "Server error fetching stats" });
   }
 };
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -55,7 +61,7 @@ export const getUserBidsWithOffers = async (req, res) => {
         populate: {
           path: "shopId",
           model: "Shop",
-          select: "name email phone address", // choose fields to include
+          select: "businessName legalEntityName email phone address",
         },
       })
       .populate({
@@ -63,7 +69,7 @@ export const getUserBidsWithOffers = async (req, res) => {
         populate: {
           path: "shopId",
           model: "Shop",
-          select: "name email phone address",
+          select: "businessName legalEntityName email phone address",
         },
       })
       .sort({ createdAt: -1 }); // latest bids first
@@ -71,7 +77,6 @@ export const getUserBidsWithOffers = async (req, res) => {
     if (!bids || bids.length === 0) {
       return res.status(404).json({ message: "No bids found for this user" });
     }
-    // console.log(bids[0].offers);
 
     res.status(200).json({
       success: true,
@@ -87,6 +92,19 @@ export const getUserBidsWithOffers = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -176,6 +194,24 @@ export const getBidOffers = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 export const acceptOffer = async (req, res) => {
   try {
     const { offerId } = req.params;
@@ -191,7 +227,9 @@ export const acceptOffer = async (req, res) => {
 
     // 3️⃣ Ensure this bid belongs to the current customer
     if (bid.user_id.toString() !== customerId.toString()) {
-      return res.status(403).json({ message: "Unauthorized: This bid does not belong to you" });
+      return res
+        .status(403)
+        .json({ message: "Unauthorized: This bid does not belong to you" });
     }
 
     // 4️⃣ Accept the offer: update bid and track current shop
@@ -237,7 +275,6 @@ export const acceptOffer = async (req, res) => {
         acceptedOffer: bid.acceptedOffer,
       },
     });
-
   } catch (error) {
     console.error("❌ Error accepting offer:", error);
     res.status(500).json({
@@ -247,16 +284,6 @@ export const acceptOffer = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
-
-
-
 
 export const submitCounterOffer = async (req, res) => {
   try {
@@ -294,8 +321,8 @@ export const submitCounterOffer = async (req, res) => {
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
-      customerId: userId,                     // customer who sent counter offer
-      shopId: offer.shopId,               // shop who will receive it
+      customerId: userId, // customer who sent counter offer
+      shopId: offer.shopId, // shop who will receive it
       bidId: offer.bidId._id,
       type: "counter-offer",
       message: `Counter offer is submitted on offer ${offer.price}`,
@@ -308,21 +335,11 @@ export const submitCounterOffer = async (req, res) => {
     });
 
     res.status(200).json({ message: "Counter offer submitted successfully" });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
-
-
-
-
-
-
-
 
 export const cancelBid = async (req, res) => {
   try {
@@ -361,8 +378,8 @@ export const cancelBid = async (req, res) => {
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
-      customerId: userId,             // customer who canceled
-      shopId: null,               // no specific shop
+      customerId: userId, // customer who canceled
+      shopId: null, // no specific shop
       bidId: bid._id,
       type: "bid-canceled",
       message: `You canceled the bid ${bid.serviceDescription}`,
@@ -377,15 +394,6 @@ export const cancelBid = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
-
-
-
-
-
-
-
 
 export const repostBid = async (req, res) => {
   try {
@@ -409,8 +417,8 @@ export const repostBid = async (req, res) => {
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
-      customerId: userId,             // customer who reposted
-      shopId: null,               // no shop involved
+      customerId: userId, // customer who reposted
+      shopId: null, // no shop involved
       bidId: bid._id,
       type: "bid-reposted",
       message: `You reposted the bid ${bid.serviceDescription}`,
@@ -426,18 +434,9 @@ export const repostBid = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
 export const counterOffer = async (req, res) => {
   try {
-    const customerId = req.customer._id;  
+    const customerId = req.customer._id;
     const { offerId } = req.params;
     const { counterPrice, message } = req.body;
 
@@ -479,10 +478,10 @@ export const counterOffer = async (req, res) => {
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
-      customerId: customerId,                  // customer who made counter offer
-      shopId: offer.shopId,                // linked shop
-      bidId: offer.bidId._id,              // link the bid
-      type: "counter-offer",               // event type
+      customerId: customerId, // customer who made counter offer
+      shopId: offer.shopId, // linked shop
+      bidId: offer.bidId._id, // link the bid
+      type: "counter-offer", // event type
       message: `Counter offer ${offer.counterOffer.counterPrice} is submitted for offer (${offer.price})`,
       metadata: {
         offerId: offer._id,
@@ -495,7 +494,6 @@ export const counterOffer = async (req, res) => {
       message: "Counter offer submitted successfully",
       counterOffer: newCounterOffer,
     });
-
   } catch (error) {
     console.error("❌ Error submitting counter offer:", error);
     res.status(500).json({
@@ -506,25 +504,15 @@ export const counterOffer = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
 export const getShopProfile = async (req, res) => {
   try {
     const { shopId } = req.params;
 
     const shop = await Shop.findById(shopId);
     if (!shop) {
-      return res.status(404).json({ status: "error", message: "Shop not found" });
+      return res
+        .status(404)
+        .json({ status: "error", message: "Shop not found" });
     }
 
     // Map the shop document to the frontend format
