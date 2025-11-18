@@ -453,10 +453,13 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
+
+
+
 // ---------------------- GOOGLE AUTH ----------------------
 export const googleAuth = async (req, res) => {
   try {
-    const redirect_uri = `${process.env.API_BASE}/api/OAuth`;
+    const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
     const client_id = process.env.GOOGLE_CLIENT_ID;
 
     // Redirect user to Google login page
@@ -468,101 +471,53 @@ export const googleAuth = async (req, res) => {
     googleAuthURL.searchParams.set("access_type", "offline");
     googleAuthURL.searchParams.set("prompt", "select_account");
 
-    res.redirect(googleAuthURL.toString());
+    return res.redirect(googleAuthURL.toString());
   } catch (error) {
     console.error("Google Auth error:", error);
-    res.status(500).json({ status: "error", message: "Failed to start Google OAuth" });
+    return res.status(500).json({ status: "error", message: "Failed to start Google OAuth" });
   }
 };
 
-// ---------------------- GOOGLE CALLBACK ----------------------
+
 export const googleCallback = async (req, res) => {
   try {
-    const { code } = req.query;
+    const { email, name, picture } = req.user; // Google profile
 
-    if (!code)
-      return res.status(400).json({ status: "error", message: "No code provided" });
-
-    // Exchange code for access token
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      {
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${process.env.API_BASE}/api/customer/OAuth/callback`,
-        grant_type: "authorization_code",
-      },
-      { headers: { "Content-Type": "application/json" } }
-    );
-
-    const { access_token } = tokenRes.data;
-
-    // Fetch user info
-    const userRes = await axios.get("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-
-    const { email, name, picture: avatar, id: googleId } = userRes.data;
-
-    // Check if user exists
     let customer = await Customer.findOne({ email });
 
+    // If customer does not exist, create new one
     if (!customer) {
-      // Create new user
       customer = await Customer.create({
         name,
         email,
-        avatar,
-        googleId,
-        isEmailVerified: true, // Google already verified email
+        avatar: picture,
+        password: "GOOGLE_AUTH", // placeholder (not used)
+        isEmailVerified: true,
+        isAuthenticated: true
       });
+    } else {
+      // If exists, mark as authenticated
+      customer.isAuthenticated = true;
+      customer.isEmailVerified = true;
+      await customer.save();
     }
 
-    // Generate JWT
+    // Generate JWT token
     const token = jwt.sign(
-      { customerId: customer._id, email: customer.email },
+      { id: customer._id },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "7d" }
     );
 
-    // Send data back to popup (frontend)
-    const frontendOrigin = process.env.CORS_ORIGIN; // e.g. http://localhost:3000
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/google-success?token=${token}`
+    );
 
-    const html = `
-      <script>
-        window.opener.postMessage(
-          ${JSON.stringify({
-            status: "success",
-            token,
-            customer: {
-              id: customer._id,
-              name: customer.name,
-              email: customer.email,
-              avatar: customer.avatar || null,
-            },
-          })},
-          "${frontendOrigin}"
-        );
-        window.close();
-      </script>
-    `;
-
-    res.send(html);
   } catch (error) {
-    console.error("Google Callback error:", error.response?.data || error.message);
-    const html = `
-      <script>
-        window.opener.postMessage(
-          ${JSON.stringify({
-            status: "error",
-            message: "Google sign-in failed",
-          })},
-          "${process.env.CLIENT_BASE}"
-        );
-        window.close();
-      </script>
-    `;
-    res.send(html);
+    console.error("Google Callback Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Google Login Failed"
+    });
   }
 };

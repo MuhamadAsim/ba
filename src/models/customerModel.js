@@ -61,11 +61,11 @@ const customerSchema = new mongoose.Schema(
     resetPasswordOtp: { type: String, default: null },
     resetPasswordOtpExpiry: { type: Date, default: null },
   },
-  { timestamps: true } // adds createdAt and updatedAt
+  { timestamps: true } 
 );
 
 export default mongoose.model("Customer", customerSchema);
-//
+
 
 
 

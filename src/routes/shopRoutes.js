@@ -17,6 +17,9 @@ import {
   rejectCounterOffer,
   markBidCompleted,
   getPartnerStats,
+  getPlanDetails,
+  cancelSubscription,
+  changePlan,
 } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
@@ -71,6 +74,13 @@ router.post(
   authenticateShop,
   rejectCounterOffer
 );
+
+
+//plans
+router.get("/plan", authenticateShop, getPlanDetails);
+router.put("/plan/change", authenticateShop, changePlan);
+
+
 
 //map
 router.get("/get-all-shops", getShops);

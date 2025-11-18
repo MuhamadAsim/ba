@@ -31,29 +31,53 @@ export const getCustomerBidStats = async (req, res) => {
   }
 };
 
+// // 🟩 Controller to get all bids of a customer with offers + shop info
+// export const getUserBidsWithOffers = async (req, res) => {
+//   try {
+//     const userId = req.customer._id; // <-- use req.customer, not req.user
 
+//     const bids = await Bid.find({ user_id: userId })
+//       .populate({
+//         path: "offers",
+//         populate: {
+//           path: "shopId",
+//           model: "Shop",
+//           select: "businessName legalEntityName email phone address",
+//         },
+//       })
+//       .populate({
+//         path: "acceptedOffer",
+//         populate: {
+//           path: "shopId",
+//           model: "Shop",
+//           select: "businessName legalEntityName email phone address",
+//         },
+//       })
+//       .sort({ createdAt: -1 }); // latest bids first
 
+//     if (!bids || bids.length === 0) {
+//       return res.status(404).json({ message: "No bids found for this user" });
+//     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+//     res.status(200).json({
+//       success: true,
+//       count: bids.length,
+//       bids,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching user bids:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching user bids",
+//       error: error.message,
+//     });
+//   }
+// };
 
 // 🟩 Controller to get all bids of a customer with offers + shop info
 export const getUserBidsWithOffers = async (req, res) => {
   try {
-    const userId = req.customer._id; // <-- use req.customer, not req.user
+    const userId = req.customer._id;
 
     const bids = await Bid.find({ user_id: userId })
       .populate({
@@ -72,11 +96,52 @@ export const getUserBidsWithOffers = async (req, res) => {
           select: "businessName legalEntityName email phone address",
         },
       })
-      .sort({ createdAt: -1 }); // latest bids first
+      .populate("user_id", "name address zip") // ⭐ FIX ADDED HERE
+      .sort({ createdAt: -1 });
 
     if (!bids || bids.length === 0) {
       return res.status(404).json({ message: "No bids found for this user" });
     }
+    const formattedBids = bids.map((bid) => ({
+      bidId: bid._id,
+      product: {
+        title: bid.productTitle,
+        description: bid.productDescription,
+        quantity: bid.quantity,
+        unit: bid.unit,
+      },
+      user: {
+        id: bid.user_id?._id,
+        name: bid.user_id?.name,
+        address: bid.user_id?.address,
+        zip: bid.user_id?.zip,
+      },
+      offers: bid.offers.map((offer) => ({
+        offerId: offer._id,
+        price: offer.price,
+        description: offer.description,
+        shop: {
+          id: offer.shopId?._id,
+          businessName: offer.shopId?.businessName,
+          legalEntityName: offer.shopId?.legalEntityName,
+          email: offer.shopId?.email,
+          phone: offer.shopId?.phone,
+          address: offer.shopId?.address,
+        },
+      })),
+      acceptedOffer: bid.acceptedOffer
+        ? {
+            offerId: bid.acceptedOffer._id,
+            price: bid.acceptedOffer.price,
+            shop: {
+              id: bid.acceptedOffer.shopId?._id,
+              businessName: bid.acceptedOffer.shopId?.businessName,
+            },
+          }
+        : null,
+      status: bid.status,
+      createdAt: bid.createdAt,
+    }));
 
     res.status(200).json({
       success: true,
@@ -92,29 +157,6 @@ export const getUserBidsWithOffers = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export const getBidOffers = async (req, res) => {
   try {
@@ -182,35 +224,6 @@ export const getBidOffers = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export const acceptOffer = async (req, res) => {
   try {

@@ -54,6 +54,5 @@ router.get("/shop-info/:shopId", authenticateCustomer, getShopProfile);
 
 
 
-router.get("/google-OAuth", googleAuth);
 
 export default router;

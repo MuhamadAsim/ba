@@ -848,3 +848,181 @@ export const markBidCompleted = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+// Get shop plan details
+export const getPlanDetails = async (req, res) => {
+  try {
+    const shopId = req.shop.id; // Assuming auth middleware adds shop to req
+
+    const shop = await Shop.findById(shopId).select('plan planStartDate trialEndDate');
+
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    // Check if still in trial
+    const now = new Date();
+    const trialEndDate = new Date(shop.trialEndDate);
+    const isTrial = now < trialEndDate;
+
+    // Calculate days remaining in trial
+    const daysRemaining = isTrial
+      ? Math.max(0, Math.ceil((trialEndDate - now) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    // Calculate next billing date (1 month after trial ends or last billing)
+    let nextBillingDate;
+    if (isTrial) {
+      nextBillingDate = new Date(trialEndDate);
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    } else {
+      const monthsSinceStart = Math.floor((now - new Date(shop.planStartDate)) / (1000 * 60 * 60 * 24 * 30));
+      nextBillingDate = new Date(shop.planStartDate);
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + monthsSinceStart + 1);
+    }
+
+    res.status(200).json({
+      plan: shop.plan,
+      planStartDate: shop.planStartDate,
+      trialEndDate: shop.trialEndDate,
+      isTrial,
+      daysRemaining,
+      nextBillingDate: nextBillingDate.toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching plan details:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+// Change shop plan (upgrade/downgrade)
+export const changePlan = async (req, res) => {
+  try {
+    const shopId = req.shop.id;
+    const { plan } = req.body;
+
+    // Validate plan
+    if (!plan || !['basic', 'professional'].includes(plan)) {
+      return res.status(400).json({ 
+        message: 'Invalid plan. Must be either "basic" or "professional"' 
+      });
+    }
+
+    const shop = await Shop.findById(shopId);
+
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    // Check if already on this plan
+    if (shop.plan === plan) {
+      return res.status(400).json({ 
+        message: `You are already on the ${plan} plan` 
+      });
+    }
+
+    const previousPlan = shop.plan;
+    shop.plan = plan;
+
+    // Optional: Reset plan start date on plan change
+    // shop.planStartDate = new Date();
+
+    await shop.save();
+
+    const action = plan === 'professional' ? 'upgraded' : 'downgraded';
+    
+    res.status(200).json({
+      message: `Successfully ${action} from ${previousPlan} to ${plan} plan`,
+      plan: shop.plan,
+      planStartDate: shop.planStartDate,
+      previousPlan,
+    });
+  } catch (error) {
+    console.error('Error changing plan:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+// Cancel subscription (downgrade to basic)
+export const cancelSubscription = async (req, res) => {
+  try {
+    const shopId = req.shop.id;
+
+    const shop = await Shop.findById(shopId);
+
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    shop.plan = 'basic';
+    await shop.save();
+
+    res.status(200).json({
+      message: 'Subscription cancelled. Downgraded to basic plan',
+      plan: shop.plan,
+    });
+  } catch (error) {
+    console.error('Error cancelling subscription:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+
+
+
+
+
+
+// Get plan history (currently just current plan info)
+export const getPlanHistory = async (req, res) => {
+  try {
+    const shopId = req.shop.id;
+
+    const shop = await Shop.findById(shopId).select('plan planStartDate trialEndDate');
+
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    res.status(200).json({
+      currentPlan: shop.plan,
+      planStartDate: shop.planStartDate,
+      trialEndDate: shop.trialEndDate,
+      // Add billing history from separate model if available
+    });
+  } catch (error) {
+    console.error('Error fetching plan history:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};

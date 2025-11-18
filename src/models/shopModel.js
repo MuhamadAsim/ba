@@ -164,7 +164,7 @@ const shopSchema = new mongoose.Schema(
     // Plan Information
     plan: {
       type: String,
-      enum: ["basic", "professional", "enterprise"],
+      enum: ["basic", "professional"],
       required: true,
       default: "basic",
     },
