@@ -89,6 +89,7 @@ export const getUserChats = async (req, res) => {
   try {
     const userId = req.user._id;
     const userRole = req.user.role;
+    console.log(userId,userRole)
 
     let chats;
     if (userRole === "customer") {

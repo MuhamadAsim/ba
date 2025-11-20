@@ -7,6 +7,8 @@ import jwt from "jsonwebtoken";
 import Customer from "../models/customerModel.js";
 import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
+import axios from "axios";
+
 
 dotenv.config();
 
@@ -475,16 +477,27 @@ export const googleAuth = async (req, res) => {
 };
 
 
+
+
+
+
+
+
+
+
+
+
+
 export const googleCallback = async (req, res) => {
   try {
-    const code = req.query.code; // code from Google
+    const code = req.query.code;
     if (!code) throw new Error("No code provided");
 
     const client_id = process.env.GOOGLE_CLIENT_ID;
     const client_secret = process.env.GOOGLE_CLIENT_SECRET;
     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
 
-    // 1️⃣ Exchange code for access token
+    // Exchange code for access token
     const tokenResponse = await axios.post(
       "https://oauth2.googleapis.com/token",
       new URLSearchParams({
@@ -499,7 +512,7 @@ export const googleCallback = async (req, res) => {
 
     const { access_token } = tokenResponse.data;
 
-    // 2️⃣ Get user profile
+    // Fetch user profile
     const userInfoResponse = await axios.get(
       "https://www.googleapis.com/oauth2/v2/userinfo",
       { headers: { Authorization: `Bearer ${access_token}` } }
@@ -507,7 +520,7 @@ export const googleCallback = async (req, res) => {
 
     const { email, name, picture } = userInfoResponse.data;
 
-    // 3️⃣ Find or create customer
+    // Find or create customer
     let customer = await Customer.findOne({ email });
     if (!customer) {
       customer = await Customer.create({
@@ -524,14 +537,14 @@ export const googleCallback = async (req, res) => {
       await customer.save();
     }
 
-    // 4️⃣ Generate JWT like normal signin
+    // Generate JWT like normal signin
     const token = jwt.sign(
       { customerId: customer._id, email: customer.email, role: "customer" },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
-    // 5️⃣ Return JSON that frontend popup expects
+    // Send data to popup opener
     return res.send(`
       <script>
         window.opener.postMessage(
