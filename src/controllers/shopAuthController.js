@@ -200,7 +200,7 @@ export const signin = async (req, res) => {
 
     // ✅ Generate JWT for verified shop
     const token = jwt.sign(
-      { shopId: shop._id, email: shop.email },
+      { shopId: shop._id, email: shop.email ,role:"shop"},
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -661,7 +661,7 @@ export const completeRegistration = async (req, res) => {
 
     // ✅ Generate JWT token just like signin
     const token = jwt.sign(
-      { shopId: shop._id, email: shop.email },
+      { shopId: shop._id, email: shop.email ,role:"shop" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );

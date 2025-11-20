@@ -145,7 +145,7 @@ export const verifyOtp = async (req, res) => {
 
     // Generate JWT after verification
     const token = jwt.sign(
-      { customerId: customer._id, email: customer.email },
+      { customerId: customer._id, email: customer.email ,role:"customer"},
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -210,7 +210,7 @@ export const signin = async (req, res) => {
 
     // ✅ Generate JWT for verified user
     const token = jwt.sign(
-      { customerId: customer._id, email: customer.email },
+      { customerId: customer._id, email: customer.email ,role:"customer"},
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -504,7 +504,7 @@ export const googleCallback = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: customer._id },
+      { id: customer._id ,role:"customer"},
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
