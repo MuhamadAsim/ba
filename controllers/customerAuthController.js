@@ -453,16 +453,12 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-
-
-
 // ---------------------- GOOGLE AUTH ----------------------
 export const googleAuth = async (req, res) => {
   try {
     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
     const client_id = process.env.GOOGLE_CLIENT_ID;
 
-    // Redirect user to Google login page
     const googleAuthURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     googleAuthURL.searchParams.set("client_id", client_id);
     googleAuthURL.searchParams.set("redirect_uri", redirect_uri);
@@ -478,25 +474,23 @@ export const googleAuth = async (req, res) => {
   }
 };
 
-
 export const googleCallback = async (req, res) => {
   try {
-    const { email, name, picture } = req.user; // Google profile
+    // req.user should be populated by your passport/google OAuth middleware
+    const { email, name, picture } = req.user;
 
     let customer = await Customer.findOne({ email });
 
-    // If customer does not exist, create new one
     if (!customer) {
       customer = await Customer.create({
         name,
         email,
         avatar: picture,
-        password: "GOOGLE_AUTH", // placeholder (not used)
+        password: "GOOGLE_AUTH",
         isEmailVerified: true,
         isAuthenticated: true
       });
     } else {
-      // If exists, mark as authenticated
       customer.isAuthenticated = true;
       customer.isEmailVerified = true;
       await customer.save();
@@ -504,13 +498,22 @@ export const googleCallback = async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: customer._id ,role:"customer"},
+      { id: customer._id, role: "customer" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    // Encode customer info to send to frontend popup
+    const encodedCustomer = encodeURIComponent(JSON.stringify({
+      id: customer._id,
+      name: customer.name,
+      email: customer.email,
+      avatar: customer.avatar
+    }));
+
+    // Redirect to frontend /google-success page
     return res.redirect(
-      `${process.env.FRONTEND_URL}/google-success?token=${token}`
+      `${process.env.FRONTEND_URL}/google-success?token=${token}&customer=${encodedCustomer}`
     );
 
   } catch (error) {
