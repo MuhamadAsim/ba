@@ -474,13 +474,41 @@ export const googleAuth = async (req, res) => {
   }
 };
 
+
 export const googleCallback = async (req, res) => {
   try {
-    // req.user should be populated by your passport/google OAuth middleware
-    const { email, name, picture } = req.user;
+    const code = req.query.code; // code from Google
+    if (!code) throw new Error("No code provided");
 
+    const client_id = process.env.GOOGLE_CLIENT_ID;
+    const client_secret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
+
+    // 1️⃣ Exchange code for access token
+    const tokenResponse = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      new URLSearchParams({
+        code,
+        client_id,
+        client_secret,
+        redirect_uri,
+        grant_type: "authorization_code",
+      }).toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
+
+    const { access_token } = tokenResponse.data;
+
+    // 2️⃣ Get user profile
+    const userInfoResponse = await axios.get(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      { headers: { Authorization: `Bearer ${access_token}` } }
+    );
+
+    const { email, name, picture } = userInfoResponse.data;
+
+    // 3️⃣ Find or create customer
     let customer = await Customer.findOne({ email });
-
     if (!customer) {
       customer = await Customer.create({
         name,
@@ -488,39 +516,51 @@ export const googleCallback = async (req, res) => {
         avatar: picture,
         password: "GOOGLE_AUTH",
         isEmailVerified: true,
-        isAuthenticated: true
+        isAuthenticated: true,
       });
     } else {
-      customer.isAuthenticated = true;
       customer.isEmailVerified = true;
+      customer.isAuthenticated = true;
       await customer.save();
     }
 
-    // Generate JWT token
+    // 4️⃣ Generate JWT like normal signin
     const token = jwt.sign(
-      { id: customer._id, role: "customer" },
+      { customerId: customer._id, email: customer.email, role: "customer" },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "1d" }
     );
 
-    // Encode customer info to send to frontend popup
-    const encodedCustomer = encodeURIComponent(JSON.stringify({
-      id: customer._id,
-      name: customer.name,
-      email: customer.email,
-      avatar: customer.avatar
-    }));
-
-    // Redirect to frontend /google-success page
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/google-success?token=${token}&customer=${encodedCustomer}`
-    );
+    // 5️⃣ Return JSON that frontend popup expects
+    return res.send(`
+      <script>
+        window.opener.postMessage(
+          {
+            status: "success",
+            token: "${token}",
+            customer: ${JSON.stringify({
+              id: customer._id,
+              name: customer.name,
+              email: customer.email,
+              avatar: customer.avatar || null,
+            })}
+          },
+          "${process.env.FRONTEND_URL}"
+        );
+        window.close();
+      </script>
+    `);
 
   } catch (error) {
     console.error("Google Callback Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Google Login Failed"
-    });
+    return res.send(`
+      <script>
+        window.opener.postMessage(
+          { status: "error", message: "${error.message}" },
+          "${process.env.FRONTEND_URL}"
+        );
+        window.close();
+      </script>
+    `);
   }
 };
