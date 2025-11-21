@@ -796,9 +796,29 @@ export const updateShopProfile = async (req, res) => {
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
+  process.env.GOOGLE_REDIRECT_URI_SHOP
 );
 
+
+
+// -------------------- STEP 1: SEND GOOGLE LOGIN URL --------------------
+export const getGoogleAuthURLShop = async (req, res) => {
+  try {
+    const url = client.generateAuthUrl({
+      access_type: "offline",
+      prompt: "consent",
+      scope: [
+        "profile",
+        "email"
+      ]
+    });
+
+    res.json({ url });
+  } catch (error) {
+    console.error("Google URL error:", error);
+    res.status(500).json({ message: "Error generating Google URL" });
+  }
+};
 
 
 // -------------------- STEP 2: GOOGLE CALLBACK --------------------
