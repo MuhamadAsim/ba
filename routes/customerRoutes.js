@@ -6,8 +6,6 @@ import {
   updateProfile,
   forgotPassword,
   resetPassword,
-  googleAuth,
-  googleCallback,
 } from "../controllers/customerAuthController.js";
 import {
   getCustomerBidStats,

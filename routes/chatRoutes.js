@@ -3,6 +3,7 @@ import {
   getOrCreateChat,
   getUserChats,
   getChat,
+  getChatContext,
   sendMessage,
   deleteChat,
   clearChatMessages,
@@ -10,6 +11,7 @@ import {
   searchChats,
 } from "../controllers/chatController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
+
 const router = express.Router();
 
 // All routes require authentication
@@ -21,6 +23,7 @@ router.get("/list", getUserChats);
 router.get("/unread-count", getUnreadCount);
 router.get("/search", searchChats);
 router.get("/:chatId", getChat);
+router.get("/:chatId/context", getChatContext);  // ✅ NEW - Fetch offer/bid/counter data
 router.post("/:chatId/message", sendMessage);
 router.delete("/:chatId", deleteChat);
 router.delete("/:chatId/clear", clearChatMessages);

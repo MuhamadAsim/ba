@@ -1,24 +1,19 @@
 import Chat from "../models/chatRoomModel.js";
 import Customer from "../models/customerModel.js";
 import Shop from "../models/shopModel.js";
+import Offer from "../models/offerModel.js";
+import Bid from "../models/bidModel.js";
 
-
-
-
-
-
-
-
-// Get or create a chat between customer and shop
+// ==================== GET OR CREATE CHAT ====================
 export const getOrCreateChat = async (req, res) => {
   try {
-    const { customerId, shopId } = req.body;
-    const userRole = req.user.role; // "customer" or "shop"
+    const { customerId, shopId, offerId, bidId, counterOfferId } = req.body;
+    const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    console.log("CUSTOMER:", customerId, "SHOP:", shopId, "ROLE:", userRole, "USER:", userId);
+    console.log("Creating/Getting chat - Customer:", customerId, "Shop:", shopId);
 
-    // ------------------------------ AUTH CHECK ------------------------------
+    // ----- AUTH CHECK -----
     if (userRole === "customer" && userId !== customerId) {
       return res.status(403).json({ error: "Unauthorized access" });
     }
@@ -31,29 +26,47 @@ export const getOrCreateChat = async (req, res) => {
       return res.status(400).json({ error: "Invalid chat participants" });
     }
 
-    // ------------------------------ CHECK IF CHAT EXISTS ------------------------------
+    // ----- CHECK IF CHAT EXISTS -----
     let chat = await Chat.findOne({
       customerId,
       shopId,
     });
 
     if (chat) {
+      // Add new reference to existing chat if provided
+      if (offerId && !chat.relatedOffers.includes(offerId)) {
+        chat.relatedOffers.push(offerId);
+        await chat.save();
+      }
+      if (bidId && !chat.relatedBids.includes(bidId)) {
+        chat.relatedBids.push(bidId);
+        await chat.save();
+      }
+      if (counterOfferId && !chat.relatedCounterOffers.includes(counterOfferId)) {
+        chat.relatedCounterOffers.push(counterOfferId);
+        await chat.save();
+      }
+      
       return res.status(200).json(chat);
     }
 
-    // ------------------------------ GET CUSTOMER + SHOP ------------------------------
+    // ----- GET CUSTOMER + SHOP -----
     const customer = await Customer.findById(customerId).select("name email avatar");
-    
     const shop = await Shop.findById(shopId).select("businessName email profilePic");
 
     if (!customer || !shop) {
       return res.status(404).json({ error: "Customer or Shop not found" });
     }
 
-    // ------------------------------ CREATE CHAT ------------------------------
+    // ----- CREATE CHAT -----
     chat = await Chat.create({
       customerId,
       shopId,
+
+      // Initialize related arrays
+      relatedOffers: offerId ? [offerId] : [],
+      relatedBids: bidId ? [bidId] : [],
+      relatedCounterOffers: counterOfferId ? [counterOfferId] : [],
 
       // Customer Fields
       customerName: customer.name,
@@ -70,26 +83,271 @@ export const getOrCreateChat = async (req, res) => {
     });
 
     res.status(201).json(chat);
-
   } catch (error) {
     console.error("Error in getOrCreateChat:", error);
     res.status(500).json({ error: error.message });
   }
 };
 
+// ==================== GET CHAT CONTEXT DATA ====================
+// Fetches all related offers/bids/counter-offers for this chat
+export const getChatContext = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user._id;
 
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
 
+    // Verify authorization
+    const isCustomer = chat.customerId.toString() === userId.toString();
+    const isShop = chat.shopId.toString() === userId.toString();
 
+    if (!isCustomer && !isShop) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
 
+    const contextData = {
+      offers: [],
+      bids: [],
+      counterOffers: [],
+    };
 
+    // ----- FETCH ALL RELATED OFFERS -----
+    if (chat.relatedOffers && chat.relatedOffers.length > 0) {
+      try {
+        const offers = await Offer.find({
+          _id: { $in: chat.relatedOffers }
+        }).select("price description status createdAt");
+        
+        contextData.offers = offers.map(offer => ({
+          _id: offer._id,
+          price: offer.price,
+          description: offer.description,
+          status: offer.status,
+          createdAt: offer.createdAt,
+        }));
+      } catch (err) {
+        console.error("Error fetching offers:", err);
+      }
+    }
 
+    // ----- FETCH ALL RELATED BIDS -----
+    if (chat.relatedBids && chat.relatedBids.length > 0) {
+      try {
+        const bids = await Bid.find({
+          _id: { $in: chat.relatedBids }
+        }).select("serviceDescription requestCategory vehicleYear vehicleMake vehicleModel createdAt");
+        
+        contextData.bids = bids.map(bid => {
+          const vehicle = [bid.vehicleYear, bid.vehicleMake, bid.vehicleModel]
+            .filter(Boolean)
+            .join(" ");
+          return {
+            _id: bid._id,
+            service: bid.serviceDescription || bid.requestCategory,
+            vehicle: vehicle || "Vehicle information not provided",
+            createdAt: bid.createdAt,
+          };
+        });
+      } catch (err) {
+        console.error("Error fetching bids:", err);
+      }
+    }
 
-// Get all chats for current user
+    // ----- FETCH ALL RELATED COUNTER OFFERS -----
+    if (chat.relatedCounterOffers && chat.relatedCounterOffers.length > 0) {
+      try {
+        const offers = await Offer.find({
+          "counterOffers._id": { $in: chat.relatedCounterOffers }
+        });
+
+        offers.forEach(offer => {
+          offer.counterOffers.forEach(co => {
+            if (chat.relatedCounterOffers.some(id => id.toString() === co._id.toString())) {
+              contextData.counterOffers.push({
+                _id: co._id,
+                proposedPrice: co.counterPrice,
+                message: co.message,
+                status: co.status,
+                createdBy: co.createdBy,
+                createdAt: co.createdAt,
+              });
+            }
+          });
+        });
+      } catch (err) {
+        console.error("Error fetching counter offers:", err);
+      }
+    }
+
+    res.status(200).json(contextData);
+  } catch (error) {
+    console.error("Error in getChatContext:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==================== SEND MESSAGE WITH REFERENCES ====================
+export const sendMessage = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { text, references } = req.body; // references: [{ type, referenceId, data }]
+    const userId = req.user._id;
+    const userRole = req.user.role;
+    const userName = req.user.name || req.user.businessName || "User";
+
+    if (!text || text.trim() === "") {
+      return res.status(400).json({ error: "Message text is required" });
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
+
+    // Verify user is part of this chat
+    const isCustomer = chat.customerId.toString() === userId.toString();
+    const isShop = chat.shopId.toString() === userId.toString();
+
+    if (!isCustomer && !isShop) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Process references and fetch their data
+    const processedReferences = [];
+    
+    if (references && Array.isArray(references)) {
+      for (const ref of references) {
+        let refData = {};
+        
+        try {
+          if (ref.type === "offer") {
+            const offer = await Offer.findById(ref.referenceId).select("price description status");
+            if (offer) {
+              refData = {
+                price: offer.price,
+                description: offer.description,
+                status: offer.status,
+              };
+              
+              // Add to chat's related offers if not already there
+              if (!chat.relatedOffers.includes(ref.referenceId)) {
+                chat.relatedOffers.push(ref.referenceId);
+              }
+            }
+          } else if (ref.type === "bid") {
+            const bid = await Bid.findById(ref.referenceId).select(
+              "serviceDescription requestCategory vehicleYear vehicleMake vehicleModel"
+            );
+            if (bid) {
+              const vehicle = [bid.vehicleYear, bid.vehicleMake, bid.vehicleModel]
+                .filter(Boolean)
+                .join(" ");
+              refData = {
+                serviceDescription: bid.serviceDescription || bid.requestCategory,
+                vehicle: vehicle || "Vehicle information not provided",
+              };
+              
+              // Add to chat's related bids if not already there
+              if (!chat.relatedBids.includes(ref.referenceId)) {
+                chat.relatedBids.push(ref.referenceId);
+              }
+            }
+          } else if (ref.type === "counterOffer") {
+            const offer = await Offer.findOne({
+              "counterOffers._id": ref.referenceId
+            });
+            
+            if (offer) {
+              const counterOffer = offer.counterOffers.find(
+                co => co._id.toString() === ref.referenceId.toString()
+              );
+              
+              if (counterOffer) {
+                refData = {
+                  proposedPrice: counterOffer.counterPrice,
+                  message: counterOffer.message,
+                  status: counterOffer.status,
+                };
+                
+                // Add to chat's related counter offers if not already there
+                if (!chat.relatedCounterOffers.includes(ref.referenceId)) {
+                  chat.relatedCounterOffers.push(ref.referenceId);
+                }
+              }
+            }
+          }
+          
+          processedReferences.push({
+            type: ref.type,
+            referenceId: ref.referenceId,
+            data: refData,
+          });
+        } catch (err) {
+          console.error(`Error processing reference ${ref.referenceId}:`, err);
+        }
+      }
+    }
+
+    // Create message
+    const message = {
+      senderId: userId,
+      senderType: userRole,
+      senderName: userName,
+      text: text.trim(),
+      references: processedReferences,
+      isRead: false,
+      createdAt: new Date(),
+    };
+
+    // Add message to chat
+    chat.messages.push(message);
+    chat.lastMessage = text.trim();
+    chat.lastMessageTime = new Date();
+
+    // Update unread counts
+    if (userRole === "customer") {
+      chat.unreadCountShop += 1;
+    } else if (userRole === "shop") {
+      chat.unreadCountCustomer += 1;
+    }
+
+    await chat.save();
+
+    // Emit real-time update via Socket.io
+    if (req.io) {
+      req.io.to(chatId).emit("newMessage", {
+        ...message,
+        _id: message._id,
+        chatId,
+      });
+
+      req.io.to(chatId).emit("chatUpdated", {
+        chatId,
+        lastMessage: message.text,
+        lastMessageTime: message.createdAt,
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: message,
+      chatId,
+    });
+  } catch (error) {
+    console.error("Error in sendMessage:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==================== GET ALL CHATS ==================== 
 export const getUserChats = async (req, res) => {
   try {
     const userId = req.user._id;
     const userRole = req.user.role;
-    console.log(userId,userRole)
 
     let chats;
     if (userRole === "customer") {
@@ -111,7 +369,7 @@ export const getUserChats = async (req, res) => {
   }
 };
 
-// Get single chat with all messages
+// ==================== GET SINGLE CHAT ====================
 export const getChat = async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -157,84 +415,7 @@ export const getChat = async (req, res) => {
   }
 };
 
-// Send a message in a chat
-export const sendMessage = async (req, res) => {
-  try {
-    const { chatId } = req.params;
-    const { text } = req.body;
-    const userId = req.user._id;
-    const userRole = req.user.role;
-    const userName = req.user.name || req.user.shopName;
-
-    if (!text || text.trim() === "") {
-      return res.status(400).json({ error: "Message text is required" });
-    }
-
-    const chat = await Chat.findById(chatId);
-    if (!chat) {
-      return res.status(404).json({ error: "Chat not found" });
-    }
-
-    // Verify user is part of this chat
-    const isCustomer = chat.customerId.toString() === userId.toString();
-    const isShop = chat.shopId.toString() === userId.toString();
-
-    if (!isCustomer && !isShop) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    // Create message
-    const message = {
-      senderId: userId,
-      senderType: userRole,
-      senderName: userName,
-      text: text.trim(),
-      isRead: false,
-      createdAt: new Date(),
-    };
-
-    // Add message to chat
-    chat.messages.push(message);
-    chat.lastMessage = text.trim();
-    chat.lastMessageTime = new Date();
-
-    // Update unread counts
-    if (userRole === "customer") {
-      chat.unreadCountShop += 1;
-    } else if (userRole === "shop") {
-      chat.unreadCountCustomer += 1;
-    }
-
-    await chat.save();
-
-    // Emit real-time update via Socket.io
-    if (req.io) {
-      req.io.to(chatId).emit("newMessage", {
-        ...message,
-        _id: message._id,
-        chatId,
-      });
-
-      // Update chat list for other user
-      req.io.to(chatId).emit("chatUpdated", {
-        chatId,
-        lastMessage: message.text,
-        lastMessageTime: message.createdAt,
-      });
-    }
-
-    res.status(201).json({
-      success: true,
-      message: message,
-      chatId,
-    });
-  } catch (error) {
-    console.error("Error in sendMessage:", error);
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Delete a chat
+// ==================== DELETE CHAT ====================
 export const deleteChat = async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -245,7 +426,6 @@ export const deleteChat = async (req, res) => {
       return res.status(404).json({ error: "Chat not found" });
     }
 
-    // Verify authorization
     const isCustomer = chat.customerId.toString() === userId.toString();
     const isShop = chat.shopId.toString() === userId.toString();
 
@@ -253,7 +433,6 @@ export const deleteChat = async (req, res) => {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    // Soft delete
     chat.isActive = false;
     await chat.save();
 
@@ -264,38 +443,7 @@ export const deleteChat = async (req, res) => {
   }
 };
 
-// Clear chat messages
-export const clearChatMessages = async (req, res) => {
-  try {
-    const { chatId } = req.params;
-    const userId = req.user._id;
-
-    const chat = await Chat.findById(chatId);
-    if (!chat) {
-      return res.status(404).json({ error: "Chat not found" });
-    }
-
-    // Verify authorization
-    const isCustomer = chat.customerId.toString() === userId.toString();
-    const isShop = chat.shopId.toString() === userId.toString();
-
-    if (!isCustomer && !isShop) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    chat.messages = [];
-    chat.lastMessage = null;
-    chat.lastMessageTime = null;
-    await chat.save();
-
-    res.status(200).json({ success: true, message: "Chat cleared" });
-  } catch (error) {
-    console.error("Error in clearChatMessages:", error);
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Get unread message count
+// ==================== GET UNREAD COUNT ====================
 export const getUnreadCount = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -318,30 +466,82 @@ export const getUnreadCount = async (req, res) => {
   }
 };
 
-// Search chats
-export const searchChats = async (req, res) => {
-  try {
-    const { query } = req.query;
-    const userId = req.user._id;
-    const userRole = req.user.role;
 
-    if (!query || query.trim() === "") {
-      return res.status(400).json({ error: "Search query required" });
+// ==================== CLEAR CHAT MESSAGES ====================
+export const clearChatMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user._id;
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
     }
 
-    let chats;
-    const searchRegex = new RegExp(query, "i");
+    // Verify user is part of this chat
+    const isCustomer = chat.customerId.toString() === userId.toString();
+    const isShop = chat.shopId.toString() === userId.toString();
 
+    if (!isCustomer && !isShop) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Clear messages but keep the chat
+    chat.messages = [];
+    chat.lastMessage = "";
+    chat.lastMessageTime = null;
+    chat.unreadCountCustomer = 0;
+    chat.unreadCountShop = 0;
+
+    await chat.save();
+
+    res.status(200).json({ success: true, message: "Chat messages cleared" });
+  } catch (error) {
+    console.error("Error in clearChatMessages:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==================== SEARCH CHATS ====================
+export const searchChats = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userRole = req.user.role;
+    const { query } = req.query;
+
+    if (!query || query.trim() === "") {
+      return res.status(400).json({ error: "Search query is required" });
+    }
+
+    const searchRegex = new RegExp(query.trim(), "i");
+
+    let chats;
     if (userRole === "customer") {
       chats = await Chat.find({
         customerId: userId,
-        shopName: searchRegex,
-      }).lean();
+        isActive: true,
+        $or: [
+          { shopName: searchRegex },
+          { lastMessage: searchRegex },
+          { "messages.text": searchRegex },
+        ],
+      })
+        .sort({ updatedAt: -1 })
+        .lean();
     } else if (userRole === "shop") {
       chats = await Chat.find({
         shopId: userId,
-        customerName: searchRegex,
-      }).lean();
+        isActive: true,
+        $or: [
+          { customerName: searchRegex },
+          { lastMessage: searchRegex },
+          { "messages.text": searchRegex },
+        ],
+      })
+        .sort({ updatedAt: -1 })
+        .lean();
+    } else {
+      return res.status(403).json({ error: "Invalid user role" });
     }
 
     res.status(200).json(chats);
