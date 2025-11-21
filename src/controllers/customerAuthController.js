@@ -8,6 +8,8 @@ import Customer from "../models/customerModel.js";
 import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
 import axios from "axios";
+import { OAuth2Client } from "google-auth-library";
+
 
 
 dotenv.config();
@@ -455,125 +457,210 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-// ---------------------- GOOGLE AUTH ----------------------
-export const googleAuth = async (req, res) => {
+// // ---------------------- GOOGLE AUTH ----------------------
+// export const googleAuth = async (req, res) => {
+//   try {
+//     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
+//     const client_id = process.env.GOOGLE_CLIENT_ID;
+
+//     const googleAuthURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+//     googleAuthURL.searchParams.set("client_id", client_id);
+//     googleAuthURL.searchParams.set("redirect_uri", redirect_uri);
+//     googleAuthURL.searchParams.set("response_type", "code");
+//     googleAuthURL.searchParams.set("scope", "profile email");
+//     googleAuthURL.searchParams.set("access_type", "offline");
+//     googleAuthURL.searchParams.set("prompt", "select_account");
+
+//     return res.redirect(googleAuthURL.toString());
+//   } catch (error) {
+//     console.error("Google Auth error:", error);
+//     return res.status(500).json({ status: "error", message: "Failed to start Google OAuth" });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+// export const googleCallback = async (req, res) => {
+//   try {
+//     const code = req.query.code;
+//     if (!code) throw new Error("No code provided");
+
+//     const client_id = process.env.GOOGLE_CLIENT_ID;
+//     const client_secret = process.env.GOOGLE_CLIENT_SECRET;
+//     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
+
+//     // Exchange code for access token
+//     const tokenResponse = await axios.post(
+//       "https://oauth2.googleapis.com/token",
+//       new URLSearchParams({
+//         code,
+//         client_id,
+//         client_secret,
+//         redirect_uri,
+//         grant_type: "authorization_code",
+//       }).toString(),
+//       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+//     );
+
+//     const { access_token } = tokenResponse.data;
+
+//     // Fetch user profile
+//     const userInfoResponse = await axios.get(
+//       "https://www.googleapis.com/oauth2/v2/userinfo",
+//       { headers: { Authorization: `Bearer ${access_token}` } }
+//     );
+
+//     const { email, name, picture } = userInfoResponse.data;
+
+//     // Find or create customer
+//     let customer = await Customer.findOne({ email });
+//     if (!customer) {
+//       customer = await Customer.create({
+//         name,
+//         email,
+//         avatar: picture,
+//         password: "GOOGLE_AUTH",
+//         isEmailVerified: true,
+//         isAuthenticated: true,
+//       });
+//     } else {
+//       customer.isEmailVerified = true;
+//       customer.isAuthenticated = true;
+//       await customer.save();
+//     }
+
+//     // Generate JWT like normal signin
+//     const token = jwt.sign(
+//       { customerId: customer._id, email: customer.email, role: "customer" },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "1d" }
+//     );
+
+//     // Send data to popup opener
+//     return res.send(`
+//       <script>
+//         window.opener.postMessage(
+//           {
+//             status: "success",
+//             token: "${token}",
+//             customer: ${JSON.stringify({
+//               id: customer._id,
+//               name: customer.name,
+//               email: customer.email,
+//               avatar: customer.avatar || null,
+//             })}
+//           },
+//           "${process.env.FRONTEND_URL}"
+//         );
+//         window.close();
+//       </script>
+//     `);
+
+//   } catch (error) {
+//     console.error("Google Callback Error:", error);
+//     return res.send(`
+//       <script>
+//         window.opener.postMessage(
+//           { status: "error", message: "${error.message}" },
+//           "${process.env.FRONTEND_URL}"
+//         );
+//         window.close();
+//       </script>
+//     `);
+//   }
+// };
+
+
+
+
+
+
+const client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+// -------------------- STEP 1: SEND GOOGLE LOGIN URL --------------------
+export const getGoogleAuthURL = async (req, res) => {
   try {
-    const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
-    const client_id = process.env.GOOGLE_CLIENT_ID;
+    const url = client.generateAuthUrl({
+      access_type: "offline",
+      prompt: "consent",
+      scope: [
+        "profile",
+        "email"
+      ]
+    });
 
-    const googleAuthURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    googleAuthURL.searchParams.set("client_id", client_id);
-    googleAuthURL.searchParams.set("redirect_uri", redirect_uri);
-    googleAuthURL.searchParams.set("response_type", "code");
-    googleAuthURL.searchParams.set("scope", "profile email");
-    googleAuthURL.searchParams.set("access_type", "offline");
-    googleAuthURL.searchParams.set("prompt", "select_account");
-
-    return res.redirect(googleAuthURL.toString());
+    res.json({ url });
   } catch (error) {
-    console.error("Google Auth error:", error);
-    return res.status(500).json({ status: "error", message: "Failed to start Google OAuth" });
+    console.error("Google URL error:", error);
+    res.status(500).json({ message: "Error generating Google URL" });
   }
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
+// -------------------- STEP 2: GOOGLE CALLBACK --------------------
 export const googleCallback = async (req, res) => {
   try {
     const code = req.query.code;
-    if (!code) throw new Error("No code provided");
+    const { tokens } = await client.getToken(code);
 
-    const client_id = process.env.GOOGLE_CLIENT_ID;
-    const client_secret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
+    client.setCredentials(tokens);
 
-    // Exchange code for access token
-    const tokenResponse = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      new URLSearchParams({
-        code,
-        client_id,
-        client_secret,
-        redirect_uri,
-        grant_type: "authorization_code",
-      }).toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    // Fetch Google user data
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
 
-    const { access_token } = tokenResponse.data;
+    const googleUser = ticket.getPayload();
 
-    // Fetch user profile
-    const userInfoResponse = await axios.get(
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-      { headers: { Authorization: `Bearer ${access_token}` } }
-    );
+    const email = googleUser.email;
+    const name = googleUser.name;
+    const avatar = googleUser.picture;
 
-    const { email, name, picture } = userInfoResponse.data;
+    let user = await Customer.findOne({ email });
 
-    // Find or create customer
-    let customer = await Customer.findOne({ email });
-    if (!customer) {
-      customer = await Customer.create({
+    if (!user) {
+      // -------------------- NEW USER (SIGNUP VIA GOOGLE) --------------------
+      user = await Customer.create({
         name,
         email,
-        avatar: picture,
-        password: "GOOGLE_AUTH",
+        avatar,
+        password: "GOOGLE_AUTH_USER", 
         isEmailVerified: true,
         isAuthenticated: true,
       });
-    } else {
-      customer.isEmailVerified = true;
-      customer.isAuthenticated = true;
-      await customer.save();
     }
 
-    // Generate JWT like normal signin
+    // -------------------- EXISTING USER LOGIN --------------------
     const token = jwt.sign(
-      { customerId: customer._id, email: customer.email, role: "customer" },
+      { customerId: user._id, email: user.email, role: "customer" },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
-    // Send data to popup opener
-    return res.send(`
-      <script>
-        window.opener.postMessage(
-          {
-            status: "success",
-            token: "${token}",
-            customer: ${JSON.stringify({
-              id: customer._id,
-              name: customer.name,
-              email: customer.email,
-              avatar: customer.avatar || null,
-            })}
-          },
-          "${process.env.FRONTEND_URL}"
-        );
-        window.close();
-      </script>
-    `);
+    // Frontend wants redirect back with token
+    const redirectUrl = `https://bidawrap1.netlify.app/google-success?token=${token}&name=${encodeURIComponent(user.name)}&email=${encodeURIComponent(user.email)}&avatar=${encodeURIComponent(user.avatar)}`;
+
+    return res.redirect(redirectUrl);
 
   } catch (error) {
-    console.error("Google Callback Error:", error);
-    return res.send(`
-      <script>
-        window.opener.postMessage(
-          { status: "error", message: "${error.message}" },
-          "${process.env.FRONTEND_URL}"
-        );
-        window.close();
-      </script>
-    `);
+    console.error("Google callback error:", error);
+    return res.redirect(
+      `https://bidawrap1.netlify.app/google-failed`
+    );
   }
 };

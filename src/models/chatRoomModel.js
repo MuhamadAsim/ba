@@ -1,39 +1,62 @@
-
-// ============================================
-// models/Chat.js
-// ============================================
+// models/chatRoomModel.js
 import mongoose from "mongoose";
 
-const messageSchema = new mongoose.Schema(
-  {
-    senderId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true,
-    },
-    senderType: {
-      type: String,
-      enum: ["customer", "shop"],
-      required: true,
-    },
-    senderName: String,
-    text: {
-      type: String,
-      required: true,
-    },
-    isRead: {
-      type: Boolean,
-      default: false,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
+// Reference schema for offers/bids/counter-offers attached to messages
+const referenceSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["offer", "bid", "counterOffer"],
+    required: true,
   },
-  { timestamps: false }
-);
+  referenceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+  },
+  // Cached data for quick display (denormalized)
+  data: {
+    price: Number,
+    description: String,
+    status: String,
+    serviceDescription: String,
+    vehicle: String,
+    proposedPrice: Number,
+    message: String,
+  },
+});
 
-const chatSchema = new mongoose.Schema(
+const messageSchema = new mongoose.Schema({
+  senderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+  },
+  senderType: {
+    type: String,
+    enum: ["customer", "shop"],
+    required: true,
+  },
+  senderName: {
+    type: String,
+    required: true,
+  },
+  text: {
+    type: String,
+    required: true,
+  },
+  // Multiple references can be attached to one message
+  references: [referenceSchema],
+  isRead: {
+    type: Boolean,
+    default: false,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+const chatRoomSchema = new mongoose.Schema(
   {
+    // Participants
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
@@ -41,22 +64,57 @@ const chatSchema = new mongoose.Schema(
     },
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Partner",
+      ref: "Shop",
       required: true,
     },
+
+    // Context: All offers/bids/counter-offers discussed in this chat
+    relatedOffers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Offer",
+    }],
+    relatedBids: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Bid",
+    }],
+    relatedCounterOffers: [{
+      type: mongoose.Schema.Types.ObjectId,
+    }],
+
+    // Customer Information
     customerName: {
       type: String,
       required: true,
     },
-    customerAvatar: String,
+    customerAvatar: {
+      type: String,
+      default: null,
+    },
+
+    // Shop Information
     shopName: {
       type: String,
       required: true,
     },
-    shopAvatar: String,
+    shopAvatar: {
+      type: String,
+      default: null,
+    },
+
+    // Messages with references
     messages: [messageSchema],
-    lastMessage: String,
-    lastMessageTime: Date,
+
+    // Last Message Info
+    lastMessage: {
+      type: String,
+      default: null,
+    },
+    lastMessageTime: {
+      type: Date,
+      default: null,
+    },
+
+    // Unread Counts
     unreadCountCustomer: {
       type: Number,
       default: 0,
@@ -65,6 +123,8 @@ const chatSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    // Status
     isActive: {
       type: Boolean,
       default: true,
@@ -76,8 +136,10 @@ const chatSchema = new mongoose.Schema(
 );
 
 // Index for faster queries
-chatSchema.index({ customerId: 1, shopId: 1 });
-chatSchema.index({ updatedAt: -1 });
+chatRoomSchema.index({ customerId: 1, shopId: 1 });
+chatRoomSchema.index({ customerId: 1, isActive: 1 });
+chatRoomSchema.index({ shopId: 1, isActive: 1 });
+chatRoomSchema.index({ relatedOffers: 1 });
+chatRoomSchema.index({ relatedBids: 1 });
 
-const Chat = mongoose.model("Chat", chatSchema);
-export default Chat;
+export default mongoose.model("Chat", chatRoomSchema);
