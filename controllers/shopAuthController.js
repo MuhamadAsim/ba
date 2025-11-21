@@ -5,6 +5,8 @@ import crypto from "crypto";
 import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
+
 
 dotenv.config();
 
@@ -775,5 +777,99 @@ export const updateShopProfile = async (req, res) => {
   } catch (error) {
     console.error("🔥 Update shop profile error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+// -------------------- STEP 1: SEND GOOGLE LOGIN URL --------------------
+export const getGoogleAuthURL = async (req, res) => {
+  try {
+    const url = client.generateAuthUrl({
+      access_type: "offline",
+      prompt: "consent",
+      scope: [
+        "profile",
+        "email"
+      ]
+    });
+
+    res.json({ url });
+  } catch (error) {
+    console.error("Google URL error:", error);
+    res.status(500).json({ message: "Error generating Google URL" });
+  }
+};
+
+
+// -------------------- STEP 2: GOOGLE CALLBACK --------------------
+export const googleCallback = async (req, res) => {
+  try {
+    const code = req.query.code;
+    const { tokens } = await client.getToken(code);
+
+    client.setCredentials(tokens);
+
+    // Fetch Google user data
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const googleUser = ticket.getPayload();
+
+    const email = googleUser.email;
+    const name = googleUser.name;
+    const avatar = googleUser.picture;
+
+    let user = await Shop.findOne({ email });
+
+    if (!user) {
+      // -------------------- NEW USER (SIGNUP VIA GOOGLE) --------------------
+      user = await Shop.create({
+        email,
+        password: "GOOGLE_AUTH_USER", 
+        isEmailVerified: true,
+        isVerified: true,
+      });
+    }
+
+    // -------------------- EXISTING USER LOGIN --------------------
+    const token = jwt.sign(
+      { shopId: user._id, email: user.email, role: "shop" },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    // ✅ Include user._id in the redirect URL
+    const redirectUrl = `https://bidawrap1.netlify.app/google-success-partner?` +
+      `id=${user._id}&` +
+      `token=${token}&` +
+      `email=${encodeURIComponent(user.email)}&`;
+
+    return res.redirect(redirectUrl);
+
+  } catch (error) {
+    console.error("Google callback error:", error);
+    return res.redirect(
+      `https://bidawrap1.netlify.app/google-failed`
+    );
   }
 };

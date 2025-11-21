@@ -455,136 +455,6 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-
-
-// // ---------------------- GOOGLE AUTH ----------------------
-// export const googleAuth = async (req, res) => {
-//   try {
-//     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
-//     const client_id = process.env.GOOGLE_CLIENT_ID;
-
-//     const googleAuthURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-//     googleAuthURL.searchParams.set("client_id", client_id);
-//     googleAuthURL.searchParams.set("redirect_uri", redirect_uri);
-//     googleAuthURL.searchParams.set("response_type", "code");
-//     googleAuthURL.searchParams.set("scope", "profile email");
-//     googleAuthURL.searchParams.set("access_type", "offline");
-//     googleAuthURL.searchParams.set("prompt", "select_account");
-
-//     return res.redirect(googleAuthURL.toString());
-//   } catch (error) {
-//     console.error("Google Auth error:", error);
-//     return res.status(500).json({ status: "error", message: "Failed to start Google OAuth" });
-//   }
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-// export const googleCallback = async (req, res) => {
-//   try {
-//     const code = req.query.code;
-//     if (!code) throw new Error("No code provided");
-
-//     const client_id = process.env.GOOGLE_CLIENT_ID;
-//     const client_secret = process.env.GOOGLE_CLIENT_SECRET;
-//     const redirect_uri = `${process.env.API_BASE}/api/OAuth/google-callback`;
-
-//     // Exchange code for access token
-//     const tokenResponse = await axios.post(
-//       "https://oauth2.googleapis.com/token",
-//       new URLSearchParams({
-//         code,
-//         client_id,
-//         client_secret,
-//         redirect_uri,
-//         grant_type: "authorization_code",
-//       }).toString(),
-//       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-//     );
-
-//     const { access_token } = tokenResponse.data;
-
-//     // Fetch user profile
-//     const userInfoResponse = await axios.get(
-//       "https://www.googleapis.com/oauth2/v2/userinfo",
-//       { headers: { Authorization: `Bearer ${access_token}` } }
-//     );
-
-//     const { email, name, picture } = userInfoResponse.data;
-
-//     // Find or create customer
-//     let customer = await Customer.findOne({ email });
-//     if (!customer) {
-//       customer = await Customer.create({
-//         name,
-//         email,
-//         avatar: picture,
-//         password: "GOOGLE_AUTH",
-//         isEmailVerified: true,
-//         isAuthenticated: true,
-//       });
-//     } else {
-//       customer.isEmailVerified = true;
-//       customer.isAuthenticated = true;
-//       await customer.save();
-//     }
-
-//     // Generate JWT like normal signin
-//     const token = jwt.sign(
-//       { customerId: customer._id, email: customer.email, role: "customer" },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "1d" }
-//     );
-
-//     // Send data to popup opener
-//     return res.send(`
-//       <script>
-//         window.opener.postMessage(
-//           {
-//             status: "success",
-//             token: "${token}",
-//             customer: ${JSON.stringify({
-//               id: customer._id,
-//               name: customer.name,
-//               email: customer.email,
-//               avatar: customer.avatar || null,
-//             })}
-//           },
-//           "${process.env.FRONTEND_URL}"
-//         );
-//         window.close();
-//       </script>
-//     `);
-
-//   } catch (error) {
-//     console.error("Google Callback Error:", error);
-//     return res.send(`
-//       <script>
-//         window.opener.postMessage(
-//           { status: "error", message: "${error.message}" },
-//           "${process.env.FRONTEND_URL}"
-//         );
-//         window.close();
-//       </script>
-//     `);
-//   }
-// };
-
-
-
-
-
-
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -652,8 +522,13 @@ export const googleCallback = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    // Frontend wants redirect back with token
-    const redirectUrl = `https://bidawrap1.netlify.app/google-success?token=${token}&name=${encodeURIComponent(user.name)}&email=${encodeURIComponent(user.email)}&avatar=${encodeURIComponent(user.avatar)}`;
+    // ✅ Include user._id in the redirect URL
+    const redirectUrl = `https://bidawrap1.netlify.app/google-success?` +
+      `id=${user._id}&` +
+      `token=${token}&` +
+      `name=${encodeURIComponent(user.name)}&` +
+      `email=${encodeURIComponent(user.email)}&` +
+      `avatar=${encodeURIComponent(user.avatar || '')}`;
 
     return res.redirect(redirectUrl);
 
