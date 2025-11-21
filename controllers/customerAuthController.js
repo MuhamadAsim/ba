@@ -653,7 +653,7 @@ export const googleCallback = async (req, res) => {
     );
 
     // Frontend wants redirect back with token
-    const redirectUrl = `https://bidawrap1.netlify.app/google-success?token=${token}`;
+    const redirectUrl = `https://bidawrap1.netlify.app/google-success?token=${token}&name=${encodeURIComponent(user.name)}&email=${encodeURIComponent(user.email)}&avatar=${encodeURIComponent(user.avatar)}`;
 
     return res.redirect(redirectUrl);
 
