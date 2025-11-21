@@ -1,19 +1,35 @@
 // ============================================
-// server.js (CORRECTED)
+// server.js (FINAL FIX)
 // ============================================
 import http from "http";
 import { Server } from "socket.io";
-import app from "./app.js";
 import dotenv from "dotenv";
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
+import connectDB from "./configs/db.js";
+
+// Import routes
+import bidRoutes from "./routes/bidRoutes.js";
+import customerRoutes from "./routes/customerRoutes.js";
+import shopRoutes from "./routes/shopRoutes.js";
+import googleRoutes from "./routes/googleRoutes.js";
+import eventRoutes from "./routes/eventRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
+import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
 dotenv.config();
+connectDB();
 
 const PORT = process.env.PORT || 5000;
+
+// Create Express app
+const app = express();
 
 // Create HTTP server
 const server = http.createServer(app);
 
-// Attach Socket.IO to the HTTP server
+// Attach Socket.IO
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -22,42 +38,68 @@ const io = new Server(server, {
   },
 });
 
-// Middleware to attach io to requests
+// ✅ MIDDLEWARE (BEFORE ROUTES)
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan("dev"));
+app.use("/uploads", express.static("uploads"));
+
+// ✅ ATTACH SOCKET.IO TO REQ (BEFORE ROUTES)
 app.use((req, res, next) => {
   req.io = io;
+  console.log("✅ req.io attached");
   next();
 });
 
-// Socket.IO: handle connections
+// ✅ NOW ADD ROUTES (AFTER MIDDLEWARE)
+app.use("/api/bids", bidRoutes);
+app.use("/api/customer", customerRoutes);
+app.use("/api/shop", shopRoutes);
+app.use("/api/OAuth", googleRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api/chat", chatRoutes);
+
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ status: "OK", message: "Server is running" });
+});
+
+// Error handler
+app.use(errorHandler);
+
+// ============================================
+// SOCKET.IO HANDLERS
+// ============================================
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  console.log("✅ New client connected:", socket.id);
 
-  // Join a specific chat room
-  socket.on("joinChat", ({ chatId }) => {
-    socket.join(chatId);
-    console.log(`Socket ${socket.id} joined chat ${chatId}`);
-    socket.broadcast.to(chatId).emit("userJoined", { userId: socket.id });
+ socket.on("joinChat", (data) => {
+  const chatId = typeof data === "string" ? data : data.chatId;
+  socket.join(chatId);
+  socket.chatId = chatId; // Store for later reference
+  console.log(`✅ Socket ${socket.id} joined chat ${chatId}`);
+});
+
+  socket.on("leaveChat", (data) => {
+    const chatId = typeof data === "string" ? data : data.chatId;
+    socket.leave(chatId);
+    console.log(`✅ Socket ${socket.id} left chat ${chatId}`);
   });
 
-  // Handle new messages
-  socket.on("newMessage", (message) => {
-    io.to(message.chatId).emit("newMessage", message);
-  });
-
-  // Handle typing indicator
   socket.on("typing", ({ chatId, isTyping, userType }) => {
     socket.broadcast.to(chatId).emit("typing", { isTyping, userType });
   });
 
-  // Handle user disconnect
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    console.log("❌ Client disconnected:", socket.id);
   });
 });
 
-// Start server with HTTP + Socket.IO
+// Start server
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`📡 Socket.IO ready`);
 });
 
 export default server;

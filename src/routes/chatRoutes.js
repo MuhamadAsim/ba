@@ -9,6 +9,7 @@ import {
   clearChatMessages,
   getUnreadCount,
   searchChats,
+  getChatMessages
 } from "../controllers/chatController.js";
 import { authMiddleware } from "../middlewares/authMiddleware.js";
 
@@ -27,5 +28,6 @@ router.get("/:chatId/context", getChatContext);  // ✅ NEW - Fetch offer/bid/co
 router.post("/:chatId/message", sendMessage);
 router.delete("/:chatId", deleteChat);
 router.delete("/:chatId/clear", clearChatMessages);
+router.get("/:chatId/messages", getChatMessages);
 
 export default router;
