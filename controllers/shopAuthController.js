@@ -799,28 +799,10 @@ const client = new OAuth2Client(
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// -------------------- STEP 1: SEND GOOGLE LOGIN URL --------------------
-export const getGoogleAuthURL = async (req, res) => {
-  try {
-    const url = client.generateAuthUrl({
-      access_type: "offline",
-      prompt: "consent",
-      scope: [
-        "profile",
-        "email"
-      ]
-    });
-
-    res.json({ url });
-  } catch (error) {
-    console.error("Google URL error:", error);
-    res.status(500).json({ message: "Error generating Google URL" });
-  }
-};
 
 
 // -------------------- STEP 2: GOOGLE CALLBACK --------------------
-export const googleCallback = async (req, res) => {
+export const googleCallbackPartner = async (req, res) => {
   try {
     const code = req.query.code;
     const { tokens } = await client.getToken(code);
