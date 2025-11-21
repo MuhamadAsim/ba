@@ -490,17 +490,18 @@ export const counterOffer = async (req, res) => {
     await offer.save();
 
     // -------------------- SAVE EVENT --------------------
-    await Event.create({
-      customerId: customerId, // customer who made counter offer
-      shopId: offer.shopId, // linked shop
-      bidId: offer.bidId._id, // link the bid
-      type: "counter-offer", // event type
-      message: `Counter offer ${offer.counterOffer.counterPrice} is submitted for offer (${offer.price})`,
-      metadata: {
-        offerId: offer._id,
-        counterPrice,
-      },
-    });
+await Event.create({
+  customerId: customerId,
+  shopId: offer.shopId,
+  bidId: offer.bidId._id,
+  type: "counter-offer",
+  message: `Counter offer ${counterPrice} is submitted for offer (${offer.price})`,
+  metadata: {
+    offerId: offer._id,
+    counterPrice,
+  },
+});
+
 
     return res.status(200).json({
       success: true,
