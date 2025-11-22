@@ -47,19 +47,16 @@ export const registerShop = async (req, res) => {
     const existing = await Shop.findOne({ email });
 
     if (existing) {
-      // ✅ If already verified, reject signup
       if (existing.isEmailVerified) {
         return res.json({
           status: "exists",
           message: "Account already exists. Please sign in instead."
         });
       } else {
-        // ✅ If not verified, resend OTP (allow retry)
         const otp = generateOtp();
         existing.otp = otp;
         existing.otpExpiry = Date.now() + 10 * 60 * 1000;
         await existing.save();
-
         await sendOtpEmail(email, otp);
         return res.json({
           status: "otp_sent",
@@ -68,13 +65,11 @@ export const registerShop = async (req, res) => {
       }
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Generate new OTP
     const otp = generateOtp();
 
-    // Create new shop with placeholders
+    // ✅ FIX 1: Remove duplicate country field
+    // ✅ FIX 2: Use consistent "US (Pending)" format
     const newShop = new Shop({
       email,
       password: hashedPassword,
@@ -83,7 +78,7 @@ export const registerShop = async (req, res) => {
       legalEntityName: "Legal Entity (Pending)",
       ownerName: "Owner Name (Pending)",
       address: "Business Address (Pending)",
-      country : "Usa (Pending)",
+      country: "US (Pending)", // ✅ FIXED: Consistent format, no duplicate
       startDate: new Date(),
       insuranceCarrier: "Insurance Carrier (Pending)",
       policyNumber: "Policy Number (Pending)",
@@ -92,8 +87,7 @@ export const registerShop = async (req, res) => {
       storeFrontPhoto: "Pending",
       workSpacePhoto: "Pending",
       certificateFiles: [],
-      country: "US",
-      zipCode: "9000",
+      zipCode: "00000", // ✅ FIXED: Include zipCode for consistency
       plan: "basic",
       isEmailVerified: false,
       otp,
@@ -101,8 +95,6 @@ export const registerShop = async (req, res) => {
     });
 
     await newShop.save();
-
-    // Send OTP email
     await sendOtpEmail(email, otp);
 
     return res.json({
@@ -115,7 +107,6 @@ export const registerShop = async (req, res) => {
     res.status(500).json({ message: "Server error during signup" });
   }
 };
-
 // ---------------------- VERIFY OTP ----------------------
 export const verifyOtp = async (req, res) => {
   try {
@@ -166,6 +157,10 @@ export const verifyOtp = async (req, res) => {
 };
 
 // ---------------------- SIGNIN ----------------------
+
+// ============================================
+// FIXED: signin (Make sure it uses ISO dates)
+// ============================================
 export const signin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -177,7 +172,6 @@ export const signin = async (req, res) => {
         message: "Invalid email or password"
       });
 
-    // ✅ Check password FIRST before checking verification
     const isMatch = await bcrypt.compare(password, shop.password);
     if (!isMatch)
       return res.json({
@@ -185,7 +179,6 @@ export const signin = async (req, res) => {
         message: "Invalid email or password"
       });
 
-    // ✅ If credentials are correct but NOT verified, send OTP
     if (!shop.isEmailVerified) {
       const otp = generateOtp();
       shop.otp = otp;
@@ -200,9 +193,8 @@ export const signin = async (req, res) => {
       });
     }
 
-    // ✅ Generate JWT for verified shop
     const token = jwt.sign(
-      { shopId: shop._id, email: shop.email ,role:"shop"},
+      { shopId: shop._id, email: shop.email, role: "shop" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -216,26 +208,27 @@ export const signin = async (req, res) => {
         email: shop.email,
         businessName: shop.businessName,
         ownerName: shop.ownerName,
-        plan: shop.plan, // "basic" | "professional" | "enterprise"
-        avatar: shop.profilePic || "",
+        plan: shop.plan,
+        avatar: shop.profilePic || "", // ✅ Use avatar consistently
 
         // Contact & basic info
         countryCode: shop.countryCode,
         phone: shop.phone,
         website: shop.website,
         country: shop.country,
+        zipCode: shop.zipCode, // ✅ Include zipCode
         services: shop.services,
         vinylFilms: shop.vinylFilms,
         certificates: shop.certificates,
-        startDate: shop.startDate,
+        startDate: shop.startDate?.toISOString?.() || shop.startDate, // ✅ FIXED: ISO string
 
-        // Social media (mapped correctly from nested socialMedia object)
+        // Social media
         instagramLink: shop.socialMedia?.instagram || "",
         facebookLink: shop.socialMedia?.facebook || "",
         linkedinLink: shop.socialMedia?.linkedin || "",
 
         // Additional info
-        bio: shop.additionalInfo || "",
+        bio: shop.additionalInfo || "", // ✅ Consistent: use bio key
         workSpacePhoto: shop.workSpacePhoto,
         storeFrontPhoto: shop.storeFrontPhoto,
 
@@ -246,8 +239,6 @@ export const signin = async (req, res) => {
         policyNumber: shop.policyNumber,
         policyExpiration: shop.policyExpiration,
       }
-
-
     });
   } catch (error) {
     console.error("Signin error:", error);
@@ -257,8 +248,6 @@ export const signin = async (req, res) => {
     });
   }
 };
-
-
 
 
 
@@ -821,7 +810,12 @@ export const getGoogleAuthURLShop = async (req, res) => {
 };
 
 
-// -------------------- STEP 2: GOOGLE CALLBACK --------------------
+
+
+
+// ============================================
+// FIXED: googleCallbackPartner
+// ============================================
 export const googleCallbackPartner = async (req, res) => {
   try {
     const code = req.query.code;
@@ -829,49 +823,125 @@ export const googleCallbackPartner = async (req, res) => {
 
     client.setCredentials(tokens);
 
-    // Fetch Google user data
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const googleUser = ticket.getPayload();
-
     const email = googleUser.email;
-    const name = googleUser.name;
-    const avatar = googleUser.picture;
 
     let user = await Shop.findOne({ email });
 
+    // =====================================
+    // CASE 1: USER DOES NOT EXIST → SIGNUP
+    // =====================================
     if (!user) {
-      // -------------------- NEW USER (SIGNUP VIA GOOGLE) --------------------
-      user = await Shop.create({
+      const newShop = new Shop({
         email,
-        password: "GOOGLE_AUTH_USER", 
-        isEmailVerified: true,
-        isVerified: true,
+        password: "Google_Auth_password",
+        phone: "000000000",
+        businessName: "Business Name (Pending)",
+        legalEntityName: "Legal Entity (Pending)",
+        ownerName: "Owner Name (Pending)",
+        address: "Business Address (Pending)",
+        country: "US (Pending)", // ✅ FIXED: Consistent with normal signup
+        startDate: new Date(),
+        insuranceCarrier: "Insurance Carrier (Pending)",
+        policyNumber: "Policy Number (Pending)",
+        policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        insuranceCertificate: "Pending",
+        storeFrontPhoto: "Pending",
+        workSpacePhoto: "Pending",
+        certificateFiles: [],
+        zipCode: "00000", // ✅ FIXED: Include zipCode
+        plan: "basic",
+        isEmailVerified: true, // Google already verified
       });
+
+      user = await newShop.save();
+
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-success-partner?` +
+        `email=${encodeURIComponent(email)}&flow=signup`
+      );
     }
 
-    // -------------------- EXISTING USER LOGIN --------------------
+    // =========================================
+    // CASE 2: USER EXISTS BUT PROFILE INCOMPLETE
+    // =========================================
+    const isIncomplete =
+      user.businessName.includes("(Pending)") ||
+      user.legalEntityName.includes("(Pending)") ||
+      user.ownerName.includes("(Pending)") ||
+      user.address.includes("(Pending)");
+
+    if (isIncomplete) {
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-success-partner?` +
+        `email=${encodeURIComponent(email)}&flow=signup`
+      );
+    }
+
+    // ===============================================
+    // CASE 3: EXISTING USER WITH COMPLETE DATA → SIGNIN
+    // ===============================================
     const token = jwt.sign(
       { shopId: user._id, email: user.email, role: "shop" },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "7d" }
     );
 
-    // ✅ Include user._id in the redirect URL
-    const redirectUrl = `https://bidawrap1.netlify.app/google-success-partner?` +
-      `id=${user._id}&` +
-      `token=${token}&` +
-      `email=${encodeURIComponent(user.email)}&`;
+    // ✅ FIXED: Return startDate as ISO string
+    const shopData = {
+      id: user._id,
+      email: user.email,
+      businessName: user.businessName,
+      ownerName: user.ownerName,
+      plan: user.plan,
+      avatar: user.profilePic || "", // ✅ Use avatar consistently
 
-    return res.redirect(redirectUrl);
+      // Contact & basic info
+      countryCode: user.countryCode,
+      phone: user.phone,
+      website: user.website,
+      country: user.country,
+      zipCode: user.zipCode, // ✅ Include zipCode
+      services: user.services,
+      vinylFilms: user.vinylFilms,
+      certificates: user.certificates,
+      startDate: user.startDate?.toISOString?.() || user.startDate, // ✅ FIXED: ISO string
+
+      // Social media
+      instagramLink: user.socialMedia?.instagram || "",
+      facebookLink: user.socialMedia?.facebook || "",
+      linkedinLink: user.socialMedia?.linkedin || "",
+
+      // Additional info
+      bio: user.additionalInfo || "", // ✅ Consistent: use bio key
+
+      workSpacePhoto: user.workSpacePhoto,
+      storeFrontPhoto: user.storeFrontPhoto,
+
+      // Legal & insurance details
+      legalEntityName: user.legalEntityName,
+      address: user.address,
+      insuranceCarrier: user.insuranceCarrier,
+      policyNumber: user.policyNumber,
+      policyExpiration: user.policyExpiration,
+    };
+
+    const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
+
+    return res.redirect(
+      `https://bidawrap1.netlify.app/google-success-partner?` +
+      `flow=signin&` +
+      `token=${token}&` +
+      `shopData=${shopDataEncoded}`
+    );
 
   } catch (error) {
     console.error("Google callback error:", error);
-    return res.redirect(
-      `https://bidawrap1.netlify.app/google-failed`
-    );
+    return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
   }
 };
