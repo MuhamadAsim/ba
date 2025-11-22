@@ -190,11 +190,92 @@ export const getChatContext = async (req, res) => {
   }
 };
 
+// ==================== GET MESSAGES WITH PAGINATION ====================
+export const getChatMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user._id;
+    const userRole = req.user.role;
+    
+    // Get pagination params from query string
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
+
+    // Verify user is part of this chat
+    const isCustomer = chat.customerId.toString() === userId.toString();
+    const isShop = chat.shopId.toString() === userId.toString();
+
+    if (!isCustomer && !isShop) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Calculate pagination
+    const totalMessages = chat.messages.length;
+    const totalPages = Math.ceil(totalMessages / limit);
+    const skip = (page - 1) * limit;
+    
+    // Get messages for this page (most recent first, so we reverse, slice, then reverse back)
+    // Messages array is sorted oldest to newest, so we need to:
+    // 1. Reverse to get newest first
+    // 2. Skip and limit for pagination
+    // 3. Reverse back to maintain chronological order in response
+    const allMessages = [...chat.messages].reverse(); // newest first
+    const paginatedMessages = allMessages.slice(skip, skip + limit).reverse(); // get page, then chronological
+    
+    // Mark messages as read for this user
+    let unreadCount = 0;
+    if (userRole === "customer") {
+      chat.messages.forEach((msg) => {
+        if (msg.senderType === "shop" && !msg.isRead) {
+          msg.isRead = true;
+          unreadCount++;
+        }
+      });
+      if (unreadCount > 0) {
+        chat.unreadCountCustomer = Math.max(0, chat.unreadCountCustomer - unreadCount);
+      }
+    } else if (userRole === "shop") {
+      chat.messages.forEach((msg) => {
+        if (msg.senderType === "customer" && !msg.isRead) {
+          msg.isRead = true;
+          unreadCount++;
+        }
+      });
+      if (unreadCount > 0) {
+        chat.unreadCountShop = Math.max(0, chat.unreadCountShop - unreadCount);
+      }
+    }
+
+    if (unreadCount > 0) {
+      await chat.save();
+    }
+
+    res.status(200).json({
+      messages: paginatedMessages,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalMessages,
+        hasMore: page < totalPages,
+        limit
+      }
+    });
+  } catch (error) {
+    console.error("Error in getChatMessages:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ==================== SEND MESSAGE WITH REFERENCES ====================
 export const sendMessage = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { text, references } = req.body; // references: [{ type, referenceId, data }]
+    const { text, references } = req.body;
     const userId = req.user._id;
     const userRole = req.user.role;
     const userName = req.user.name || req.user.businessName || "User";
@@ -233,7 +314,6 @@ export const sendMessage = async (req, res) => {
                 status: offer.status,
               };
               
-              // Add to chat's related offers if not already there
               if (!chat.relatedOffers.includes(ref.referenceId)) {
                 chat.relatedOffers.push(ref.referenceId);
               }
@@ -247,11 +327,10 @@ export const sendMessage = async (req, res) => {
                 .filter(Boolean)
                 .join(" ");
               refData = {
-                serviceDescription: bid.serviceDescription || bid.requestCategory,
+                service: bid.serviceDescription || bid.requestCategory,
                 vehicle: vehicle || "Vehicle information not provided",
               };
               
-              // Add to chat's related bids if not already there
               if (!chat.relatedBids.includes(ref.referenceId)) {
                 chat.relatedBids.push(ref.referenceId);
               }
@@ -273,7 +352,6 @@ export const sendMessage = async (req, res) => {
                   status: counterOffer.status,
                 };
                 
-                // Add to chat's related counter offers if not already there
                 if (!chat.relatedCounterOffers.includes(ref.referenceId)) {
                   chat.relatedCounterOffers.push(ref.referenceId);
                 }
@@ -292,7 +370,7 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    // Create message
+    // Create message object
     const message = {
       senderId: userId,
       senderType: userRole,
@@ -315,26 +393,44 @@ export const sendMessage = async (req, res) => {
       chat.unreadCountCustomer += 1;
     }
 
+    // ✅ SAVE FIRST to get the _id
     await chat.save();
 
-    // Emit real-time update via Socket.io
+    // ✅ GET the saved message with its _id
+    const savedMessage = chat.messages[chat.messages.length - 1];
+
+    console.log("✅ Message saved with ID:", savedMessage._id);
+
+    // ✅ EMIT ONLY TO OTHER USERS (NOT THE SENDER)
     if (req.io) {
+      console.log("📡 Emitting newMessage to room (excluding sender):", chatId);
+      
       req.io.to(chatId).emit("newMessage", {
-        ...message,
-        _id: message._id,
+        _id: savedMessage._id,
+        senderId: savedMessage.senderId,
+        senderType: savedMessage.senderType,
+        senderName: savedMessage.senderName,
+        text: savedMessage.text,
+        references: savedMessage.references,
+        isRead: savedMessage.isRead,
+        createdAt: savedMessage.createdAt,
         chatId,
       });
 
+      console.log("📡 Emitting chatUpdated to room:", chatId);
       req.io.to(chatId).emit("chatUpdated", {
         chatId,
-        lastMessage: message.text,
-        lastMessageTime: message.createdAt,
+        lastMessage: savedMessage.text,
+        lastMessageTime: savedMessage.createdAt,
       });
+    } else {
+      console.warn("⚠️ req.io not available");
     }
 
+    // ✅ Return message to sender immediately (they already have it)
     res.status(201).json({
       success: true,
-      message: message,
+      message: savedMessage,
       chatId,
     });
   } catch (error) {
@@ -465,7 +561,6 @@ export const getUnreadCount = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-
 
 // ==================== CLEAR CHAT MESSAGES ====================
 export const clearChatMessages = async (req, res) => {

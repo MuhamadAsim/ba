@@ -1,7 +1,5 @@
-
-
 // ============================================
-// app.js (CORRECTED)
+// app.js (CLEAN - NO SOCKET.IO MIDDLEWARE)
 // ============================================
 import express from "express";
 import cors from "cors";
