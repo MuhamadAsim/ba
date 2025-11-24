@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js"
+import { notifyShopsForBid } from "../utils/notifyShops.js";
+
 
 
 
@@ -108,6 +110,9 @@ export const createBid = async (req, res) => {
       title: "New Bid Created",
       message: "A new bid has been submitted by the customer.",
     });
+
+    notifyShopsForBid(newBid, user);  
+
 
     return res.status(201).json({
       success: true,

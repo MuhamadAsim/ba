@@ -16,7 +16,7 @@ import {
   acceptCounterOffer,
   rejectCounterOffer,
   markBidCompleted,
-  getPartnerStats,
+  getShopStats,
   getPlanDetails,
   cancelSubscription,
   changePlan,
@@ -56,7 +56,7 @@ router.put(
   ]),
   updateShopProfile
 );
-router.get("/stats", authenticateShop, getPartnerStats);
+router.get("/stats", authenticateShop, getShopStats);
 
 
 // bids

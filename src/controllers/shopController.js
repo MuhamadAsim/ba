@@ -4,6 +4,9 @@ import dotenv from "dotenv";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import Event from "../models/eventModel.js";
+import { notifyNewOffer } from "../utils/notifyNewOffer.js";
+import { notifyCounterAccepted } from "../utils/notifyCounterAccepted.js";
+import { notifyBidCompleted } from "../utils/notifyBidCompleted.js";
 
 dotenv.config();
 
@@ -95,17 +98,7 @@ export const getAvailableBidsForShops = async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-export const getPartnerStats = async (req, res) => {
+export const getShopStats = async (req, res) => {
   try {
     const shopId = req.shopId;
 
@@ -232,11 +225,16 @@ export const makeOffer = async (req, res) => {
 
     await event.save();
 
+    notifyNewOffer(offer, bidId, shopId, price, note);
+
+
     return res.status(201).json({
       success: true,
       message: "Offer submitted successfully.",
       data: offer,
     });
+
+
 
   } catch (error) {
     console.error("💥 Server error in makeOffer:", error);
@@ -622,6 +620,9 @@ export const acceptCounterOffer = async (req, res) => {
       );
     }
 
+    notifyCounterAccepted(offer, counterOffer, shopId, bidId);
+
+
     // ⭐⭐⭐ 7️⃣ CREATE EVENT (ADDED ONLY — DOES NOT CHANGE OLD FLOW)
     const customerId = bid.user_id; // from bid model
 
@@ -815,6 +816,8 @@ export const markBidCompleted = async (req, res) => {
     // Update bid status to completed
     bid.status = "completed";
     await bid.save();
+    notifyBidCompleted(shopId, bidId);
+
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
