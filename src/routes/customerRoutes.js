@@ -16,6 +16,8 @@ import {
   repostBid,
   counterOffer,
   getShopProfile,
+  checkReviewStatus,
+  submitReview,
 } from "../controllers/customerController.js";
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
@@ -47,8 +49,10 @@ router.post("/repost-bid", authenticateCustomer, repostBid);
 router.post("/offers/:offerId/counter", authenticateCustomer, counterOffer);
 
 
-// shop info
+// shop related
 router.get("/shop-info/:shopId", authenticateCustomer, getShopProfile);
+router.post("/:bidId/review", authenticateCustomer, submitReview);
+router.get("/:bidId/review-status", authenticateCustomer, checkReviewStatus);
 
 
 

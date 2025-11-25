@@ -1,6 +1,8 @@
 // utils/notifyCounterOffer.js
-import Shop from "../models/shop.js";
-import Customer from "../models/customer.js";
+import Shop from "../models/shopModel.js";
+import Customer from "../models/customerModel.js";
+import Bid from "../models/BidModel.js";
+import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
 // import twilio from "twilio"; // commented until Twilio keys available
 

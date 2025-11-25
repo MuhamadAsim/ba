@@ -4,6 +4,7 @@ import Event from "../models/eventModel.js";
 import Shop from "../models/shopModel.js";
 import { notifyCounterOffer } from "../utils/notifyCounterOffer.js";
 import { offerAccepted } from "../utils/offerAccepted.js";
+import Review from "../models/reviewModel.js"
 
 
 
@@ -553,5 +554,93 @@ export const getShopProfile = async (req, res) => {
   } catch (error) {
     console.error("Error fetching shop profile:", error);
     res.status(500).json({ status: "error", message: "Server error" });
+  }
+};
+
+
+
+
+export const submitReview = async (req, res) => {
+  try {
+    const { bidId } = req.params;
+    const { rating, comment } = req.body;
+
+    const customerId = req.customer._id;
+
+    // Validate bid belongs to logged-in customer
+    const bid = await Bid.findOne({ _id: bidId, user_id: customerId }).populate("currentShopId");
+
+    if (!bid) {
+      return res.status(404).json({ message: "Bid not found" });
+    }
+
+    if (!bid.currentShopId) {
+      return res.status(400).json({ message: "Cannot review: no shop assigned" });
+    }
+
+    if (bid.reviewed) {
+      return res.status(400).json({ message: "Review already submitted" });
+    }
+
+    // Create a new review
+   const review = await Review.create({
+  bid: bid._id,
+  shop: bid.currentShopId._id,
+  customer: customerId,
+  rating,
+  comment,
+});
+
+
+    // Update shop rating
+    const shop = bid.currentShopId;
+    const newReviewCount = shop.reviewCount + 1;
+
+    shop.rating =
+      (shop.rating * shop.reviewCount + rating) / newReviewCount;
+
+    shop.reviewCount = newReviewCount;
+
+    await shop.save();
+
+    // Mark bid as reviewed
+    bid.reviewed = true;
+    await bid.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Review submitted successfully",
+    });
+  } catch (err) {
+    console.error("❌ Error submitting review:", err);
+    return res.status(500).json({ message: "Server error while submitting review" });
+  }
+};
+
+
+
+
+
+export const checkReviewStatus = async (req, res) => {
+  try {
+    const { bidId } = req.params;
+
+    // Get logged-in customer from middleware
+    const customerId = req.customer._id;
+
+    // Find bid by id AND make sure it belongs to this customer
+    const bid = await Bid.findOne({ _id: bidId, user_id: customerId });
+
+    if (!bid) {
+      return res.status(404).json({ message: "Bid not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      hasReview: bid.reviewed || false, // Assuming bid.reviewed exists
+    });
+  } catch (err) {
+    console.error("❌ Error checking review status:", err);
+    return res.status(500).json({ message: "Server error checking review status" });
   }
 };
