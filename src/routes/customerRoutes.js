@@ -18,6 +18,7 @@ import {
   getShopProfile,
   checkReviewStatus,
   submitReview,
+  getShopRatingSummary,
 } from "../controllers/customerController.js";
 import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 import { upload } from "../middlewares/upload.js";
@@ -53,6 +54,8 @@ router.post("/offers/:offerId/counter", authenticateCustomer, counterOffer);
 router.get("/shop-info/:shopId", authenticateCustomer, getShopProfile);
 router.post("/:bidId/review", authenticateCustomer, submitReview);
 router.get("/:bidId/review-status", authenticateCustomer, checkReviewStatus);
+router.get("/:shopId/rating-summary", getShopRatingSummary);
+
 
 
 

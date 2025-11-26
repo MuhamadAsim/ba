@@ -5,6 +5,7 @@ import Shop from "../models/shopModel.js";
 import { notifyCounterOffer } from "../utils/notifyCounterOffer.js";
 import { offerAccepted } from "../utils/offerAccepted.js";
 import Review from "../models/reviewModel.js"
+import mongoose from "mongoose";
 
 
 
@@ -642,5 +643,54 @@ export const checkReviewStatus = async (req, res) => {
   } catch (err) {
     console.error("❌ Error checking review status:", err);
     return res.status(500).json({ message: "Server error checking review status" });
+  }
+};
+
+
+
+
+export const getShopRatingSummary = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+
+    console.log("📩 Incoming shopId:", shopId);
+
+    const stats = await Review.aggregate([
+{ $match: { shop: new mongoose.Types.ObjectId(shopId) } },
+      {
+        $group: {
+          _id: "$shop",
+          averageRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 }
+        }
+      }
+    ]);
+
+    console.log("🔍 Aggregation Match Result:", stats);
+
+    // If no reviews exist
+    if (stats.length === 0) {
+      console.log("ℹ️ No reviews found for shop:", shopId);
+      return res.json({
+        shopId,
+        averageRating: 0,
+        totalReviews: 0
+      });
+    }
+
+    console.log("⭐ Calculated Rating Summary:", {
+      averageRating: stats[0].averageRating,
+      totalReviews: stats[0].totalReviews
+    });
+
+    res.json({
+      shopId,
+      averageRating: stats[0].averageRating.toFixed(1),
+      totalReviews: stats[0].totalReviews
+    });
+
+  } catch (err) {
+    console.error("❌ Error calculating shop rating:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
