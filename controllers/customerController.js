@@ -121,6 +121,7 @@ export const getUserBidsWithOffers = async (req, res) => {
   }
 };
 
+
 export const getBidOffers = async (req, res) => {
   try {
     const { bidId } = req.params;
@@ -141,7 +142,7 @@ export const getBidOffers = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
-    if (!offers || offers.length === 0) {
+    if (!offers.length) {
       return res.status(200).json({
         success: true,
         count: 0,
@@ -150,34 +151,71 @@ export const getBidOffers = async (req, res) => {
       });
     }
 
-    // 3️⃣ Format and send data
-    const formattedOffers = offers.map((offer) => ({
-      _id: offer._id,
-      price: offer.price,
-      message: offer.message || "",
-      status: offer.status,
-      createdAt: offer.createdAt,
-      shopId: {
-        _id: offer.shopId?._id,
-        businessName: offer.shopId?.businessName,
-        email: offer.shopId?.email,
-        phone: offer.shopId?.phone,
-        address: offer.shopId?.address,
-        serviceArea: offer.shopId?.serviceArea,
-        website: offer.shopId?.website || "",
-        socialMedia: offer.shopId?.socialMedia || {},
-        profilePic: offer.shopId?.profilePic || "",
-        storeFrontPhoto: offer.shopId?.storeFrontPhoto || "",
-        workSpacePhoto: offer.shopId?.workSpacePhoto || "",
-        plan: offer.shopId?.plan || "basic",
+    // 3️⃣ Get all shopIds for rating calculation
+    const shopIds = offers
+      .map((o) => o.shopId?._id)
+      .filter(Boolean)
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    // 4️⃣ Get rating summary for all shops in ONE DB query
+    const ratingSummary = await Review.aggregate([
+      { $match: { shop: { $in: shopIds } } },
+      {
+        $group: {
+          _id: "$shop",
+          averageRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
       },
-    }));
+    ]);
+
+    // convert to map for fast lookup
+    const ratingsMap = {};
+    ratingSummary.forEach((entry) => {
+      ratingsMap[entry._id.toString()] = {
+        averageRating: entry.averageRating?.toFixed(1) || "0.0",
+        totalReviews: entry.totalReviews || 0,
+      };
+    });
+
+    // 5️⃣ Build final response
+    const formattedOffers = offers.map((offer) => {
+      const shopId = offer.shopId?._id?.toString();
+      const shopRating = ratingsMap[shopId] || {
+        averageRating: "0.0",
+        totalReviews: 0,
+      };
+
+      return {
+        _id: offer._id,
+        price: offer.price,
+        message: offer.message || "",
+        status: offer.status,
+        createdAt: offer.createdAt,
+        shopId: {
+          _id: offer.shopId?._id,
+          businessName: offer.shopId?.businessName,
+          email: offer.shopId?.email,
+          phone: offer.shopId?.phone,
+          address: offer.shopId?.address,
+          serviceArea: offer.shopId?.serviceArea,
+          website: offer.shopId?.website || "",
+          socialMedia: offer.shopId?.socialMedia || {},
+          profilePic: offer.shopId?.profilePic || "",
+          storeFrontPhoto: offer.shopId?.storeFrontPhoto || "",
+          workSpacePhoto: offer.shopId?.workSpacePhoto || "",
+          plan: offer.shopId?.plan || "basic",
+        },
+        shopRating, // ⭐ Send rating info here
+      };
+    });
 
     res.status(200).json({
       success: true,
       count: formattedOffers.length,
       offers: formattedOffers,
     });
+
   } catch (error) {
     console.error("❌ Error fetching offers for bid:", error);
     res.status(500).json({
@@ -187,6 +225,7 @@ export const getBidOffers = async (req, res) => {
     });
   }
 };
+
 
 export const acceptOffer = async (req, res) => {
   try {

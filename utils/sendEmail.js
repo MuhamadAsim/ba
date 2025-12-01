@@ -11,6 +11,7 @@ export const sendEmail = async (to, subject, html) => {
     subject,
     html,
   };
+  console.log("Sending email to:", to, "Subject:", subject, "From:", process.env.SENDGRID_SENDER);
 
   try {
     await sgMail.send(msg);

@@ -16,6 +16,8 @@ import shopRoutes from "./routes/shopRoutes.js";
 import googleRoutes from "./routes/googleRoutes.js";
 import eventRoutes from "./routes/eventRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+
 import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
 dotenv.config();
@@ -59,6 +61,7 @@ app.use("/api/shop", shopRoutes);
 app.use("/api/OAuth", googleRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/health", (req, res) => {

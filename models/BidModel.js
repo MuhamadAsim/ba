@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-//this one shoudl work
+
 const bidSchema = new mongoose.Schema(
   {
     user_id: {
@@ -79,4 +79,3 @@ bidSchema.methods.isExpired = function () {
 
 // FIX: Prevent OverwriteModelError
 export default mongoose.models.Bid || mongoose.model("Bid", bidSchema);
-//

@@ -2,12 +2,13 @@ import express from "express";
 import {
   registerShop,
   verifyOtp,
-  signInShop,
   completeRegistration,
   updateShopProfile,
   signin,
   forgotPassword,
   resetPassword,
+  submitVerificationRequest,
+  getMyVerificationRequests
 } from "../controllers/shopAuthController.js";
 import {
   getAvailableBidsForShops,
@@ -57,7 +58,21 @@ router.put(
   updateShopProfile
 );
 router.get("/stats", authenticateShop, getShopStats);
-
+router.put(
+  "/update-verified-info",
+  authenticateShop,
+  upload.fields([
+    { name: "certificateFiles", maxCount: 5 },
+    { name: "insuranceCertificate", maxCount: 1 },
+  ]),
+  submitVerificationRequest
+);
+// Get own verification requests
+router.get(
+  "/my-requests",
+  authenticateShop,
+  getMyVerificationRequests
+);
 
 // bids
 router.post("/offers", authenticateShop, makeOffer);

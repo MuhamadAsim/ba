@@ -197,6 +197,19 @@ const shopSchema = new mongoose.Schema(
         type: String, // Stripe/Payment gateway token
       },
     },
+
+    subscription: {
+      customerId: { type: String },     // Stripe customer ID
+      subscriptionId: { type: String }, // Stripe subscription ID
+      planAmount: { type: Number, default: 0 }, // amount in cents or dollars
+      billingCycle: { type: String, enum: ["monthly", "yearly"], default: "monthly" },
+      nextBillingDate: { type: Date },
+      status: {
+        type: String,
+        enum: ["trialing", "active", "past_due", "cancelled"],
+        default: "trialing",
+      }
+    },
     // Add these fields to your Shop model after the "profilePic" field:
 
     rating: {
@@ -221,6 +234,10 @@ const shopSchema = new mongoose.Schema(
     },
     verifiedAt: {
       type: Date,
+    },
+     isAdminShop: {
+      type: Boolean,
+      default: false,
     },
 
     resetPasswordOtp: { type: String, default: null },
@@ -292,6 +309,22 @@ shopSchema.methods.approveShop = function () {
   this.status = "active";
   return this.save();
 };
+
+// Auto-assign planAmount based on plan type
+shopSchema.pre("save", function (next) {
+  const planPrices = {
+    basic: 50,
+    professional: 200,
+  };
+
+  // Only update if plan was changed OR planAmount is 0
+  if (this.isModified("plan") || this.subscription.planAmount === 0) {
+    this.subscription.planAmount = planPrices[this.plan] || 0;
+  }
+
+  next();
+});
+
 
 const Shop = mongoose.model("Shop", shopSchema);
 

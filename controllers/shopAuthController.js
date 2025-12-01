@@ -6,6 +6,7 @@ import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
+import VerificationRequest from "../models/updateProfileModel.js";
 
 
 dotenv.config();
@@ -107,6 +108,10 @@ export const registerShop = async (req, res) => {
     res.status(500).json({ message: "Server error during signup" });
   }
 };
+
+
+
+
 // ---------------------- VERIFY OTP ----------------------
 export const verifyOtp = async (req, res) => {
   try {
@@ -156,10 +161,17 @@ export const verifyOtp = async (req, res) => {
   }
 };
 
-// ---------------------- SIGNIN ----------------------
+
+
+
+
+
+
+
+
 
 // ============================================
-// FIXED: signin (Make sure it uses ISO dates)
+// FIXED: signin with shop.isVerified check
 // ============================================
 export const signin = async (req, res) => {
   try {
@@ -169,16 +181,19 @@ export const signin = async (req, res) => {
     if (!shop)
       return res.json({
         status: "invalid_credentials",
-        message: "Invalid email or password"
+        message: "Invalid email or password",
       });
 
     const isMatch = await bcrypt.compare(password, shop.password);
     if (!isMatch)
       return res.json({
         status: "invalid_credentials",
-        message: "Invalid email or password"
+        message: "Invalid email or password",
       });
 
+    // ============================
+    // STEP 1: Email must be verified
+    // ============================
     if (!shop.isEmailVerified) {
       const otp = generateOtp();
       shop.otp = otp;
@@ -189,10 +204,23 @@ export const signin = async (req, res) => {
 
       return res.json({
         status: "not_verified",
-        message: "Email not verified. OTP sent to your email."
+        message: "Email not verified. OTP sent to your email.",
       });
     }
 
+    // ============================
+    // STEP 2: Admin approval required
+    // ============================
+    if (!shop.isVerified) {
+      return res.json({
+        status: "not_approved",
+        message: "Your shop account is pending admin approval.",
+      });
+    }
+
+    // ============================
+    // STEP 3: Everything OK → login
+    // ============================
     const token = jwt.sign(
       { shopId: shop._id, email: shop.email, role: "shop" },
       process.env.JWT_SECRET,
@@ -209,42 +237,58 @@ export const signin = async (req, res) => {
         businessName: shop.businessName,
         ownerName: shop.ownerName,
         plan: shop.plan,
-        avatar: shop.profilePic || "", // ✅ Use avatar consistently
+        avatar: shop.profilePic || "",
 
-        // Contact & basic info
+        // Contact
         countryCode: shop.countryCode,
         phone: shop.phone,
         website: shop.website,
         country: shop.country,
-        zipCode: shop.zipCode, // ✅ Include zipCode
+        zipCode: shop.zipCode,
+        latitude: shop.latitude,
+        longitude: shop.longitude,
+
+        // Services
         services: shop.services,
         vinylFilms: shop.vinylFilms,
         certificates: shop.certificates,
-        startDate: shop.startDate?.toISOString?.() || shop.startDate, // ✅ FIXED: ISO string
+        certificateFiles: shop.certificateFiles,
+        startDate: shop.startDate?.toISOString?.() || shop.startDate,
+        bio: shop.additionalInfo || "",
+
+        // Photos
+        workSpacePhoto: shop.workSpacePhoto,
+        storeFrontPhoto: shop.storeFrontPhoto,
+
+        // Legal
+        legalEntityName: shop.legalEntityName,
+        address: shop.address,
+        insuranceCarrier: shop.insuranceCarrier,
+        policyNumber: shop.policyNumber,
+        policyExpiration: shop.policyExpiration,
+        insuranceCertificate: shop.insuranceCertificate,
 
         // Social media
         instagramLink: shop.socialMedia?.instagram || "",
         facebookLink: shop.socialMedia?.facebook || "",
         linkedinLink: shop.socialMedia?.linkedin || "",
 
-        // Additional info
-        bio: shop.additionalInfo || "", // ✅ Consistent: use bio key
-        workSpacePhoto: shop.workSpacePhoto,
-        storeFrontPhoto: shop.storeFrontPhoto,
-
-        // Legal & insurance details
-        legalEntityName: shop.legalEntityName,
-        address: shop.address,
-        insuranceCarrier: shop.insuranceCarrier,
-        policyNumber: shop.policyNumber,
-        policyExpiration: shop.policyExpiration,
-      }
+        rating: shop.rating || 0,
+        reviewCount: shop.reviewCount || 0,
+        isEmailVerified: shop.isEmailVerified,
+        isVerified: shop.isVerified,
+        verifiedAt: shop.verifiedAt?.toISOString?.() || null,
+        acceptedPolicy: shop.acceptedPolicy,
+        policyAcceptedAt: shop.policyAcceptedAt?.toISOString?.() || null,
+        status: shop.status,
+      },
     });
+
   } catch (error) {
     console.error("Signin error:", error);
     res.status(500).json({
       status: "error",
-      message: "Server error during signin"
+      message: "Server error during signin",
     });
   }
 };
@@ -429,89 +473,6 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-
-
-
-export const signInShop = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const shop = await Shop.findOne({ email });
-    if (!shop) {
-      return res.status(404).json({ status: "error", message: "Shop not found" });
-    }
-
-    if (!shop.isEmailVerified) {
-      return res.json({ status: "not_verified", message: "Email not verified" });
-    }
-
-    const isMatch = await bcrypt.compare(password, shop.password);
-    if (!isMatch) {
-      return res.json({ status: "invalid_credentials", message: "Invalid credentials" });
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: shop._id, email: shop.email, role: "shop" },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // Map shop data to frontend Partner interface
-    const shopData = {
-      id: shop._id,
-      email: shop.email,
-      businessName: shop.businessName,
-      ownerName: shop.ownerName,
-      plan: shop.plan,
-      avatar: shop.profilePic || null,
-
-      // Editable fields
-      countryCode: shop.countryCode,
-      phone: shop.phone,
-      website: shop.website,
-      country: shop.country,
-      services: shop.services,
-      vinylFilms: shop.vinylFilms,
-      certificates: shop.certificates,
-      startDate: shop.startDate,
-      instagramLink: shop.socialMedia?.instagram || "",
-      facebookLink: shop.socialMedia?.facebook || "",
-      linkedinLink: shop.socialMedia?.linkedin || "",
-      bio: shop.additionalInfo || "",
-
-      // Non-editable fields
-      legalEntityName: shop.legalEntityName,
-      address: shop.address,
-      insuranceCarrier: shop.insuranceCarrier,
-      policyNumber: shop.policyNumber,
-      policyExpiration: shop.policyExpiration,
-
-      // ✅ Add these
-      storeFrontPhoto: shop.storeFrontPhoto || null,
-      workSpacePhoto: shop.workSpacePhoto || null,
-    };
-
-
-    res.json({
-      status: "success",
-      token,
-      shop: shopData,
-    });
-  } catch (error) {
-    console.error("Signin error:", error);
-    res.status(500).json({
-      status: "error",
-      message: "Server error during signin",
-    });
-  }
-};
-
-
-
-
-
-
 // ---------------------- COMPLETE REGISTRATION ----------------------
 export const completeRegistration = async (req, res) => {
   try {
@@ -543,9 +504,9 @@ export const completeRegistration = async (req, res) => {
       paymentData,
     } = req.body;
 
-    console.log(req.body);
+    console.log("completeRegistration body:", req.body);
 
-    // Find verified shop
+    // Find shop by email
     const shop = await Shop.findOne({ email });
     if (!shop) {
       return res.status(404).json({
@@ -554,6 +515,7 @@ export const completeRegistration = async (req, res) => {
       });
     }
 
+    // Require email verification before proceeding (keeps existing security check)
     if (!shop.isEmailVerified) {
       return res.status(403).json({
         status: "error",
@@ -563,7 +525,6 @@ export const completeRegistration = async (req, res) => {
 
     // Handle uploaded files (if any)
     const uploadedFiles = req.files || {};
-
     const insuranceCertificate =
       uploadedFiles.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
     const storeFrontPhoto =
@@ -578,12 +539,11 @@ export const completeRegistration = async (req, res) => {
 
     // Parse JSON fields safely
     let parsedServices = [];
-    if (Array.isArray(services)) {
-      parsedServices = services;
-    } else if (typeof services === "string") {
+    if (Array.isArray(services)) parsedServices = services;
+    else if (typeof services === "string") {
       try {
         parsedServices = JSON.parse(services);
-      } catch {
+      } catch (e) {
         parsedServices = [];
       }
     }
@@ -592,7 +552,7 @@ export const completeRegistration = async (req, res) => {
     if (typeof paymentData === "string") {
       try {
         parsedPayment = JSON.parse(paymentData);
-      } catch {
+      } catch (e) {
         parsedPayment = {};
       }
     } else if (typeof paymentData === "object" && paymentData !== null) {
@@ -603,113 +563,77 @@ export const completeRegistration = async (req, res) => {
     const parsedLatitude = latitude ? parseFloat(latitude) : null;
     const parsedLongitude = longitude ? parseFloat(longitude) : null;
 
-    // Update shop data
-    shop.businessName = businessName;
-    shop.legalEntityName = legalEntityName;
-    shop.ownerName = ownerName;
-    shop.countryCode = countryCode;
-    shop.phone = phone;
-    shop.website = website;
-    shop.address = address;
-    shop.zipCode = zipCode;
-    shop.country = country;
-    
-    // Location coordinates
+    // Update shop fields (we still update the document, but DO NOT return token/data)
+    shop.businessName = businessName || shop.businessName;
+    shop.legalEntityName = legalEntityName || shop.legalEntityName;
+    shop.ownerName = ownerName || shop.ownerName;
+    shop.countryCode = countryCode || shop.countryCode;
+    shop.phone = phone || shop.phone;
+    shop.website = website || shop.website;
+    shop.address = address || shop.address;
+    shop.zipCode = zipCode || shop.zipCode;
+    shop.country = country || shop.country;
+
     if (parsedLatitude !== null && parsedLongitude !== null) {
       shop.location = {
         type: "Point",
-        coordinates: [parsedLongitude, parsedLatitude] // GeoJSON format: [lng, lat]
+        coordinates: [parsedLongitude, parsedLatitude], // [lng, lat]
       };
       shop.latitude = parsedLatitude;
       shop.longitude = parsedLongitude;
     }
-    
-    shop.services = parsedServices;
-    shop.vinylFilms = vinylFilms;
-    shop.certificates = certificates;
-    shop.startDate = startDate;
-    shop.insuranceCarrier = insuranceCarrier;
-    shop.policyNumber = policyNumber;
-    shop.policyExpiration = policyExpiration;
-    shop.insuranceCertificate = insuranceCertificate;
+
+    shop.services = parsedServices.length ? parsedServices : shop.services;
+    shop.vinylFilms = vinylFilms || shop.vinylFilms;
+    shop.certificates = certificates || shop.certificates;
+    shop.startDate = startDate || shop.startDate;
+    shop.insuranceCarrier = insuranceCarrier || shop.insuranceCarrier;
+    shop.policyNumber = policyNumber || shop.policyNumber;
+    shop.policyExpiration = policyExpiration || shop.policyExpiration;
+    shop.insuranceCertificate = insuranceCertificate || shop.insuranceCertificate;
+
     shop.socialMedia = {
-      instagram: instagramLink,
-      facebook: facebookLink,
-      linkedin: linkedinLink,
+      instagram: instagramLink || shop.socialMedia?.instagram || "",
+      facebook: facebookLink || shop.socialMedia?.facebook || "",
+      linkedin: linkedinLink || shop.socialMedia?.linkedin || "",
     };
-    shop.additionalInfo = additionalInfo;
-    shop.storeFrontPhoto = storeFrontPhoto;
-    shop.workSpacePhoto = workSpacePhoto;
-    shop.certificateFiles = certificateFiles;
-    shop.plan = plan;
-    shop.paymentInfo = parsedPayment;
+
+    shop.additionalInfo = additionalInfo || shop.additionalInfo;
+    shop.storeFrontPhoto = storeFrontPhoto || shop.storeFrontPhoto;
+    shop.workSpacePhoto = workSpacePhoto || shop.workSpacePhoto;
+    shop.certificateFiles = certificateFiles.length ? certificateFiles : shop.certificateFiles || [];
+    shop.plan = plan || shop.plan;
+    shop.paymentInfo = Object.keys(parsedPayment).length ? parsedPayment : shop.paymentInfo || {};
+
     shop.acceptedPolicy = true;
-    shop.status = "active";
-    shop.isVerified = true;
-    shop.verifiedAt = new Date();
+    shop.policyAcceptedAt = new Date();
+
+    // Keep registration in pending status & mark as not verified so admin review can happen
+    shop.status = "pending";
+    shop.isVerified = false;
+    // Do NOT set verifiedAt (it should only be set after admin verifies)
+    // shop.verifiedAt = new Date(); // <- DON'T set this here
 
     await shop.save();
 
-    // ✅ Generate JWT token just like signin
-    const token = jwt.sign(
-      { shopId: shop._id, email: shop.email ,role:"shop" },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    // ✅ Return the same structure as signin
-    res.json({
-      status: "success",
-      message: "Shop registration completed successfully!",
-      token,
-      shop: {
-        id: shop._id,
-        email: shop.email,
-        businessName: shop.businessName,
-        ownerName: shop.ownerName,
-        plan: shop.plan, // "basic" | "professional" | "enterprise"
-        avatar: shop.profilePic || "",
-
-        // Contact & basic info
-        countryCode: shop.countryCode,
-        phone: shop.phone,
-        website: shop.website,
-        country: shop.country,
-        zipCode: shop.zipCode,
-        latitude: shop.latitude,
-        longitude: shop.longitude,
-        services: shop.services,
-        vinylFilms: shop.vinylFilms,
-        certificates: shop.certificates,
-        startDate: shop.startDate,
-
-        // Social media (mapped correctly)
-        instagramLink: shop.socialMedia?.instagram || "",
-        facebookLink: shop.socialMedia?.facebook || "",
-        linkedinLink: shop.socialMedia?.linkedin || "",
-
-        // Additional info
-        bio: shop.additionalInfo || "",
-        workSpacePhoto: shop.workSpacePhoto,
-        storeFrontPhoto: shop.storeFrontPhoto,
-
-        // Legal & insurance details
-        legalEntityName: shop.legalEntityName,
-        address: shop.address,
-        insuranceCarrier: shop.insuranceCarrier,
-        policyNumber: shop.policyNumber,
-        policyExpiration: shop.policyExpiration,
-      },
+    // IMPORTANT: This endpoint intentionally does NOT return a JWT or shop data.
+    // It only acknowledges submission and instructs the user to wait for verification.
+    return res.status(202).json({
+      status: "pending_verification",
+      message:
+        "Your registration has been submitted successfully. Verification will take up to 48 hours. You will be notified when verification is complete.",
     });
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: "Failed to complete registration",
       error: error.message,
     });
   }
 };
+
+
 
 
 
@@ -813,8 +737,165 @@ export const getGoogleAuthURLShop = async (req, res) => {
 
 
 
+// // ============================================
+// // FIXED: googleCallbackPartner
+// // ============================================
+// export const googleCallbackPartner = async (req, res) => {
+//   try {
+//     const code = req.query.code;
+//     const { tokens } = await client.getToken(code);
+
+//     client.setCredentials(tokens);
+
+//     const ticket = await client.verifyIdToken({
+//       idToken: tokens.id_token,
+//       audience: process.env.GOOGLE_CLIENT_ID,
+//     });
+
+//     const googleUser = ticket.getPayload();
+//     const email = googleUser.email;
+
+//     let user = await Shop.findOne({ email });
+
+//     // =====================================
+//     // CASE 1: USER DOES NOT EXIST → SIGNUP
+//     // =====================================
+//     if (!user) {
+//       const newShop = new Shop({
+//         email,
+//         password: "Google_Auth_password",
+//         phone: "000000000",
+//         businessName: "Business Name (Pending)",
+//         legalEntityName: "Legal Entity (Pending)",
+//         ownerName: "Owner Name (Pending)",
+//         address: "Business Address (Pending)",
+//         country: "US (Pending)",
+//         startDate: new Date(),
+//         insuranceCarrier: "Insurance Carrier (Pending)",
+//         policyNumber: "Policy Number (Pending)",
+//         policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+//         insuranceCertificate: "Pending",
+//         storeFrontPhoto: "Pending",
+//         workSpacePhoto: "Pending",
+//         certificateFiles: [],
+//         zipCode: "00000",
+//         plan: "basic",
+//         isEmailVerified: true, // Google already verified
+//       });
+
+//       user = await newShop.save();
+
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-success-partner?` +
+//         `email=${encodeURIComponent(email)}&flow=signup`
+//       );
+//     }
+
+//     // =========================================
+//     // CASE 2: USER EXISTS BUT PROFILE INCOMPLETE
+//     // =========================================
+//     const isIncomplete =
+//       user.businessName.includes("(Pending)") ||
+//       user.legalEntityName.includes("(Pending)") ||
+//       user.ownerName.includes("(Pending)") ||
+//       user.address.includes("(Pending)");
+
+//     if (isIncomplete) {
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-success-partner?` +
+//         `email=${encodeURIComponent(email)}&flow=signup`
+//       );
+//     }
+
+//     // ===============================================
+//     // CASE 3: EXISTING USER WITH COMPLETE DATA → SIGNIN
+//     // ===============================================
+//     const token = jwt.sign(
+//       { shopId: user._id, email: user.email, role: "shop" },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     // ✅ FIXED: Return complete data structure matching signin
+//     const shopData = {
+//       id: user._id,
+//       email: user.email,
+//       businessName: user.businessName,
+//       ownerName: user.ownerName,
+//       plan: user.plan,
+//       avatar: user.profilePic || "",
+
+//       // Contact
+//       countryCode: user.countryCode,
+//       phone: user.phone,
+//       website: user.website,
+//       country: user.country,
+//       zipCode: user.zipCode,
+//       latitude: user.latitude,
+//       longitude: user.longitude,
+
+//       // Services & general info
+//       services: user.services,
+//       vinylFilms: user.vinylFilms,
+//       certificates: user.certificates,
+//       certificateFiles: user.certificateFiles,
+//       startDate: user.startDate?.toISOString?.() || user.startDate,
+//       bio: user.additionalInfo || "",
+
+//       // Photos
+//       workSpacePhoto: user.workSpacePhoto,
+//       storeFrontPhoto: user.storeFrontPhoto,
+
+//       // Legal + insurance
+//       legalEntityName: user.legalEntityName,
+//       address: user.address,
+//       insuranceCarrier: user.insuranceCarrier,
+//       policyNumber: user.policyNumber,
+//       policyExpiration: user.policyExpiration,
+//       insuranceCertificate: user.insuranceCertificate,
+
+//       // Social media
+//       instagramLink: user.socialMedia?.instagram || "",
+//       facebookLink: user.socialMedia?.facebook || "",
+//       linkedinLink: user.socialMedia?.linkedin || "",
+
+//       // Payment info
+//       paymentInfo: user.paymentInfo,
+
+//       // ✅ Additional fields to match signin
+//       rating: user.rating || 0,
+//       reviewCount: user.reviewCount || 0,
+//       isEmailVerified: user.isEmailVerified,
+//       isVerified: user.isVerified,
+//       verifiedAt: user.verifiedAt?.toISOString?.() || null,
+//       acceptedPolicy: user.acceptedPolicy,
+//       policyAcceptedAt: user.policyAcceptedAt?.toISOString?.() || null,
+//       status: user.status,
+//     };
+
+//     const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
+
+//     return res.redirect(
+//       `https://bidawrap1.netlify.app/google-success-partner?` +
+//       `flow=signin&` +
+//       `token=${token}&` +
+//       `shopData=${shopDataEncoded}`
+//     );
+
+//   } catch (error) {
+//     console.error("Google callback error:", error);
+//     return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
+//   }
+// };
+
+
+
+
+
+
+
 // ============================================
-// FIXED: googleCallbackPartner
+// FIXED: googleCallbackPartner WITH VERIFICATION FILTERS
 // ============================================
 export const googleCallbackPartner = async (req, res) => {
   try {
@@ -845,7 +926,7 @@ export const googleCallbackPartner = async (req, res) => {
         legalEntityName: "Legal Entity (Pending)",
         ownerName: "Owner Name (Pending)",
         address: "Business Address (Pending)",
-        country: "US (Pending)", // ✅ FIXED: Consistent with normal signup
+        country: "US (Pending)",
         startDate: new Date(),
         insuranceCarrier: "Insurance Carrier (Pending)",
         policyNumber: "Policy Number (Pending)",
@@ -854,9 +935,9 @@ export const googleCallbackPartner = async (req, res) => {
         storeFrontPhoto: "Pending",
         workSpacePhoto: "Pending",
         certificateFiles: [],
-        zipCode: "00000", // ✅ FIXED: Include zipCode
+        zipCode: "00000",
         plan: "basic",
-        isEmailVerified: true, // Google already verified
+        isEmailVerified: true, // Google already verified email
       });
 
       user = await newShop.save();
@@ -868,7 +949,7 @@ export const googleCallbackPartner = async (req, res) => {
     }
 
     // =========================================
-    // CASE 2: USER EXISTS BUT PROFILE INCOMPLETE
+    // CASE 2: PROFILE STILL INCOMPLETE → GO SETUP
     // =========================================
     const isIncomplete =
       user.businessName.includes("(Pending)") ||
@@ -883,65 +964,276 @@ export const googleCallbackPartner = async (req, res) => {
       );
     }
 
+    // =========================================
+    // 🚫 FILTER BEFORE TOKEN AND DATA
+    // =========================================
+
+    // EMAIL VERIFIED (Google login always verified)
+    if (!user.isEmailVerified) {
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-status?status=not_verified`
+      );
+    }
+
+    // ADMIN VERIFIED
+    if (!user.isVerified) {
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-status?status=not_approved`
+      );
+    }
+
     // ===============================================
-    // CASE 3: EXISTING USER WITH COMPLETE DATA → SIGNIN
+    // CASE 3: FULLY VERIFIED USER → SIGNIN + SEND DATA
     // ===============================================
+
     const token = jwt.sign(
       { shopId: user._id, email: user.email, role: "shop" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // ✅ FIXED: Return startDate as ISO string
+    // Prepare same shop data as signin
     const shopData = {
       id: user._id,
       email: user.email,
       businessName: user.businessName,
       ownerName: user.ownerName,
       plan: user.plan,
-      avatar: user.profilePic || "", // ✅ Use avatar consistently
+      avatar: user.profilePic || "",
 
-      // Contact & basic info
       countryCode: user.countryCode,
       phone: user.phone,
       website: user.website,
       country: user.country,
-      zipCode: user.zipCode, // ✅ Include zipCode
+      zipCode: user.zipCode,
+      latitude: user.latitude,
+      longitude: user.longitude,
+
       services: user.services,
       vinylFilms: user.vinylFilms,
       certificates: user.certificates,
-      startDate: user.startDate?.toISOString?.() || user.startDate, // ✅ FIXED: ISO string
-
-      // Social media
-      instagramLink: user.socialMedia?.instagram || "",
-      facebookLink: user.socialMedia?.facebook || "",
-      linkedinLink: user.socialMedia?.linkedin || "",
-
-      // Additional info
-      bio: user.additionalInfo || "", // ✅ Consistent: use bio key
+      certificateFiles: user.certificateFiles,
+      startDate: user.startDate?.toISOString?.() || user.startDate,
+      bio: user.additionalInfo || "",
 
       workSpacePhoto: user.workSpacePhoto,
       storeFrontPhoto: user.storeFrontPhoto,
 
-      // Legal & insurance details
       legalEntityName: user.legalEntityName,
       address: user.address,
       insuranceCarrier: user.insuranceCarrier,
       policyNumber: user.policyNumber,
       policyExpiration: user.policyExpiration,
+      insuranceCertificate: user.insuranceCertificate,
+
+      instagramLink: user.socialMedia?.instagram || "",
+      facebookLink: user.socialMedia?.facebook || "",
+      linkedinLink: user.socialMedia?.linkedin || "",
+
+      paymentInfo: user.paymentInfo,
+
+      rating: user.rating || 0,
+      reviewCount: user.reviewCount || 0,
+      isEmailVerified: user.isEmailVerified,
+      isVerified: user.isVerified
     };
 
     const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
 
     return res.redirect(
       `https://bidawrap1.netlify.app/google-success-partner?` +
-      `flow=signin&` +
-      `token=${token}&` +
-      `shopData=${shopDataEncoded}`
+      `flow=signin&token=${token}&shopData=${shopDataEncoded}`
     );
 
   } catch (error) {
     console.error("Google callback error:", error);
     return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+export const submitVerificationRequest = async (req, res) => {
+  try {
+    const shopId = req.shop._id; // From authenticateShop middleware
+
+    const {
+      legalEntityName,
+      address,
+      country,
+      zipCode,
+      latitude,
+      longitude,
+      insuranceCarrier,
+      policyNumber,
+      policyExpiration,
+      certificates,
+      shopNotes,
+    } = req.body;
+
+    // Get uploaded file URLs from Cloudinary
+    const certificateFiles = req.files?.certificateFiles
+      ? req.files.certificateFiles.map((file) => file.path)
+      : [];
+    
+    const insuranceCertificate = req.files?.insuranceCertificate
+      ? req.files.insuranceCertificate[0].path
+      : undefined;
+
+    // Validate: at least one field must be provided
+    if (
+      !legalEntityName &&
+      !address &&
+      !country &&
+      !zipCode &&
+      !latitude &&
+      !longitude &&
+      !insuranceCarrier &&
+      !policyNumber &&
+      !policyExpiration &&
+      !certificates &&
+      certificateFiles.length === 0 &&
+      !insuranceCertificate
+    ) {
+      return res.status(400).json({
+        status: "error",
+        message: "At least one field must be updated",
+      });
+    }
+
+    // Validate certificate names match file count
+    if (certificateFiles.length > 0 && certificates) {
+      const certNames = certificates.split(',').map(n => n.trim()).filter(Boolean);
+      if (certNames.length !== certificateFiles.length) {
+        return res.status(400).json({
+          status: "error",
+          message: `Certificate names count (${certNames.length}) must match uploaded files count (${certificateFiles.length})`,
+        });
+      }
+    }
+
+    // Validate latitude and longitude if provided
+    if (latitude || longitude) {
+      // Both should be provided together
+      if (!latitude || !longitude) {
+        return res.status(400).json({
+          status: "error",
+          message: "Both latitude and longitude must be provided together",
+        });
+      }
+
+      // Validate latitude range (-90 to 90)
+      const lat = parseFloat(latitude);
+      if (isNaN(lat) || lat < -90 || lat > 90) {
+        return res.status(400).json({
+          status: "error",
+          message: "Latitude must be a number between -90 and 90",
+        });
+      }
+
+      // Validate longitude range (-180 to 180)
+      const lng = parseFloat(longitude);
+      if (isNaN(lng) || lng < -180 || lng > 180) {
+        return res.status(400).json({
+          status: "error",
+          message: "Longitude must be a number between -180 and 180",
+        });
+      }
+    }
+
+    // Check if shop has a pending request - only block if status is "pending"
+    const existingPendingRequest = await VerificationRequest.findOne({
+      shopId,
+      status: "pending",
+    });
+
+    if (existingPendingRequest) {
+      return res.status(400).json({
+        status: "error",
+        message: "You already have a pending verification request. Please wait for admin review before submitting a new request.",
+        data: {
+          pendingRequestId: existingPendingRequest._id,
+          submittedAt: existingPendingRequest.createdAt,
+        },
+      });
+    }
+
+    // Shop can submit a new request if:
+    // 1. They have no previous requests, OR
+    // 2. Their previous request was approved/rejected (not pending)
+
+    // Create new verification request
+    const verificationRequest = new VerificationRequest({
+      shopId,
+      legalEntityName: legalEntityName || undefined,
+      address: address || undefined,
+      country: country || undefined,
+      zipCode: zipCode || undefined,
+      latitude: latitude || undefined,
+      longitude: longitude || undefined,
+      insuranceCarrier: insuranceCarrier || undefined,
+      policyNumber: policyNumber || undefined,
+      policyExpiration: policyExpiration ? new Date(policyExpiration) : undefined,
+      certificates: certificates || undefined,
+      certificateFiles: certificateFiles.length > 0 ? certificateFiles : undefined,
+      insuranceCertificate: insuranceCertificate || undefined,
+      shopNotes: shopNotes || undefined,
+    });
+
+    await verificationRequest.save();
+
+    res.status(201).json({
+      status: "success",
+      message: "Verification request submitted successfully. Admin will review your changes.",
+      data: {
+        requestId: verificationRequest._id,
+        status: verificationRequest.status,
+        createdAt: verificationRequest.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Submit verification request error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to submit verification request",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+// ============================================
+// SHOP: Get Own Verification Requests
+// ============================================
+export const getMyVerificationRequests = async (req, res) => {
+  try {
+    const shopId = req.shop._id;
+
+    const requests = await VerificationRequest.find({ shopId })
+      .sort({ createdAt: -1 })
+      .select("-__v");
+
+    res.json({
+      status: "success",
+      count: requests.length,
+      data: requests,
+    });
+  } catch (error) {
+    console.error("Get verification requests error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to fetch verification requests",
+    });
   }
 };
