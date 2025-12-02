@@ -46,7 +46,7 @@ router.get("/dashboard/overview", getDashboardOverview);
 
 //shop registeration
 router.get("/shops/unverified", getUnverifiedShops);
-router.put("/shops/:shopId/accept", acceptShop);
+router.put("/shops/:shopId/accept", acceptShop);//
 router.put("/shops/:shopId/reject", rejectShop);
 
 

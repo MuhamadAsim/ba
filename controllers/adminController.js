@@ -63,8 +63,8 @@ export const getDashboardStats = async (req, res) => {
   try {
     // Run all queries in parallel for better performance
     const [totalShops, totalUsers, completedBids, activeBids] = await Promise.all([
-      Shop.countDocuments({ 
-        isEmailVerified: true, 
+      Shop.countDocuments({
+        isEmailVerified: true,
         isVerified: true  // Only count admin-approved shops
       }),
       Customer.countDocuments({ isEmailVerified: true }),
@@ -286,8 +286,8 @@ export const getDashboardStats = async (req, res) => {
         <p>Your OTP code is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-          OTP_EXPIRY_MS / 60000
-        )} minute(s)</strong>.</p>
+      OTP_EXPIRY_MS / 60000
+    )} minute(s)</strong>.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
       </div>
     `;
@@ -441,8 +441,8 @@ export const resendOtp = async (req, res) => {
         <p>Your new OTP code is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-          OTP_EXPIRY_MS / 60000
-        )} minute(s)</strong>.</p>
+      OTP_EXPIRY_MS / 60000
+    )} minute(s)</strong>.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
       </div>
     `;
@@ -587,7 +587,7 @@ export const acceptShop = async (req, res) => {
     if (isAdminShop === true) {
       shop.isAdminShop = true;
       shop.plan = "professional"; // Set to premium/professional plan
-      
+
       // Clear payment information
       shop.paymentInfo = {
         last4: undefined,
@@ -595,7 +595,7 @@ export const acceptShop = async (req, res) => {
         expiry: undefined,
         paymentToken: undefined,
       };
-      
+
       // Clear subscription information
       shop.subscription = {
         customerId: undefined,
@@ -605,18 +605,39 @@ export const acceptShop = async (req, res) => {
         nextBillingDate: undefined,
         status: "active", // Set to active since admin shop doesn't need payment
       };
-      
+
       // Set trial end date far in the future or null (admin shops don't have trial limitations)
       shop.trialEndDate = new Date("2099-12-31");
     }
 
     // Use the model method to approve shop
     await shop.approveShop();
+    // Send approval email
+    await sendEmail(
+      shop.email,
+      "Your Shop Registration Has Been Approved!",
+      `
+    <h2>🎉 Congratulations, ${shop.businessName}!</h2>
+    <p>Your shop registration request has been successfully reviewed and <strong>approved</strong>.</p>
+
+    <p>You can now access all features available to your account.</p>
+
+    ${shop.isAdminShop ? `
+      <p>Your shop has been granted <strong>Admin Shop</strong> privileges with a Professional Plan, free of cost.</p>
+    ` : ""}
+
+    <p>If you have any questions, feel free to reply to this email.</p>
+
+    <br/>
+    <p>Best regards,<br/>Support Team</p>
+  `
+    );
+
 
     res.status(200).json({
       success: true,
-      message: isAdminShop 
-        ? "Shop verified as Admin Shop and approved successfully" 
+      message: isAdminShop
+        ? "Shop verified as Admin Shop and approved successfully"
         : "Shop verified and approved successfully",
       data: {
         shopId: shop._id,
@@ -663,14 +684,34 @@ export const rejectShop = async (req, res) => {
     // Update shop status to suspended or you can delete it
     shop.status = "suspended";
     shop.isVerified = false;
-    
+
     // You could add a rejectionReason field to the schema if needed
     // shop.rejectionReason = reason;
 
     await shop.save();
 
-    // Optional: Send email notification to shop owner about rejection
-    // await sendRejectionEmail(shop.email, reason);
+
+    // Send rejection email
+    await sendEmail(
+      shop.email,
+      "Your Shop Registration Request Was Not Approved",
+      `
+    <h2>Hello ${shop.businessName},</h2>
+    <p>We have reviewed your shop registration request. Unfortunately, we are unable to approve it at this time.</p>
+
+    ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+
+    <p>You may fix the issues and reapply anytime.</p>
+
+    <p>If you believe this was a mistake or want more details, feel free to contact our support team.</p>
+
+    <br/>
+    <p>Best regards,<br/>Support Team</p>
+  `
+    );
+
+
+
 
     res.status(200).json({
       success: true,
@@ -754,7 +795,7 @@ export const getAllCustomers = async (req, res) => {
       customers.map(async (customer) => {
         // Count total bids
         const totalBids = await Bid.countDocuments({ user_id: customer._id });
-        
+
         // Count completed bids
         const completedBids = await Bid.countDocuments({
           user_id: customer._id,
@@ -874,19 +915,19 @@ export const getCustomerById = async (req, res) => {
 export const getShopStats = async (req, res) => {
   try {
     const totalShops = await Shop.countDocuments({ isVerified: true });
-    const basicShops = await Shop.countDocuments({ 
-      isVerified: true, 
-      plan: "basic" 
+    const basicShops = await Shop.countDocuments({
+      isVerified: true,
+      plan: "basic"
     });
-    const professionalShops = await Shop.countDocuments({ 
-      isVerified: true, 
-      plan: "professional" 
+    const professionalShops = await Shop.countDocuments({
+      isVerified: true,
+      plan: "professional"
     });
     const pendingShops = await Shop.countDocuments({ isVerified: false });
 
     // Get total completed bids across all shops
-    const totalCompletedBids = await Bid.countDocuments({ 
-      status: "completed" 
+    const totalCompletedBids = await Bid.countDocuments({
+      status: "completed"
     });
 
     // Get average rating across all shops
@@ -923,7 +964,7 @@ export const getAllShops = async (req, res) => {
 
     // Build query
     const query = {};
-    
+
     // Filter by verification status
     if (verified === "true") {
       query.isVerified = true;
@@ -949,10 +990,10 @@ export const getAllShops = async (req, res) => {
     const shopsWithStats = await Promise.all(
       shops.map(async (shop) => {
         // Count total bids received
-        const totalBids = await Bid.countDocuments({ 
-          currentShopId: shop._id 
+        const totalBids = await Bid.countDocuments({
+          currentShopId: shop._id
         });
-        
+
         // Count completed bids
         const completedBids = await Bid.countDocuments({
           currentShopId: shop._id,
@@ -1020,7 +1061,7 @@ export const getShopsForMap = async (req, res) => {
     const { verified = "true" } = req.query;
 
     const query = {};
-    
+
     if (verified === "true") {
       query.isVerified = true;
       query.status = "active";
@@ -1033,11 +1074,11 @@ export const getShopsForMap = async (req, res) => {
 
     // Filter shops that have valid coordinates
     const shopsWithLocation = shops.filter(
-      shop => 
-        (shop.latitude && shop.longitude) || 
-        (shop.location?.coordinates && 
-         shop.location.coordinates[0] !== 0 && 
-         shop.location.coordinates[1] !== 0)
+      shop =>
+        (shop.latitude && shop.longitude) ||
+        (shop.location?.coordinates &&
+          shop.location.coordinates[0] !== 0 &&
+          shop.location.coordinates[1] !== 0)
     );
 
     // Format data for map
@@ -1251,13 +1292,128 @@ export const getAllVerificationRequests = async (req, res) => {
   }
 };
 
+// // ============================================
+// // ADMIN: Approve Verification Request
+// // ============================================
+// export const approveVerificationRequest = async (req, res) => {
+//   try {
+//     const { requestId } = req.params;
+//     const adminId = req.admin._id; // From authenticateAdmin middleware
+//     const { adminNotes } = req.body;
+
+//     const request = await VerificationRequest.findById(requestId);
+
+//     if (!request) {
+//       return res.status(404).json({
+//         status: "error",
+//         message: "Verification request not found",
+//       });
+//     }
+
+//     if (request.status !== "pending") {
+//       return res.status(400).json({
+//         status: "error",
+//         message: `Request has already been ${request.status}`,
+//       });
+//     }
+
+//     // Add admin notes if provided
+//     if (adminNotes) {
+//       request.adminNotes = adminNotes;
+//     }
+
+//     // Approve and update shop
+//     await request.approveAndUpdateShop(adminId);
+
+//     res.json({
+//       status: "success",
+//       message: "Verification request approved and shop information updated",
+//       data: {
+//         requestId: request._id,
+//         status: request.status,
+//         reviewedAt: request.reviewedAt,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Approve verification request error:", error);
+//     res.status(500).json({
+//       status: "error",
+//       message: "Failed to approve verification request",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // ============================================
+// // ADMIN: Reject Verification Request
+// // ============================================
+// export const rejectVerificationRequest = async (req, res) => {
+//   try {
+//     const { requestId } = req.params;
+//     const adminId = req.admin._id; // From authenticateAdmin middleware
+//     const { rejectionReason, adminNotes } = req.body;
+
+//     if (!rejectionReason) {
+//       return res.status(400).json({
+//         status: "error",
+//         message: "Rejection reason is required",
+//       });
+//     }
+
+//     const request = await VerificationRequest.findById(requestId);
+
+//     if (!request) {
+//       return res.status(404).json({
+//         status: "error",
+//         message: "Verification request not found",
+//       });
+//     }
+
+//     if (request.status !== "pending") {
+//       return res.status(400).json({
+//         status: "error",
+//         message: `Request has already been ${request.status}`,
+//       });
+//     }
+
+//     // Add admin notes if provided
+//     if (adminNotes) {
+//       request.adminNotes = adminNotes;
+//     }
+
+//     // Reject the request
+//     await request.rejectRequest(adminId, rejectionReason);
+
+//     res.json({
+//       status: "success",
+//       message: "Verification request rejected",
+//       data: {
+//         requestId: request._id,
+//         status: request.status,
+//         rejectionReason: request.rejectionReason,
+//         reviewedAt: request.reviewedAt,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Reject verification request error:", error);
+//     res.status(500).json({
+//       status: "error",
+//       message: "Failed to reject verification request",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
 // ============================================
 // ADMIN: Approve Verification Request
 // ============================================
 export const approveVerificationRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const adminId = req.admin._id; // From authenticateAdmin middleware
+    const adminId = req.admin._id;
     const { adminNotes } = req.body;
 
     const request = await VerificationRequest.findById(requestId);
@@ -1276,7 +1432,7 @@ export const approveVerificationRequest = async (req, res) => {
       });
     }
 
-    // Add admin notes if provided
+    // Add admin notes
     if (adminNotes) {
       request.adminNotes = adminNotes;
     }
@@ -1284,7 +1440,35 @@ export const approveVerificationRequest = async (req, res) => {
     // Approve and update shop
     await request.approveAndUpdateShop(adminId);
 
-    res.json({
+    // Fetch updated shop info to get email + name
+    const shop = await Shop.findById(request.shopId);
+
+    // --------------------------------------
+    // 📧 SEND APPROVAL EMAIL TO THE SHOP OWNER
+    // --------------------------------------
+    await sendEmail(
+      shop.email,
+      "Your Profile Verification Update Has Been Approved",
+      `
+        <h2>🎉 Hello ${shop.businessName},</h2>
+        <p>Good news! Your shop's profile verification update request has been <strong>approved</strong> after review.</p>
+
+        <p>The updated details are now visible on your shop profile.</p>
+
+        ${
+          adminNotes
+            ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
+            : ""
+        }
+
+        <p>If you have more updates to request, you may submit them anytime.</p>
+
+        <br/>
+        <p>Best regards,<br/>Support Team</p>
+      `
+    );
+
+    return res.json({
       status: "success",
       message: "Verification request approved and shop information updated",
       data: {
@@ -1295,7 +1479,7 @@ export const approveVerificationRequest = async (req, res) => {
     });
   } catch (error) {
     console.error("Approve verification request error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: "Failed to approve verification request",
       error: error.message,
@@ -1303,13 +1487,16 @@ export const approveVerificationRequest = async (req, res) => {
   }
 };
 
+
+
+
 // ============================================
 // ADMIN: Reject Verification Request
 // ============================================
 export const rejectVerificationRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const adminId = req.admin._id; // From authenticateAdmin middleware
+    const adminId = req.admin._id;
     const { rejectionReason, adminNotes } = req.body;
 
     if (!rejectionReason) {
@@ -1335,7 +1522,7 @@ export const rejectVerificationRequest = async (req, res) => {
       });
     }
 
-    // Add admin notes if provided
+    // Add admin notes
     if (adminNotes) {
       request.adminNotes = adminNotes;
     }
@@ -1343,7 +1530,37 @@ export const rejectVerificationRequest = async (req, res) => {
     // Reject the request
     await request.rejectRequest(adminId, rejectionReason);
 
-    res.json({
+    // Fetch shop information
+    const shop = await Shop.findById(request.shopId);
+
+    // --------------------------------------
+    // 📧 SEND REJECTION EMAIL TO SHOP OWNER
+    // --------------------------------------
+    await sendEmail(
+      shop.email,
+      "Your Profile Verification Update Was Not Approved",
+      `
+        <h2>Hello ${shop.businessName},</h2>
+        <p>We have reviewed your shop profile verification update request.</p>
+
+        <p>Unfortunately, we could not approve it at this time.</p>
+
+        <p><strong>Reason:</strong> ${rejectionReason}</p>
+
+        ${
+          adminNotes
+            ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
+            : ""
+        }
+
+        <p>You may correct the information and submit a new request whenever you're ready.</p>
+
+        <br/>
+        <p>Best regards,<br/>Support Team</p>
+      `
+    );
+
+    return res.json({
       status: "success",
       message: "Verification request rejected",
       data: {
@@ -1355,13 +1572,17 @@ export const rejectVerificationRequest = async (req, res) => {
     });
   } catch (error) {
     console.error("Reject verification request error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: "Failed to reject verification request",
       error: error.message,
     });
   }
 };
+
+
+
+
 
 // ============================================
 // ADMIN: Get Single Verification Request Details
