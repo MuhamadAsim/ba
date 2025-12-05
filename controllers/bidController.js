@@ -108,7 +108,7 @@ export const createBid = async (req, res) => {
       bidId: newBid._id,
       type: "bid-created",              // valid enum type
       title: "New Bid Created",
-      message: "A new bid has been submitted by the customer.",
+      message: `A new bid has been submitted.`
     });
 
     notifyShopsForBid(newBid, user);  

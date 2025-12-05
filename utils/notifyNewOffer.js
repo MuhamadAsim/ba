@@ -4,66 +4,89 @@ import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
-// import twilio from "twilio";  // enable once credentials added
+import twilio from "twilio"; // enable only when credentials are added
 
 export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
   try {
-    // Fetch customer from bid
-    const bid = await Bid.findById(bidId).select("user_id serviceDescription requestCategory");
+    // ------------------------------------
+    // 1) Fetch Bid
+    // ------------------------------------
+    const bid = await Bid.findById(bidId).select(
+      "user_id serviceDescription requestCategory"
+    );
+
     if (!bid) {
-      console.log("⚠️ Bid not found (notifyNewOffer)");
+      console.log("⚠️ notifyNewOffer: Bid not found");
       return;
     }
 
-    const customer = await Customer.findById(bid.user_id).select("name email phone");
+    // ------------------------------------
+    // 2) Fetch Customer From Bid
+    // ------------------------------------
+    const customer = await Customer.findById(bid.user_id).select(
+      "name email phone"
+    );
+
     if (!customer) {
-      console.log("⚠️ Customer not found (notifyNewOffer)");
+      console.log("⚠️ notifyNewOffer: Customer not found");
       return;
     }
 
-    // Fetch shop
-    const shop = await Shop.findById(shopId).select("businessName ownerName");
+    // ------------------------------------
+    // 3) Fetch Shop
+    // ------------------------------------
+    const shop = await Shop.findById(shopId).select(
+      "businessName ownerName"
+    );
+
     if (!shop) {
-      console.log("⚠️ Shop not found (notifyNewOffer)");
+      console.log("⚠️ notifyNewOffer: Shop not found");
       return;
     }
 
-    // Email subject
-    const subject = `${shop.businessName} submitted a new offer`;
+    // ------------------------------------
+    // 4) Email Subject
+    // ------------------------------------
+    const subject = `${shop.businessName} submitted a new offer on your request`;
 
-    // Build HTML email
+    // ------------------------------------
+    // 5) Email Body (HTML)
+    // ------------------------------------
     const html = `
-      <h2>New Offer Received</h2>
+      <h2>🎉 You Received a New Offer!</h2>
 
       <p><strong>Shop:</strong> ${shop.businessName} (${shop.ownerName})</p>
-      <p><strong>Offer Price:</strong> $${price}</p>
-      <p><strong>Message:</strong> ${note || "No message provided"}</p>
+      <p><strong>Offer Price:</strong> $${price || offer?.price}</p>
+      <p><strong>Message:</strong> ${note || offer?.note || "No message provided"}</p>
 
-      <h3>Bid Information:</h3>
+      <h3>Request Details:</h3>
       <p><strong>Category:</strong> ${bid.requestCategory}</p>
       <p><strong>Description:</strong> ${bid.serviceDescription}</p>
 
       <hr />
-      <p>Please log in to your dashboard to view and respond to the offer.</p>
+      <p>Login to your dashboard to view more details and respond to the offer.</p>
     `;
 
-    // ✉️ EMAIL to customer
+    // ------------------------------------
+    // 6) Send Email to Customer
+    // ------------------------------------
     await sendEmail(customer.email, subject, html);
-    console.log("📧 New offer email sent to customer:", customer.email);
+
+    console.log(`📧 Email sent to customer (${customer.email})`);
+
 
     // -------------------------------------------------------------
-    // -------------- SMS via Twilio (optional) ---------------------
-    /*
+    // OPTIONAL: SMS NOTIFICATION (Twilio)
     const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
     if (customer.phone) {
       const smsText = `
-A new offer has been submitted!
+New Offer Received!
 
 Shop: ${shop.businessName}
-Offer Price: $${price}
+Price: $${price}
 
-Check your dashboard to view details.
+Check your dashboard for full details.
       `;
 
       await client.messages.create({
@@ -72,12 +95,11 @@ Check your dashboard to view details.
         to: customer.phone,
       });
 
-      console.log("📱 SMS sent to customer:", customer.phone);
+      console.log("📱 SMS sent to:", customer.phone);
     }
-    */
     // -------------------------------------------------------------
 
   } catch (err) {
-    console.error("❌ Error notifying customer about new offer:", err);
+    console.error("❌ notifyNewOffer FAILED:", err.message);
   }
 };

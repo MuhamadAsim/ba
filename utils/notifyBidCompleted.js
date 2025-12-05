@@ -4,41 +4,28 @@ import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
-// import twilio from "twilio"; // Enable later
+import twilio from "twilio";
 
 export const notifyBidCompleted = async (shopId, bidId) => {
   try {
     // Fetch shop
     const shop = await Shop.findById(shopId).select("businessName ownerName");
-    if (!shop) {
-      console.log("⚠️ Shop not found (notifyBidCompleted)");
-      return;
-    }
+    if (!shop) return console.log("⚠️ Shop not found");
 
-    // Fetch bid details
+    // Fetch bid (now includes contactMethod)
     const bid = await Bid.findById(bidId).select(
-      "user_id serviceDescription requestCategory vehicleYear vehicleMake vehicleModel vehicleTrim"
+      "user_id contactMethod serviceDescription requestCategory vehicleYear vehicleMake vehicleModel vehicleTrim"
     );
-    if (!bid) {
-      console.log("⚠️ Bid not found (notifyBidCompleted)");
-      return;
-    }
+    if (!bid) return console.log("⚠️ Bid not found");
 
     // Fetch customer
     const customer = await Customer.findById(bid.user_id).select(
       "name email phone"
     );
-    if (!customer) {
-      console.log("⚠️ Customer not found (notifyBidCompleted)");
-      return;
-    }
+    if (!customer) return console.log("⚠️ Customer not found");
 
-    const customerName = customer?.name || "Customer";
-
-    // Email subject
     const subject = `Your bid has been marked as completed by ${shop.businessName}`;
 
-    // HTML Email
     const html = `
       <h2>Your Bid Has Been Completed 🎉</h2>
 
@@ -54,16 +41,22 @@ export const notifyBidCompleted = async (shopId, bidId) => {
       <p>If something is incorrect, please contact support or the shop directly.</p>
     `;
 
-    // ✉️ Send Email
-    await sendEmail(customer.email, subject, html);
-    console.log("📧 Bid completion email sent to:", customer.email);
+    // -----------------------------
+    // 🔥 NOTIFICATION LOGIC BEGINS
+    // -----------------------------
 
-    // ---------------------------------------------------
-    // --------------- TWILIO SMS (commented) -------------
-    /*
-    const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+    const method = bid.contactMethod || "email";
 
-    if (customer.phone) {
+    // Send EMAIL
+    if (method === "email" || method === "both") {
+      await sendEmail(customer.email, subject, html);
+      console.log("📧 Email sent to:", customer.email);
+    }
+
+    // Send SMS
+    if ((method === "sms" || method === "both") && customer.phone) {
+      const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+
       const smsText = `
 Your bid has been marked as completed by ${shop.businessName}.
 
@@ -79,10 +72,12 @@ Thank you for using our service!
         to: customer.phone,
       });
 
-      console.log("📱 SMS sent to customer:", customer.phone);
+      console.log("📱 SMS sent to:", customer.phone);
     }
-    */
-    // ---------------------------------------------------
+
+    // -----------------------------
+    // 🔥 NOTIFICATION LOGIC ENDS
+    // -----------------------------
 
   } catch (err) {
     console.error("❌ Error sending bid completion notification:", err);

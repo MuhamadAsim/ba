@@ -82,7 +82,7 @@ export const signup = async (req, res) => {
     // Generate new OTP
     const otp = generateOtp();
 
-    // Create new customer
+    // Create new customer//
     const newCustomer = new Customer({
       name,
       email,
@@ -241,21 +241,28 @@ export const signin = async (req, res) => {
     });
   }
 };
-
 // ---------------------- UPDATE PROFILE ----------------------
 export const updateProfile = async (req, res) => {
   try {
     const customer = req.customer; // from authenticateCustomer middleware
 
-    // Only allow updates to specific fields
+    // Allowed fields to update
     const fieldsToUpdate = ["name", "phone", "address", "zip"];
+
     fieldsToUpdate.forEach((field) => {
-      if (req.body[field] !== undefined) customer[field] = req.body[field];
+      if (req.body[field] !== undefined) {
+        customer[field] = req.body[field];
+      }
     });
 
-    // ✅ If avatar file uploaded (Cloudinary)
+    // 🔥 If ZIP is provided AND not empty → mark as authenticated
+    if (req.body.zip && req.body.zip.trim() !== "") {
+      customer.isAuthenticated = true;
+    }
+
+    // 🔥 If avatar uploaded
     if (req.file) {
-      customer.avatar = req.file.path; // Cloudinary gives the full URL here
+      customer.avatar = req.file.path;
     }
 
     await customer.save();
@@ -270,6 +277,7 @@ export const updateProfile = async (req, res) => {
         address: customer.address || "",
         zip: customer.zip || "",
         avatar: customer.avatar || "",
+        isAuthenticated: customer.isAuthenticated,
       },
     });
   } catch (error) {
@@ -280,12 +288,6 @@ export const updateProfile = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
 
 
 

@@ -39,6 +39,13 @@ const bidSchema = new mongoose.Schema(
         ref: "Offer",
       },
     ],
+    contactMethod: {
+      type: String,
+      enum: ["email", "sms", "both"],
+      default: "email",
+    },
+
+
 
     acceptedOffer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -46,15 +53,16 @@ const bidSchema = new mongoose.Schema(
       default: null,
     },
 
+
     currentShopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shop",
       default: null,
     },
     reviewed: {
-  type: Boolean,
-  default: false,
-}
+      type: Boolean,
+      default: false,
+    }
 
   },
   { timestamps: true }

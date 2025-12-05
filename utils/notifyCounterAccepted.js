@@ -4,13 +4,13 @@ import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
-// import twilio from "twilio";  // enable later
+import twilio from "twilio";
 
 export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) => {
   try {
-    // Fetch bid
+    // Fetch bid (now includes contactMethod)
     const bid = await Bid.findById(bidId).select(
-      "user_id serviceDescription requestCategory"
+      "user_id contactMethod serviceDescription requestCategory"
     );
 
     if (!bid) {
@@ -38,12 +38,8 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
       return;
     }
 
-    const customerName = customer?.name || "Customer";
-
-    // Email subject
     const subject = `${shop.businessName} accepted your counter offer!`;
 
-    // Email HTML
     const html = `
       <h2>Your Counter Offer Was Accepted 🎉</h2>
 
@@ -58,16 +54,23 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
       <p>Your bid is now marked as <strong>In Progress</strong>.</p>
     `;
 
-    // ✉️ Send email
-    await sendEmail(customer.email, subject, html);
-    console.log("📧 Counter-accepted email sent to:", customer.email);
+    // -----------------------------
+    // 🔥 NOTIFICATION LOGIC
+    // -----------------------------
 
-    // -------------------------------------------------------
-    // --------- TWILIO SMS (OPTIONAL, commented) -------------
-    /*
-    const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+    const method = bid.contactMethod || "email";
 
-    if (customer.phone) {
+    // Send EMAIL
+    if (method === "email" || method === "both") {
+      await sendEmail(customer.email, subject, html);
+      console.log("📧 Counter-accepted email sent to:", customer.email);
+    }
+
+    // Send SMS
+    
+    if ((method === "sms" || method === "both") && customer.phone) {
+      const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+
       const smsText = `
 Great news!
 ${shop.businessName} accepted your counter offer.
@@ -85,8 +88,8 @@ Your bid is now in progress.
 
       console.log("📱 SMS sent to customer:", customer.phone);
     }
-    */
-    // -------------------------------------------------------
+
+    // -----------------------------
 
   } catch (err) {
     console.error("❌ Error notifying customer about counter acceptance:", err);

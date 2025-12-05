@@ -4,7 +4,7 @@ import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
-// import twilio from "twilio"; // commented until Twilio keys available
+import twilio from "twilio"; // commented until Twilio keys available
 
 export const notifyCounterOffer = async (offer, counterData) => {
   try {
@@ -49,7 +49,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
 
     // -------------------------------------------------------------
     // --------------- TWILIO SMS (COMMENTED OUT) -------------------
-    /*
+
     const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
     const smsText = `
@@ -63,15 +63,15 @@ Check your dashboard for details.
     `;
 
     if (shop.phone) {
-      await client.messages.create({
+      const fullPhoneNumber = `${shop.countryCode || "+1"}${shop.phone}`;
+      await twilioClient.messages.create({
         body: smsText,
         from: process.env.TWILIO_PHONE_NUMBER,
-        to: shop.phone,
+        to: fullPhoneNumber,
       });
-
-      console.log("📱 SMS sent to shop:", shop.phone);
+      console.log(`📱 SMS sent to ${shop.plan.toUpperCase()} shop: ${fullPhoneNumber}`);
     }
-    */
+
     // -------------------------------------------------------------
 
   } catch (err) {
