@@ -39,6 +39,13 @@ const bidSchema = new mongoose.Schema(
         ref: "Offer",
       },
     ],
+    contactMethod: {
+      type: String,
+      enum: ["email", "sms", "both"],
+      default: "email",
+    },
+
+
 
     acceptedOffer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -46,12 +53,17 @@ const bidSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Track the shop currently working on this bid
+
     currentShopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shop",
       default: null,
     },
+    reviewed: {
+      type: Boolean,
+      default: false,
+    }
+
   },
   { timestamps: true }
 );
@@ -73,4 +85,5 @@ bidSchema.methods.isExpired = function () {
   return false;
 };
 
-export default mongoose.model("Bid", bidSchema);
+// FIX: Prevent OverwriteModelError
+export default mongoose.models.Bid || mongoose.model("Bid", bidSchema);
