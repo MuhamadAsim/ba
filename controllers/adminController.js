@@ -306,7 +306,7 @@ export const getDashboardStats = async (req, res) => {
       message: "Failed to send OTP. Please try again.",
     });
   }
-};
+};//
 /**
  * POST /api/admin/verify-otp
  * Body: { email, otp }
@@ -447,7 +447,7 @@ export const resendOtp = async (req, res) => {
       </div>
     `;
 
-    await sendEmail({ to: email, subject, text, html });
+    await sendEmail(email, subject, html);
 
     return res.status(200).json({
       success: true,
@@ -1455,11 +1455,10 @@ export const approveVerificationRequest = async (req, res) => {
 
         <p>The updated details are now visible on your shop profile.</p>
 
-        ${
-          adminNotes
-            ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
-            : ""
-        }
+        ${adminNotes
+        ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
+        : ""
+      }
 
         <p>If you have more updates to request, you may submit them anytime.</p>
 
@@ -1547,11 +1546,10 @@ export const rejectVerificationRequest = async (req, res) => {
 
         <p><strong>Reason:</strong> ${rejectionReason}</p>
 
-        ${
-          adminNotes
-            ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
-            : ""
-        }
+        ${adminNotes
+        ? `<p><strong>Admin Notes:</strong> ${adminNotes}</p>`
+        : ""
+      }
 
         <p>You may correct the information and submit a new request whenever you're ready.</p>
 
