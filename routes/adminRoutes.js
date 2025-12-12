@@ -20,12 +20,20 @@ import {
   getAllVerificationRequests,
   getVerificationRequestDetails,
   approveVerificationRequest,
-  rejectVerificationRequest
+  rejectVerificationRequest,
+  getActiveBids,
+  getCompletedBids,
+  getAllBids,
+  getInProgressBids,
+  getBidDetails,
+  getBidStats,
+  createShopByAdmin,
+  toggleBlockShop
 
 
 } from "../controllers/adminController.js";
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
-
+import { upload } from "../middlewares/upload.js";
 const router = express.Router();
 
 
@@ -45,9 +53,22 @@ router.get("/dashboard/overview", getDashboardOverview);
 
 
 //shop registeration
+router.post(
+  '/shops/create',
+  upload.fields([
+    { name: "profilePic", maxCount: 1 },
+    { name: "insuranceCertificate", maxCount: 1 },
+    { name: "storeFrontPhoto", maxCount: 1 },
+    { name: "workSpacePhoto", maxCount: 1 },
+    { name: "certificateFiles", maxCount: 5 },
+  ]),
+  createShopByAdmin
+);
 router.get("/shops/unverified", getUnverifiedShops);
 router.put("/shops/:shopId/accept", acceptShop);//
 router.put("/shops/:shopId/reject", rejectShop);
+router.patch("/shops/:shopId/block", toggleBlockShop);
+
 
 
 //shop page
@@ -93,5 +114,22 @@ router.post(
   "/:requestId/reject",
   rejectVerificationRequest
 );
+
+
+
+
+
+// Bid management routes
+router.get("/bids/active", getActiveBids);
+router.get("/bids/in-progress", getInProgressBids);
+router.get("/bids/completed", getCompletedBids);
+router.get("/bids/all", getAllBids);
+router.get("/bids/stats", getBidStats);
+router.get("/bids/:bidId", getBidDetails);
+
+
+
+
+
 
 export default router;

@@ -170,6 +170,135 @@ export const verifyOtp = async (req, res) => {
 
 
 
+// // ============================================
+// // FIXED: signin with shop.isVerified check
+// // ============================================
+// export const signin = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     const shop = await Shop.findOne({ email });
+//     if (!shop)
+//       return res.json({
+//         status: "invalid_credentials",
+//         message: "Invalid email or password",
+//       });
+
+//     const isMatch = await bcrypt.compare(password, shop.password);
+//     if (!isMatch)
+//       return res.json({
+//         status: "invalid_credentials",
+//         message: "Invalid email or password",
+//       });
+
+//     // ============================
+//     // STEP 1: Email must be verified
+//     // ============================
+//     if (!shop.isEmailVerified) {
+//       const otp = generateOtp();
+//       shop.otp = otp;
+//       shop.otpExpiry = Date.now() + 10 * 60 * 1000;
+//       await shop.save();
+
+//       await sendOtpEmail(email, otp);
+
+//       return res.json({
+//         status: "not_verified",
+//         message: "Email not verified. OTP sent to your email.",
+//       });
+//     }
+
+//     // ============================
+//     // STEP 2: Admin approval required
+//     // ============================
+//     if (!shop.isVerified) {
+//       return res.json({
+//         status: "not_approved",
+//         message: "Your shop account is pending admin approval.",
+//       });
+//     }
+
+//     // ============================
+//     // STEP 3: Everything OK → login
+//     // ============================
+//     const token = jwt.sign(
+//       { shopId: shop._id, email: shop.email, role: "shop" },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     res.json({
+//       status: "success",
+//       message: "Login successful",
+//       token,
+//       shop: {
+//         id: shop._id,
+//         email: shop.email,
+//         businessName: shop.businessName,
+//         ownerName: shop.ownerName,
+//         plan: shop.plan,
+//         avatar: shop.profilePic || "",
+
+//         // Contact
+//         countryCode: shop.countryCode,
+//         phone: shop.phone,
+//         website: shop.website,
+//         country: shop.country,
+//         zipCode: shop.zipCode,
+//         latitude: shop.latitude,
+//         longitude: shop.longitude,
+
+//         // Services
+//         services: shop.services,
+//         vinylFilms: shop.vinylFilms,
+//         certificates: shop.certificates,
+//         certificateFiles: shop.certificateFiles,
+//         startDate: shop.startDate?.toISOString?.() || shop.startDate,
+//         bio: shop.additionalInfo || "",
+
+//         // Photos
+//         workSpacePhoto: shop.workSpacePhoto,
+//         storeFrontPhoto: shop.storeFrontPhoto,
+
+//         // Legal
+//         legalEntityName: shop.legalEntityName,
+//         address: shop.address,
+//         insuranceCarrier: shop.insuranceCarrier,
+//         policyNumber: shop.policyNumber,
+//         policyExpiration: shop.policyExpiration,
+//         insuranceCertificate: shop.insuranceCertificate,
+
+//         // Social media
+//         instagramLink: shop.socialMedia?.instagram || "",
+//         facebookLink: shop.socialMedia?.facebook || "",
+//         linkedinLink: shop.socialMedia?.linkedin || "",
+
+//         rating: shop.rating || 0,
+//         reviewCount: shop.reviewCount || 0,
+//         isEmailVerified: shop.isEmailVerified,
+//         isVerified: shop.isVerified,
+//         verifiedAt: shop.verifiedAt?.toISOString?.() || null,
+//         acceptedPolicy: shop.acceptedPolicy,
+//         policyAcceptedAt: shop.policyAcceptedAt?.toISOString?.() || null,
+//         status: shop.status,
+//       },
+//     });
+
+//   } catch (error) {
+//     console.error("Signin error:", error);
+//     res.status(500).json({
+//       status: "error",
+//       message: "Server error during signin",
+//     });
+//   }
+// };
+
+
+
+
+
+
+
 // ============================================
 // FIXED: signin with shop.isVerified check
 // ============================================
@@ -192,7 +321,19 @@ export const signin = async (req, res) => {
       });
 
     // ============================
-    // STEP 1: Email must be verified
+    // STEP 1: Check if shop is blocked
+    // ============================
+    if (shop.isBlocked === true || shop.status === "blocked") {
+      return res.json({
+        status: "blocked",
+        message: "Your shop account has been blocked. Please contact support.",
+        blockedAt: shop.blockedAt,
+        blockedReason: shop.blockedReason || "Account suspended"
+      });
+    }
+
+    // ============================
+    // STEP 2: Email must be verified
     // ============================
     if (!shop.isEmailVerified) {
       const otp = generateOtp();
@@ -209,7 +350,7 @@ export const signin = async (req, res) => {
     }
 
     // ============================
-    // STEP 2: Admin approval required
+    // STEP 3: Admin approval required
     // ============================
     if (!shop.isVerified) {
       return res.json({
@@ -219,10 +360,26 @@ export const signin = async (req, res) => {
     }
 
     // ============================
-    // STEP 3: Everything OK → login
+    // STEP 4: Check if shop is active (not suspended/cancelled)
+    // ============================
+    if (shop.status !== "active") {
+      return res.json({
+        status: "inactive",
+        message: `Your shop account is ${shop.status}. Please contact support.`,
+      });
+    }
+
+    // ============================
+    // STEP 5: Everything OK → login
     // ============================
     const token = jwt.sign(
-      { shopId: shop._id, email: shop.email, role: "shop" },
+      { 
+        shopId: shop._id, 
+        email: shop.email, 
+        role: "shop",
+        isBlocked: shop.isBlocked, // Include in token for other middleware
+        status: shop.status
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -281,6 +438,9 @@ export const signin = async (req, res) => {
         acceptedPolicy: shop.acceptedPolicy,
         policyAcceptedAt: shop.policyAcceptedAt?.toISOString?.() || null,
         status: shop.status,
+        isBlocked: shop.isBlocked, // Added to response
+        blockedAt: shop.blockedAt, // Added to response
+        blockedReason: shop.blockedReason // Added to response
       },
     });
 
@@ -292,6 +452,8 @@ export const signin = async (req, res) => {
     });
   }
 };
+
+
 
 
 
@@ -894,6 +1056,168 @@ export const getGoogleAuthURLShop = async (req, res) => {
 
 
 
+// // ============================================
+// // FIXED: googleCallbackPartner WITH VERIFICATION FILTERS
+// // ============================================
+// export const googleCallbackPartner = async (req, res) => {
+//   try {
+//     const code = req.query.code;
+//     const { tokens } = await client.getToken(code);
+
+//     client.setCredentials(tokens);
+
+//     const ticket = await client.verifyIdToken({
+//       idToken: tokens.id_token,
+//       audience: process.env.GOOGLE_CLIENT_ID,
+//     });
+
+//     const googleUser = ticket.getPayload();
+//     const email = googleUser.email;
+
+//     let user = await Shop.findOne({ email });
+
+//     // =====================================
+//     // CASE 1: USER DOES NOT EXIST → SIGNUP
+//     // =====================================
+//     if (!user) {
+//       const newShop = new Shop({
+//         email,
+//         password: "Google_Auth_password",
+//         phone: "000000000",
+//         businessName: "Business Name (Pending)",
+//         legalEntityName: "Legal Entity (Pending)",
+//         ownerName: "Owner Name (Pending)",
+//         address: "Business Address (Pending)",
+//         country: "US (Pending)",
+//         startDate: new Date(),
+//         insuranceCarrier: "Insurance Carrier (Pending)",
+//         policyNumber: "Policy Number (Pending)",
+//         policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+//         insuranceCertificate: "Pending",
+//         storeFrontPhoto: "Pending",
+//         workSpacePhoto: "Pending",
+//         certificateFiles: [],
+//         zipCode: "00000",
+//         plan: "basic",
+//         isEmailVerified: true, // Google already verified email
+//       });
+
+//       user = await newShop.save();
+
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-success-partner?` +
+//         `email=${encodeURIComponent(email)}&flow=signup`
+//       );
+//     }
+
+//     // =========================================
+//     // CASE 2: PROFILE STILL INCOMPLETE → GO SETUP
+//     // =========================================
+//     const isIncomplete =
+//       user.businessName.includes("(Pending)") ||
+//       user.legalEntityName.includes("(Pending)") ||
+//       user.ownerName.includes("(Pending)") ||
+//       user.address.includes("(Pending)");
+
+//     if (isIncomplete) {
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-success-partner?` +
+//         `email=${encodeURIComponent(email)}&flow=signup`
+//       );
+//     }
+
+//     // =========================================
+//     // 🚫 FILTER BEFORE TOKEN AND DATA
+//     // =========================================
+
+//     // EMAIL VERIFIED (Google login always verified)
+//     if (!user.isEmailVerified) {
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-status?status=not_verified`
+//       );
+//     }
+
+//     // ADMIN VERIFIED
+//     if (!user.isVerified) {
+//       return res.redirect(
+//         `https://bidawrap1.netlify.app/google-status?status=not_approved`
+//       );
+//     }
+
+//     // ===============================================
+//     // CASE 3: FULLY VERIFIED USER → SIGNIN + SEND DATA
+//     // ===============================================
+
+//     const token = jwt.sign(
+//       { shopId: user._id, email: user.email, role: "shop" },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     // Prepare same shop data as signin
+//     const shopData = {
+//       id: user._id,
+//       email: user.email,
+//       businessName: user.businessName,
+//       ownerName: user.ownerName,
+//       plan: user.plan,
+//       avatar: user.profilePic || "",
+
+//       countryCode: user.countryCode,
+//       phone: user.phone,
+//       website: user.website,
+//       country: user.country,
+//       zipCode: user.zipCode,
+//       latitude: user.latitude,
+//       longitude: user.longitude,
+
+//       services: user.services,
+//       vinylFilms: user.vinylFilms,
+//       certificates: user.certificates,
+//       certificateFiles: user.certificateFiles,
+//       startDate: user.startDate?.toISOString?.() || user.startDate,
+//       bio: user.additionalInfo || "",
+
+//       workSpacePhoto: user.workSpacePhoto,
+//       storeFrontPhoto: user.storeFrontPhoto,
+
+//       legalEntityName: user.legalEntityName,
+//       address: user.address,
+//       insuranceCarrier: user.insuranceCarrier,
+//       policyNumber: user.policyNumber,
+//       policyExpiration: user.policyExpiration,
+//       insuranceCertificate: user.insuranceCertificate,
+
+//       instagramLink: user.socialMedia?.instagram || "",
+//       facebookLink: user.socialMedia?.facebook || "",
+//       linkedinLink: user.socialMedia?.linkedin || "",
+
+//       paymentInfo: user.paymentInfo,
+
+//       rating: user.rating || 0,
+//       reviewCount: user.reviewCount || 0,
+//       isEmailVerified: user.isEmailVerified,
+//       isVerified: user.isVerified
+//     };
+
+//     const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
+
+//     return res.redirect(
+//       `https://bidawrap1.netlify.app/google-success-partner?` +
+//       `flow=signin&token=${token}&shopData=${shopDataEncoded}`
+//     );
+
+//   } catch (error) {
+//     console.error("Google callback error:", error);
+//     return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
+//   }
+// };
+
+
+
+
+
+
 // ============================================
 // FIXED: googleCallbackPartner WITH VERIFICATION FILTERS
 // ============================================
@@ -982,12 +1306,36 @@ export const googleCallbackPartner = async (req, res) => {
       );
     }
 
+    // =========================================
+    // CHECK IF SHOP IS BLOCKED
+    // =========================================
+    if (user.isBlocked === true || user.status === "blocked") {
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-status?status=blocked`
+      );
+    }
+
+    // =========================================
+    // CHECK IF SHOP IS ACTIVE
+    // =========================================
+    if (user.status !== "active") {
+      return res.redirect(
+        `https://bidawrap1.netlify.app/google-status?status=inactive&shopStatus=${user.status}`
+      );
+    }
+
     // ===============================================
     // CASE 3: FULLY VERIFIED USER → SIGNIN + SEND DATA
     // ===============================================
 
     const token = jwt.sign(
-      { shopId: user._id, email: user.email, role: "shop" },
+      { 
+        shopId: user._id, 
+        email: user.email, 
+        role: "shop",
+        isBlocked: user.isBlocked, // Include in token
+        status: user.status // Include in token
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -1035,7 +1383,11 @@ export const googleCallbackPartner = async (req, res) => {
       rating: user.rating || 0,
       reviewCount: user.reviewCount || 0,
       isEmailVerified: user.isEmailVerified,
-      isVerified: user.isVerified
+      isVerified: user.isVerified,
+      status: user.status,
+      isBlocked: user.isBlocked,
+      blockedAt: user.blockedAt,
+      blockedReason: user.blockedReason
     };
 
     const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
@@ -1050,13 +1402,6 @@ export const googleCallbackPartner = async (req, res) => {
     return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
   }
 };
-
-
-
-
-
-
-
 
 
 

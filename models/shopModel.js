@@ -210,8 +210,8 @@ const shopSchema = new mongoose.Schema(
         default: "trialing",
       }
     },
-    // Add these fields to your Shop model after the "profilePic" field:
 
+    // Rating and Reviews
     rating: {
       type: Number,
       default: 0,
@@ -235,7 +235,7 @@ const shopSchema = new mongoose.Schema(
     verifiedAt: {
       type: Date,
     },
-     isAdminShop: {
+    isAdminShop: {
       type: Boolean,
       default: false,
     },
@@ -257,8 +257,27 @@ const shopSchema = new mongoose.Schema(
     // Account Status
     status: {
       type: String,
-      enum: ["pending", "active", "suspended", "cancelled"],
+      enum: ["pending", "active", "suspended", "cancelled", "blocked"], // Added "blocked" to enum
       default: "pending",
+    },
+
+    // Block/Unblock Status - Added these fields
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockedAt: {
+      type: Date,
+      default: null,
+    },
+    blockedReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    lastUnblockedAt: {
+      type: Date,
+      default: null,
     },
 
     // OTP for verification
@@ -280,6 +299,7 @@ shopSchema.index({ businessName: 1 });
 shopSchema.index({ zipCode: 1 });
 shopSchema.index({ status: 1 });
 shopSchema.index({ isVerified: 1, isEmailVerified: 1 });
+shopSchema.index({ isBlocked: 1 }); // Added index for block status
 
 // Geospatial index for location-based queries
 shopSchema.index({ location: "2dsphere" });
@@ -310,6 +330,36 @@ shopSchema.methods.approveShop = function () {
   return this.save();
 };
 
+// Method to block shop (admin action) - NEW
+shopSchema.methods.blockShop = function (adminId, reason = "") {
+  this.isBlocked = true;
+  this.status = "blocked";
+  this.blockedAt = new Date();
+  this.blockedReason = reason;
+  this.blockedBy = adminId;
+  
+  // Cancel any active bids if needed
+  // This would require integration with your bids system
+  
+  return this.save();
+};
+
+// Method to unblock shop (admin action) - NEW
+shopSchema.methods.unblockShop = function () {
+  this.isBlocked = false;
+  this.status = "active"; // Or whatever status it was before
+  this.lastUnblockedAt = new Date();
+  this.blockedReason = "";
+  this.blockedBy = null;
+  
+  return this.save();
+};
+
+// Method to check if shop is blocked - NEW
+shopSchema.methods.isBlockedNow = function () {
+  return this.isBlocked === true;
+};
+
 // Auto-assign planAmount based on plan type
 shopSchema.pre("save", function (next) {
   const planPrices = {
@@ -325,6 +375,34 @@ shopSchema.pre("save", function (next) {
   next();
 });
 
+// Pre-save middleware to sync isBlocked with status
+shopSchema.pre("save", function (next) {
+  if (this.isModified("status")) {
+    if (this.status === "blocked") {
+      this.isBlocked = true;
+      if (!this.blockedAt) {
+        this.blockedAt = new Date();
+      }
+    } else if (this.isBlocked && this.status !== "blocked") {
+      this.isBlocked = false;
+      this.lastUnblockedAt = new Date();
+    }
+  }
+  
+  if (this.isModified("isBlocked")) {
+    if (this.isBlocked && this.status !== "blocked") {
+      this.status = "blocked";
+      if (!this.blockedAt) {
+        this.blockedAt = new Date();
+      }
+    } else if (!this.isBlocked && this.status === "blocked") {
+      this.status = "active"; // Default to active when unblocked
+      this.lastUnblockedAt = new Date();
+    }
+  }
+  
+  next();
+});
 
 const Shop = mongoose.model("Shop", shopSchema);
 

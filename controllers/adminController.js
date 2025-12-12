@@ -3,9 +3,11 @@ import crypto from "crypto";
 import Shop from "../models/shopModel.js";
 import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
+import Offer from "../models/offerModel.js"
 import Event from "../models/eventModel.js";
 import VerificationRequest from "../models/updateProfileModel.js";
 import { sendEmail } from "../utils/sendEmail.js";
+import bcrypt from "bcryptjs";
 
 
 
@@ -561,11 +563,311 @@ export const getUnverifiedShops = async (req, res) => {
 
 
 
+// // Accept/Verify a shop
+// export const acceptShop = async (req, res) => {
+//   try {
+//     const { shopId } = req.params;
+//     const { isAdminShop } = req.body;
+
+//     const shop = await Shop.findById(shopId);
+
+//     if (!shop) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Shop not found",
+//       });
+//     }
+
+//     if (shop.isVerified) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Shop is already verified",
+//       });
+//     }
+
+//     // If marked as admin shop, set premium plan and clear payment data
+//     if (isAdminShop === true) {
+//       shop.isAdminShop = true;
+//       shop.plan = "professional"; // Set to premium/professional plan
+
+//       // Clear payment information
+//       shop.paymentInfo = {
+//         last4: undefined,
+//         cardName: undefined,
+//         expiry: undefined,
+//         paymentToken: undefined,
+//       };
+
+//       // Clear subscription information
+//       shop.subscription = {
+//         customerId: undefined,
+//         subscriptionId: undefined,
+//         planAmount: 0,
+//         billingCycle: "monthly",
+//         nextBillingDate: undefined,
+//         status: "active", // Set to active since admin shop doesn't need payment
+//       };
+
+//       // Set trial end date far in the future or null (admin shops don't have trial limitations)
+//       shop.trialEndDate = new Date("2099-12-31");
+//     }
+
+//     // Use the model method to approve shop
+//     await shop.approveShop();
+//     // Send approval email
+//     await sendEmail(
+//       shop.email,
+//       "Your Shop Registration Has Been Approved!",
+//       `
+//     <h2>🎉 Congratulations, ${shop.businessName}!</h2>
+//     <p>Your shop registration request has been successfully reviewed and <strong>approved</strong>.</p>
+
+//     <p>You can now access all features available to your account.</p>
+
+//     ${shop.isAdminShop ? `
+//       <p>Your shop has been granted <strong>Admin Shop</strong> privileges with a Professional Plan, free of cost.</p>
+//     ` : ""}
+
+//     <p>If you have any questions, feel free to reply to this email.</p>
+
+//     <br/>
+//     <p>Best regards,<br/>Support Team</p>
+//   `
+//     );
+
+
+//     res.status(200).json({
+//       success: true,
+//       message: isAdminShop
+//         ? "Shop verified as Admin Shop and approved successfully"
+//         : "Shop verified and approved successfully",
+//       data: {
+//         shopId: shop._id,
+//         businessName: shop.businessName,
+//         isVerified: shop.isVerified,
+//         isAdminShop: shop.isAdminShop,
+//         plan: shop.plan,
+//         status: shop.status,
+//         verifiedAt: shop.verifiedAt,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error accepting shop:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to accept shop",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+// Generate random password
+const generateRandomPassword = () => {
+  const length = 12;
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    password += charset[randomIndex];
+  }
+  return password;
+};
+
+// Admin creates a shop directly
+export const createShopByAdmin = async (req, res) => {
+  try {
+    const {
+      businessName,
+      legalEntityName,
+      ownerName,
+      email,
+      countryCode,
+      phone,
+      website,
+      address,
+      country,
+      zipCode,
+      latitude,
+      longitude,
+      services,
+      vinylFilms,
+      certificates,
+      certificateFiles, // Array of file URLs
+      startDate,
+      insuranceCarrier,
+      policyNumber,
+      policyExpiration,
+      instagramLink,
+      facebookLink,
+      linkedinLink,
+      additionalInfo,
+      plan = 'professional', // Default to professional plan for admin-created shops
+    } = req.body;
+
+    // Get uploaded file URLs from multer
+    const insuranceCertificate = req.files?.insuranceCertificate?.[0]?.path;
+    const storeFrontPhoto = req.files?.storeFrontPhoto?.[0]?.path;
+    const workSpacePhoto = req.files?.workSpacePhoto?.[0]?.path;
+    const profilePic = req.files?.profilePic?.[0]?.path;
+    const uploadedCertificateFiles = req.files?.certificateFiles?.map(file => file.path) || [];
+
+    // Validation
+    if (!businessName || !legalEntityName || !ownerName || !email || !phone || !address || !country) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please fill all required fields'
+      });
+    }
+
+    // Check if shop with this email already exists
+    const existingShop = await Shop.findOne({ email });
+    if (existingShop) {
+      return res.status(400).json({
+        success: false,
+        message: 'A shop with this email already exists'
+      });
+    }
+
+    // Generate random password
+    const randomPassword = generateRandomPassword();
+    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+    // Prepare shop data
+    const shopData = {
+      businessName,
+      legalEntityName,
+      ownerName,
+      email,
+      password: hashedPassword,
+      countryCode: countryCode || '+1',
+      phone,
+      website: website || '',
+      address,
+      country,
+      zipCode: zipCode || '',
+      latitude: latitude ? parseFloat(latitude) : null,
+      longitude: longitude ? parseFloat(longitude) : null,
+      location: {
+        type: 'Point',
+        coordinates: [longitude ? parseFloat(longitude) : 0, latitude ? parseFloat(latitude) : 0]
+      },
+      services: Array.isArray(services) ? services : (services ? services.split(',') : []),
+      vinylFilms: vinylFilms || '',
+      certificates: certificates || '',
+      certificateFiles: [...uploadedCertificateFiles, ...(certificateFiles || [])],
+      startDate: startDate ? new Date(startDate) : new Date(),
+      insuranceCarrier,
+      policyNumber,
+      policyExpiration: policyExpiration ? new Date(policyExpiration) : null,
+      insuranceCertificate: insuranceCertificate || '',
+      socialMedia: {
+        instagram: instagramLink || '',
+        facebook: facebookLink || '',
+        linkedin: linkedinLink || ''
+      },
+      additionalInfo: additionalInfo || '',
+      storeFrontPhoto: storeFrontPhoto || '',
+      workSpacePhoto: workSpacePhoto || '',
+      profilePic: profilePic || '',
+      plan,
+      // For admin-created shops, set them as automatically verified
+      isEmailVerified: true,
+      isVerified: true,
+      verifiedAt: new Date(),
+      status: 'active',
+      // Since admin is creating, they accept policies on behalf
+      acceptedPolicy: true,
+      policyAcceptedAt: new Date(),
+      // Set trial end date to far in the future (admin shops don't have trial limitations)
+      trialEndDate: new Date('2099-12-31'),
+      // No payment required for admin-created shops
+      subscription: {
+        status: 'active',
+        planAmount: plan === 'professional' ? 200 : 50,
+        billingCycle: 'monthly',
+        nextBillingDate: null // No billing for admin-created shops
+      },
+      isAdminShop: true
+    };
+
+    // Create the shop
+    const shop = await Shop.create(shopData);
+
+    // Send welcome email with login credentials
+    const emailSubject = `Welcome to Our Platform - Your Shop Account is Ready!`;
+    const emailBody = `
+      <h2>🎉 Welcome, ${ownerName}!</h2>
+      <p>Your shop <strong>${businessName}</strong> has been created by our admin team and is now active on our platform.</p>
+      
+      <h3>Your Login Credentials:</h3>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Password:</strong> ${randomPassword}</p>
+      <p><strong>Important:</strong> Please change your password after your first login.</p>
+      
+      <h3>Shop Details:</h3>
+      <ul>
+        <li><strong>Plan:</strong> ${plan === 'professional' ? 'Professional Plan' : 'Basic Plan'}</li>
+        <li><strong>Status:</strong> Active and Verified</li>
+        <li><strong>Verification:</strong> No additional verification required</li>
+      </ul>
+      
+      <p>You can now log in to your dashboard and start using all available features.</p>
+      
+      <p>If you have any questions, feel free to reply to this email.</p>
+      
+      <br/>
+      <p>Best regards,<br/>Support Team</p>
+    `;
+
+    // Send email (wrap in try-catch to not fail the whole process if email fails)
+    try {
+      await sendEmail(email, emailSubject, emailBody);
+    } catch (emailError) {
+      console.error('Failed to send welcome email:', emailError);
+      // Don't fail the whole request if email fails
+    }
+
+    // Return success response (without password)
+    const shopResponse = shop.toObject();
+    delete shopResponse.password;
+
+    res.status(201).json({
+      success: true,
+      message: 'Shop created successfully by admin',
+      data: {
+        shop: shopResponse,
+        temporaryPassword: randomPassword, // Only returned in this response for admin reference
+        credentialsSent: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating shop by admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create shop',
+      error: error.message
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
 // Accept/Verify a shop
 export const acceptShop = async (req, res) => {
   try {
     const { shopId } = req.params;
-    const { isAdminShop } = req.body;
 
     const shop = await Shop.findById(shopId);
 
@@ -583,35 +885,9 @@ export const acceptShop = async (req, res) => {
       });
     }
 
-    // If marked as admin shop, set premium plan and clear payment data
-    if (isAdminShop === true) {
-      shop.isAdminShop = true;
-      shop.plan = "professional"; // Set to premium/professional plan
-
-      // Clear payment information
-      shop.paymentInfo = {
-        last4: undefined,
-        cardName: undefined,
-        expiry: undefined,
-        paymentToken: undefined,
-      };
-
-      // Clear subscription information
-      shop.subscription = {
-        customerId: undefined,
-        subscriptionId: undefined,
-        planAmount: 0,
-        billingCycle: "monthly",
-        nextBillingDate: undefined,
-        status: "active", // Set to active since admin shop doesn't need payment
-      };
-
-      // Set trial end date far in the future or null (admin shops don't have trial limitations)
-      shop.trialEndDate = new Date("2099-12-31");
-    }
-
     // Use the model method to approve shop
     await shop.approveShop();
+    
     // Send approval email
     await sendEmail(
       shop.email,
@@ -622,10 +898,6 @@ export const acceptShop = async (req, res) => {
 
     <p>You can now access all features available to your account.</p>
 
-    ${shop.isAdminShop ? `
-      <p>Your shop has been granted <strong>Admin Shop</strong> privileges with a Professional Plan, free of cost.</p>
-    ` : ""}
-
     <p>If you have any questions, feel free to reply to this email.</p>
 
     <br/>
@@ -633,17 +905,13 @@ export const acceptShop = async (req, res) => {
   `
     );
 
-
     res.status(200).json({
       success: true,
-      message: isAdminShop
-        ? "Shop verified as Admin Shop and approved successfully"
-        : "Shop verified and approved successfully",
+      message: "Shop verified and approved successfully",
       data: {
         shopId: shop._id,
         businessName: shop.businessName,
         isVerified: shop.isVerified,
-        isAdminShop: shop.isAdminShop,
         plan: shop.plan,
         status: shop.status,
         verifiedAt: shop.verifiedAt,
@@ -658,6 +926,11 @@ export const acceptShop = async (req, res) => {
     });
   }
 };
+
+
+
+
+
 
 // Reject a shop
 export const rejectShop = async (req, res) => {
@@ -912,6 +1185,152 @@ export const getCustomerById = async (req, res) => {
 
 
 
+// export const getShopStats = async (req, res) => {
+//   try {
+//     const totalShops = await Shop.countDocuments({ isVerified: true });
+//     const basicShops = await Shop.countDocuments({
+//       isVerified: true,
+//       plan: "basic"
+//     });
+//     const professionalShops = await Shop.countDocuments({
+//       isVerified: true,
+//       plan: "professional"
+//     });
+//     const pendingShops = await Shop.countDocuments({ isVerified: false });
+
+//     // Get total completed bids across all shops
+//     const totalCompletedBids = await Bid.countDocuments({
+//       status: "completed"
+//     });
+
+//     // Get average rating across all shops
+//     const shops = await Shop.find({ isVerified: true }).select("rating reviewCount");
+//     const avgRating = shops.length > 0
+//       ? shops.reduce((sum, shop) => sum + shop.rating, 0) / shops.length
+//       : 0;
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         total: totalShops,
+//         basic: basicShops,
+//         professional: professionalShops,
+//         pending: pendingShops,
+//         totalCompletedBids,
+//         averageRating: Math.round(avgRating * 10) / 10,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error fetching shop stats:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch shop statistics",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // Get all verified shops with pagination and bid statistics
+// export const getAllShops = async (req, res) => {
+//   try {
+//     const { page = 1, limit = 12, plan, verified = "true" } = req.query;
+
+//     // Build query
+//     const query = {};
+
+//     // Filter by verification status
+//     if (verified === "true") {
+//       query.isVerified = true;
+//       query.status = "active";
+//     } else if (verified === "false") {
+//       query.isVerified = false;
+//     }
+
+//     // Filter by plan type
+//     if (plan && (plan === "basic" || plan === "professional")) {
+//       query.plan = plan;
+//     }
+
+//     // Fetch shops with pagination
+//     const shops = await Shop.find(query)
+//       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
+//       .sort({ createdAt: -1 })
+//       .limit(limit * 1)
+//       .skip((page - 1) * limit)
+//       .lean();
+
+//     // Get bid statistics and reviews for each shop
+//     const shopsWithStats = await Promise.all(
+//       shops.map(async (shop) => {
+//         // Count total bids received
+//         const totalBids = await Bid.countDocuments({
+//           currentShopId: shop._id
+//         });
+
+//         // Count completed bids
+//         const completedBids = await Bid.countDocuments({
+//           currentShopId: shop._id,
+//           status: "completed",
+//         });
+
+//         // Count active bids
+//         const activeBids = await Bid.countDocuments({
+//           currentShopId: shop._id,
+//           status: "active",
+//         });
+
+//         // Count in-progress bids
+//         const inProgressBids = await Bid.countDocuments({
+//           currentShopId: shop._id,
+//           status: "in_progress",
+//         });
+
+//         // Get review count and rating (already in shop model)
+//         const reviewCount = shop.reviewCount || 0;
+//         const rating = shop.rating || 0;
+
+//         return {
+//           ...shop,
+//           statistics: {
+//             totalBids,
+//             completedBids,
+//             activeBids,
+//             inProgressBids,
+//             reviewCount,
+//             rating,
+//             successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
+//           },
+//         };
+//       })
+//     );
+
+//     const count = await Shop.countDocuments(query);
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Shops fetched successfully",
+//       data: shopsWithStats,
+//       pagination: {
+//         totalPages: Math.ceil(count / limit),
+//         currentPage: parseInt(page),
+//         totalShops: count,
+//         limit: parseInt(limit),
+//         hasMore: page * limit < count,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error fetching shops:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch shops",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
 export const getShopStats = async (req, res) => {
   try {
     const totalShops = await Shop.countDocuments({ isVerified: true });
@@ -924,6 +1343,16 @@ export const getShopStats = async (req, res) => {
       plan: "professional"
     });
     const pendingShops = await Shop.countDocuments({ isVerified: false });
+    
+    // ADDED: Count blocked and active shops
+    const activeShops = await Shop.countDocuments({ 
+      isVerified: true, 
+      isBlocked: false 
+    });
+    const blockedShops = await Shop.countDocuments({ 
+      isVerified: true, 
+      isBlocked: true 
+    });
 
     // Get total completed bids across all shops
     const totalCompletedBids = await Bid.countDocuments({
@@ -943,6 +1372,8 @@ export const getShopStats = async (req, res) => {
         basic: basicShops,
         professional: professionalShops,
         pending: pendingShops,
+        active: activeShops, // ADDED
+        blocked: blockedShops, // ADDED
         totalCompletedBids,
         averageRating: Math.round(avgRating * 10) / 10,
       },
@@ -960,7 +1391,7 @@ export const getShopStats = async (req, res) => {
 // Get all verified shops with pagination and bid statistics
 export const getAllShops = async (req, res) => {
   try {
-    const { page = 1, limit = 12, plan, verified = "true" } = req.query;
+    const { page = 1, limit = 12, plan, verified = "true", status } = req.query;
 
     // Build query
     const query = {};
@@ -968,7 +1399,8 @@ export const getAllShops = async (req, res) => {
     // Filter by verification status
     if (verified === "true") {
       query.isVerified = true;
-      query.status = "active";
+      // REMOVED: Don't hardcode status to "active"
+      // query.status = "active";
     } else if (verified === "false") {
       query.isVerified = false;
     }
@@ -976,6 +1408,15 @@ export const getAllShops = async (req, res) => {
     // Filter by plan type
     if (plan && (plan === "basic" || plan === "professional")) {
       query.plan = plan;
+    }
+
+    // ADDED: Filter by block status
+    if (status) {
+      if (status === "active") {
+        query.isBlocked = false;
+      } else if (status === "blocked") {
+        query.isBlocked = true;
+      }
     }
 
     // Fetch shops with pagination
@@ -1018,6 +1459,9 @@ export const getAllShops = async (req, res) => {
 
         return {
           ...shop,
+          // ADDED: Include block status fields
+          status: shop.isBlocked ? "blocked" : "active",
+          isBlocked: shop.isBlocked || false,
           statistics: {
             totalBids,
             completedBids,
@@ -1054,6 +1498,12 @@ export const getAllShops = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
 
 // Get all shops for map view with location data
 export const getShopsForMap = async (req, res) => {
@@ -1292,118 +1742,6 @@ export const getAllVerificationRequests = async (req, res) => {
   }
 };
 
-// // ============================================
-// // ADMIN: Approve Verification Request
-// // ============================================
-// export const approveVerificationRequest = async (req, res) => {
-//   try {
-//     const { requestId } = req.params;
-//     const adminId = req.admin._id; // From authenticateAdmin middleware
-//     const { adminNotes } = req.body;
-
-//     const request = await VerificationRequest.findById(requestId);
-
-//     if (!request) {
-//       return res.status(404).json({
-//         status: "error",
-//         message: "Verification request not found",
-//       });
-//     }
-
-//     if (request.status !== "pending") {
-//       return res.status(400).json({
-//         status: "error",
-//         message: `Request has already been ${request.status}`,
-//       });
-//     }
-
-//     // Add admin notes if provided
-//     if (adminNotes) {
-//       request.adminNotes = adminNotes;
-//     }
-
-//     // Approve and update shop
-//     await request.approveAndUpdateShop(adminId);
-
-//     res.json({
-//       status: "success",
-//       message: "Verification request approved and shop information updated",
-//       data: {
-//         requestId: request._id,
-//         status: request.status,
-//         reviewedAt: request.reviewedAt,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Approve verification request error:", error);
-//     res.status(500).json({
-//       status: "error",
-//       message: "Failed to approve verification request",
-//       error: error.message,
-//     });
-//   }
-// };
-
-// // ============================================
-// // ADMIN: Reject Verification Request
-// // ============================================
-// export const rejectVerificationRequest = async (req, res) => {
-//   try {
-//     const { requestId } = req.params;
-//     const adminId = req.admin._id; // From authenticateAdmin middleware
-//     const { rejectionReason, adminNotes } = req.body;
-
-//     if (!rejectionReason) {
-//       return res.status(400).json({
-//         status: "error",
-//         message: "Rejection reason is required",
-//       });
-//     }
-
-//     const request = await VerificationRequest.findById(requestId);
-
-//     if (!request) {
-//       return res.status(404).json({
-//         status: "error",
-//         message: "Verification request not found",
-//       });
-//     }
-
-//     if (request.status !== "pending") {
-//       return res.status(400).json({
-//         status: "error",
-//         message: `Request has already been ${request.status}`,
-//       });
-//     }
-
-//     // Add admin notes if provided
-//     if (adminNotes) {
-//       request.adminNotes = adminNotes;
-//     }
-
-//     // Reject the request
-//     await request.rejectRequest(adminId, rejectionReason);
-
-//     res.json({
-//       status: "success",
-//       message: "Verification request rejected",
-//       data: {
-//         requestId: request._id,
-//         status: request.status,
-//         rejectionReason: request.rejectionReason,
-//         reviewedAt: request.reviewedAt,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Reject verification request error:", error);
-//     res.status(500).json({
-//       status: "error",
-//       message: "Failed to reject verification request",
-//       error: error.message,
-//     });
-//   }
-// };
-
 
 
 
@@ -1620,3 +1958,508 @@ export const getVerificationRequestDetails = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+/**
+ * Get all active bids with full details
+ */
+export const getActiveBids = async (req, res) => {
+  try {
+    const activeBids = await Bid.find({ status: "active" })
+      .populate({
+        path: "user_id",
+        select: "name email phone",
+      })
+      .populate({
+        path: "offers",
+        populate: [
+          {
+            path: "shopId",
+            select: "name email phone address",
+          },
+          {
+            path: "counterOffers.createdBy",
+            select: "name email",
+          },
+        ],
+      })
+      .populate({
+        path: "currentShopId",
+        select: "name email phone",
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const enrichedBids = activeBids.map((bid) => ({
+      ...bid,
+      totalOffers: bid.offers?.length || 0,
+      isExpired: checkIfExpired(bid),
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: enrichedBids.length,
+      data: enrichedBids,
+    });
+  } catch (error) {
+    console.error("Error fetching active bids:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch active bids",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all in-progress bids with full details
+ */
+export const getInProgressBids = async (req, res) => {
+  try {
+    const inProgressBids = await Bid.find({ status: "in_progress" })
+      .populate({
+        path: "user_id",
+        select: "name email phone",
+      })
+      .populate({
+        path: "offers",
+        populate: [
+          {
+            path: "shopId",
+            select: "name email phone address",
+          },
+          {
+            path: "counterOffers.createdBy",
+            select: "name email",
+          },
+        ],
+      })
+      .populate({
+        path: "acceptedOffer",
+        populate: {
+          path: "shopId",
+          select: "name email phone address",
+        },
+      })
+      .populate({
+        path: "currentShopId",
+        select: "name email phone address",
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const enrichedBids = inProgressBids.map((bid) => ({
+      ...bid,
+      totalOffers: bid.offers?.length || 0,
+      acceptedPrice: bid.acceptedOffer?.price || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: enrichedBids.length,
+      data: enrichedBids,
+    });
+  } catch (error) {
+    console.error("Error fetching in-progress bids:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch in-progress bids",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all completed bids with full details
+ */
+export const getCompletedBids = async (req, res) => {
+  try {
+    const completedBids = await Bid.find({ status: "completed" })
+      .populate({
+        path: "user_id",
+        select: "name email phone",
+      })
+      .populate({
+        path: "offers",
+        populate: [
+          {
+            path: "shopId",
+            select: "name email phone address",
+          },
+          {
+            path: "counterOffers.createdBy",
+            select: "name email",
+          },
+        ],
+      })
+      .populate({
+        path: "acceptedOffer",
+        populate: {
+          path: "shopId",
+          select: "name email phone address",
+        },
+      })
+      .populate({
+        path: "currentShopId",
+        select: "name email phone address",
+      })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const enrichedBids = completedBids.map((bid) => ({
+      ...bid,
+      totalOffers: bid.offers?.length || 0,
+      acceptedPrice: bid.acceptedOffer?.price || null,
+      completionTime: calculateCompletionTime(bid),
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: enrichedBids.length,
+      data: enrichedBids,
+    });
+  } catch (error) {
+    console.error("Error fetching completed bids:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch completed bids",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get all bids (all statuses) with pagination and filters
+ */
+export const getAllBids = async (req, res) => {
+  try {
+    const {
+      status,
+      page = 1,
+      limit = 20,
+      sortBy = "createdAt",
+      order = "desc",
+    } = req.query;
+
+    const query = {};
+    if (status) {
+      query.status = status;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortOrder = order === "asc" ? 1 : -1;
+
+    const [bids, totalCount] = await Promise.all([
+      Bid.find(query)
+        .populate({
+          path: "user_id",
+          select: "name email phone",
+        })
+        .populate({
+          path: "offers",
+          populate: [
+            {
+              path: "shopId",
+              select: "name email phone address",
+            },
+            {
+              path: "counterOffers.createdBy",
+              select: "name email",
+            },
+          ],
+        })
+        .populate({
+          path: "acceptedOffer",
+          populate: {
+            path: "shopId",
+            select: "name email phone address",
+          },
+        })
+        .populate({
+          path: "currentShopId",
+          select: "name email phone address",
+        })
+        .sort({ [sortBy]: sortOrder })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Bid.countDocuments(query),
+    ]);
+
+    const enrichedBids = bids.map((bid) => ({
+      ...bid,
+      totalOffers: bid.offers?.length || 0,
+      acceptedPrice: bid.acceptedOffer?.price || null,
+      isExpired: bid.status === "active" ? checkIfExpired(bid) : false,
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: enrichedBids.length,
+      totalCount,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / parseInt(limit)),
+      data: enrichedBids,
+    });
+  } catch (error) {
+    console.error("Error fetching all bids:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bids",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get single bid details by ID
+ */
+export const getBidDetails = async (req, res) => {
+  try {
+    const { bidId } = req.params;
+
+    const bid = await Bid.findById(bidId)
+      .populate({
+        path: "user_id",
+        select: "name email phone",
+      })
+      .populate({
+        path: "offers",
+        populate: [
+          {
+            path: "shopId",
+            select: "name email phone address",
+          },
+          {
+            path: "counterOffers.createdBy",
+            select: "name email",
+          },
+        ],
+      })
+      .populate({
+        path: "acceptedOffer",
+        populate: {
+          path: "shopId",
+          select: "name email phone address",
+        },
+      })
+      .populate({
+        path: "currentShopId",
+        select: "name email phone address",
+      })
+      .lean();
+
+    if (!bid) {
+      return res.status(404).json({
+        success: false,
+        message: "Bid not found",
+      });
+    }
+
+    const enrichedBid = {
+      ...bid,
+      totalOffers: bid.offers?.length || 0,
+      acceptedPrice: bid.acceptedOffer?.price || null,
+      isExpired: bid.status === "active" ? checkIfExpired(bid) : false,
+      counterOffersCount: bid.offers?.reduce(
+        (acc, offer) => acc + (offer.counterOffers?.length || 0),
+        0
+      ),
+    };
+
+    res.status(200).json({
+      success: true,
+      data: enrichedBid,
+    });
+  } catch (error) {
+    console.error("Error fetching bid details:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bid details",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Get bid statistics overview
+ */
+export const getBidStats = async (req, res) => {
+  try {
+    const [
+      totalBids,
+      activeBids,
+      inProgressBids,
+      completedBids,
+      expiredBids,
+      canceledBids,
+      totalOffers,
+      averageOffersPerBid,
+    ] = await Promise.all([
+      Bid.countDocuments(),
+      Bid.countDocuments({ status: "active" }),
+      Bid.countDocuments({ status: "in_progress" }),
+      Bid.countDocuments({ status: "completed" }),
+      Bid.countDocuments({ status: "expired" }),
+      Bid.countDocuments({ status: "canceled" }),
+      Offer.countDocuments(),
+      Bid.aggregate([
+        {
+          $project: {
+            offerCount: { $size: "$offers" },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            avgOffers: { $avg: "$offerCount" },
+          },
+        },
+      ]),
+    ]);
+
+    // Get counter offers stats
+    const counterOffersStats = await Offer.aggregate([
+      {
+        $project: {
+          counterOfferCount: { $size: "$counterOffers" },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalCounterOffers: { $sum: "$counterOfferCount" },
+        },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalBids,
+        activeBids,
+        inProgressBids,
+        completedBids,
+        expiredBids,
+        canceledBids,
+        totalOffers,
+        averageOffersPerBid: averageOffersPerBid[0]?.avgOffers || 0,
+        totalCounterOffers: counterOffersStats[0]?.totalCounterOffers || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching bid stats:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bid statistics",
+      error: error.message,
+    });
+  }
+};
+
+// Helper Functions
+function checkIfExpired(bid) {
+  const now = new Date();
+  const createdAt = new Date(bid.createdAt);
+  const dueDate = bid.dueDate ? new Date(bid.dueDate) : null;
+
+  const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
+  if (hoursSinceCreation >= 48) return true;
+  if (dueDate && now > dueDate) return true;
+
+  return false;
+}
+
+function calculateCompletionTime(bid) {
+  if (!bid.createdAt || !bid.updatedAt) return null;
+
+  const created = new Date(bid.createdAt);
+  const completed = new Date(bid.updatedAt);
+  const diffMs = completed - created;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffHours = Math.floor(
+    (diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+  );
+
+  return { days: diffDays, hours: diffHours };
+}
+
+
+
+
+
+
+
+// Block/Unblock shop controller
+export const toggleBlockShop = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+    const { blocked, reason } = req.body;
+
+    const shop = await Shop.findById(shopId);
+    
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shop not found'
+      });
+    }
+    
+    if (blocked === true) {
+      // Block the shop
+      shop.isBlocked = true;
+      shop.status = "blocked";
+      shop.blockedAt = new Date();
+      shop.blockedReason = reason || "";
+      
+      await shop.save();
+      
+      // Optional: Cancel all active bids for this shop
+      // await Bid.updateMany(
+      //   { currentShopId: shopId, status: { $in: ["active", "in_progress"] } },
+      //   { 
+      //     status: "cancelled", 
+      //     cancellationReason: "Shop blocked by admin",
+      //     cancelledAt: new Date() 
+      //   }
+      // );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Shop blocked successfully',
+        data: shop
+      });
+    } else if (blocked === false) {
+      // Unblock the shop
+      shop.isBlocked = false;
+      shop.status = "active";
+      shop.lastUnblockedAt = new Date();
+      
+      await shop.save();
+      
+      res.status(200).json({
+        success: true,
+        message: 'Shop unblocked successfully',
+        data: shop
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid request. "blocked" field is required (true/false)'
+      });
+    }
+  } catch (error) {
+    console.error('Error updating shop block status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating shop status',
+      error: error.message
+    });
+  }
+};
