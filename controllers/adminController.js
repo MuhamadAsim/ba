@@ -8,6 +8,7 @@ import Event from "../models/eventModel.js";
 import VerificationRequest from "../models/updateProfileModel.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 
 
 
@@ -1563,14 +1564,84 @@ export const getShopsForMap = async (req, res) => {
   }
 };
 
-// Get single shop details with full information
+// // Get single shop details with full information
+// export const getShopById = async (req, res) => {
+//   try {
+//     const { shopId } = req.params;
+
+//     const shop = await Shop.findById(shopId)
+//       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
+//       .lean();
+
+//     if (!shop) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Shop not found",
+//       });
+//     }
+
+//     // Get all bids for this shop
+//     const bids = await Bid.find({ currentShopId: shopId })
+//       .populate("user_id", "name email phone")
+//       .sort({ createdAt: -1 })
+//       .lean();
+
+//     // Get all reviews for this shop
+//     const reviews = await Review.find({ shop: shopId })
+//       .populate("customer", "name avatar")
+//       .populate("bid", "vehicleMake vehicleModel")
+//       .sort({ createdAt: -1 })
+//       .lean();
+
+//     // Calculate statistics
+//     const totalBids = bids.length;
+//     const completedBids = bids.filter(bid => bid.status === "completed").length;
+//     const activeBids = bids.filter(bid => bid.status === "active").length;
+//     const inProgressBids = bids.filter(bid => bid.status === "in_progress").length;
+
+//     res.status(200).json({
+//       success: true,
+//       data: {
+//         shop,
+//         statistics: {
+//           totalBids,
+//           completedBids,
+//           activeBids,
+//           inProgressBids,
+//           reviewCount: shop.reviewCount || 0,
+//           rating: shop.rating || 0,
+//           successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
+//         },
+//         recentBids: bids.slice(0, 10), // Last 10 bids
+//         reviews: reviews.slice(0, 10), // Last 10 reviews
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error fetching shop details:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch shop details",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+// Get single shop details by ID
 export const getShopById = async (req, res) => {
   try {
     const { shopId } = req.params;
 
-    const shop = await Shop.findById(shopId)
-      .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
-      .lean();
+    // Validate shop ID
+    if (!mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shop ID",
+      });
+    }
+
+    // Find shop by ID
+    const shop = await Shop.findById(shopId).select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry");
 
     if (!shop) {
       return res.status(404).json({
@@ -1579,51 +1650,100 @@ export const getShopById = async (req, res) => {
       });
     }
 
-    // Get all bids for this shop
-    const bids = await Bid.find({ currentShopId: shopId })
-      .populate("user_id", "name email phone")
-      .sort({ createdAt: -1 })
-      .lean();
-
-    // Get all reviews for this shop
-    const reviews = await Review.find({ shop: shopId })
-      .populate("customer", "name avatar")
-      .populate("bid", "vehicleMake vehicleModel")
-      .sort({ createdAt: -1 })
-      .lean();
-
-    // Calculate statistics
-    const totalBids = bids.length;
-    const completedBids = bids.filter(bid => bid.status === "completed").length;
-    const activeBids = bids.filter(bid => bid.status === "active").length;
-    const inProgressBids = bids.filter(bid => bid.status === "in_progress").length;
-
-    res.status(200).json({
-      success: true,
-      data: {
-        shop,
-        statistics: {
-          totalBids,
-          completedBids,
-          activeBids,
-          inProgressBids,
-          reviewCount: shop.reviewCount || 0,
-          rating: shop.rating || 0,
-          successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
+    // Calculate statistics for this shop based on currentShopId
+    const statistics = await Bid.aggregate([
+      { $match: { currentShopId: new mongoose.Types.ObjectId(shopId) } },
+      {
+        $group: {
+          _id: null,
+          totalBids: { $sum: 1 },
+          // Check for bids that are in progress (assigned to this shop)
+          inProgressBids: {
+            $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] },
+          },
+          // Check for completed bids
+          completedBids: {
+            $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
+          },
+          // Check for active bids that this shop might be bidding on
+          activeBids: {
+            $sum: { 
+              $cond: [{ 
+                $and: [
+                  { $eq: ["$status", "active"] },
+                  { $ne: ["$currentShopId", null] }
+                ] 
+              }, 1, 0] 
+            },
+          },
         },
-        recentBids: bids.slice(0, 10), // Last 10 bids
-        reviews: reviews.slice(0, 10), // Last 10 reviews
       },
+    ]);
+
+    // If you want to include all bids that this shop has made offers on,
+    // you might need to look at the Offer model instead
+    // Here's an alternative approach if you want to count bids where shop has made offers:
+    // const shopOffersStats = await Offer.aggregate([
+    //   { $match: { shopId: new mongoose.Types.ObjectId(shopId) } },
+    //   {
+    //     $lookup: {
+    //       from: "bids",
+    //       localField: "bidId",
+    //       foreignField: "_id",
+    //       as: "bid"
+    //     }
+    //   },
+    //   { $unwind: "$bid" },
+    //   {
+    //     $group: {
+    //       _id: "$bid.status",
+    //       count: { $sum: 1 }
+    //     }
+    //   }
+    // ]);
+
+    // Extract statistics
+    const statsResult = statistics[0] || {
+      totalBids: 0,
+      inProgressBids: 0,
+      completedBids: 0,
+      activeBids: 0
+    };
+
+    // Calculate success rate if there are any bids
+    const successRate = statsResult.totalBids > 0 
+      ? (statsResult.completedBids / statsResult.totalBids) * 100 
+      : 0;
+
+    const shopData = {
+      ...shop.toObject(),
+      statistics: {
+        totalBids: statsResult.totalBids,
+        completedBids: statsResult.completedBids,
+        activeBids: statsResult.activeBids,
+        inProgressBids: statsResult.inProgressBids,
+        successRate: Math.round(successRate),
+        rating: shop.rating || 0,
+        reviewCount: shop.reviewCount || 0,
+      },
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Shop details retrieved successfully",
+      data: shopData,
     });
   } catch (error) {
     console.error("Error fetching shop details:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch shop details",
       error: error.message,
     });
   }
 };
+
+
 
 // Suspend or activate a shop
 export const updateShopStatus = async (req, res) => {
@@ -2224,21 +2344,32 @@ export const getBidDetails = async (req, res) => {
   try {
     const { bidId } = req.params;
 
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(bidId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bid ID format",
+      });
+    }
+
     const bid = await Bid.findById(bidId)
       .populate({
         path: "user_id",
         select: "name email phone",
+        model: "Customer",
       })
       .populate({
         path: "offers",
         populate: [
           {
             path: "shopId",
-            select: "name email phone address",
+            select: "businessName email phone address",
+            model: "Shop",
           },
           {
             path: "counterOffers.createdBy",
             select: "name email",
+            model: "Customer",
           },
         ],
       })
@@ -2246,12 +2377,14 @@ export const getBidDetails = async (req, res) => {
         path: "acceptedOffer",
         populate: {
           path: "shopId",
-          select: "name email phone address",
+          select: "businessName email phone address",
+          model: "Shop",
         },
       })
       .populate({
         path: "currentShopId",
-        select: "name email phone address",
+        select: "businessName email phone address profilePic",
+        model: "Shop",
       })
       .lean();
 
@@ -2262,6 +2395,20 @@ export const getBidDetails = async (req, res) => {
       });
     }
 
+    // Helper function to check if bid is expired
+    const checkIfExpired = (bid) => {
+      const now = new Date();
+      const createdAt = new Date(bid.createdAt);
+      const dueDate = bid.dueDate ? new Date(bid.dueDate) : null;
+
+      const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
+      if (bid.status === "active" && hoursSinceCreation >= 48) return true;
+      if (bid.status === "active" && dueDate && now > dueDate) return true;
+
+      return false;
+    };
+
+    // Calculate additional statistics
     const enrichedBid = {
       ...bid,
       totalOffers: bid.offers?.length || 0,
@@ -2271,6 +2418,17 @@ export const getBidDetails = async (req, res) => {
         (acc, offer) => acc + (offer.counterOffers?.length || 0),
         0
       ),
+      // Calculate average offer price
+      averageOfferPrice: bid.offers?.length > 0 
+        ? Math.round(bid.offers.reduce((sum, offer) => sum + (offer.price || 0), 0) / bid.offers.length)
+        : 0,
+      // Get highest and lowest offers
+      highestOffer: bid.offers?.length > 0 
+        ? Math.max(...bid.offers.map(offer => offer.price || 0))
+        : 0,
+      lowestOffer: bid.offers?.length > 0 
+        ? Math.min(...bid.offers.map(offer => offer.price || 0))
+        : 0,
     };
 
     res.status(200).json({

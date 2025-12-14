@@ -75,7 +75,9 @@ router.patch("/shops/:shopId/block", toggleBlockShop);
 router.get("/shops/stats", getShopStats);
 router.get("/shops", getAllShops);
 router.get("/shops/map", getShopsForMap);
+// router.get("/shops/:shopId", getShopById);
 router.get("/shops/:shopId", getShopById);
+
 router.put("/shops/:shopId/status", updateShopStatus);
 
 
