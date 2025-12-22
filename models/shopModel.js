@@ -25,6 +25,16 @@ const shopSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    registrationMethod: {
+      type: String,
+      enum: ['email_password', 'google'], // ✅ Added: Track registration method
+      default: 'email_password',
+      required: true
+    },
+    googleId: {
+      type: String,
+      sparse: true // Allows null values
+    },
     password: {
       type: String,
       required: true,
@@ -39,6 +49,9 @@ const shopSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
+    },
+    ownerPhone: {
+      type: String,
     },
     website: {
       type: String,
@@ -97,6 +110,60 @@ const shopSchema = new mongoose.Schema(
     certificateFiles: {
       type: [String], // URLs of uploaded certificate files
       default: [],
+    },
+
+
+    // New fields to add:
+    financingOffered: {
+      type: Boolean,
+      default: false
+    },
+
+    acceptedPayments: [{
+      type: String,
+      enum: ['visa', 'mastercard', 'discover', 'amex', 'business_checks', 'cash', 'zelle', 'other']
+    }],
+    yearsExperience: {
+      type: String,
+      default: ''
+    },
+
+    businessHours: {
+      monday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      tuesday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      wednesday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      thursday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      friday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      saturday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      },
+      sunday: {
+        open: String,
+        close: String,
+        closed: Boolean
+      }
     },
 
     // Start Date
@@ -181,6 +248,7 @@ const shopSchema = new mongoose.Schema(
         return date;
       },
     },
+
 
     // Payment Information (Store tokenized data only, never raw card details)
     paymentInfo: {
@@ -337,10 +405,10 @@ shopSchema.methods.blockShop = function (adminId, reason = "") {
   this.blockedAt = new Date();
   this.blockedReason = reason;
   this.blockedBy = adminId;
-  
+
   // Cancel any active bids if needed
   // This would require integration with your bids system
-  
+
   return this.save();
 };
 
@@ -351,7 +419,7 @@ shopSchema.methods.unblockShop = function () {
   this.lastUnblockedAt = new Date();
   this.blockedReason = "";
   this.blockedBy = null;
-  
+
   return this.save();
 };
 
@@ -388,7 +456,7 @@ shopSchema.pre("save", function (next) {
       this.lastUnblockedAt = new Date();
     }
   }
-  
+
   if (this.isModified("isBlocked")) {
     if (this.isBlocked && this.status !== "blocked") {
       this.status = "blocked";
@@ -400,7 +468,7 @@ shopSchema.pre("save", function (next) {
       this.lastUnblockedAt = new Date();
     }
   }
-  
+
   next();
 });
 

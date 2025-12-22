@@ -24,6 +24,26 @@ const bidSchema = new mongoose.Schema(
     hasLogo: { type: String, trim: true },
     artworkFiles: [{ type: String }],
     exampleFiles: [{ type: String }],
+    
+    // Location fields
+    zipCode: { type: String, trim: true },
+    address: { type: String, trim: true },
+    latitude: { type: Number },
+    longitude: { type: Number },
+    country: { type: String, trim: true },
+    
+    // GeoJSON location field for geospatial queries
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number],  // [longitude, latitude]
+        default: [0, 0]
+      }
+    },
 
     dueDate: { type: Date },
 
@@ -39,13 +59,12 @@ const bidSchema = new mongoose.Schema(
         ref: "Offer",
       },
     ],
+    
     contactMethod: {
       type: String,
       enum: ["email", "sms", "both"],
       default: "email",
     },
-
-
 
     acceptedOffer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -53,20 +72,22 @@ const bidSchema = new mongoose.Schema(
       default: null,
     },
 
-
     currentShopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shop",
       default: null,
     },
+    
     reviewed: {
       type: Boolean,
       default: false,
     }
-
   },
   { timestamps: true }
 );
+
+// Create 2dsphere index for geospatial queries
+bidSchema.index({ location: '2dsphere' });
 
 bidSchema.pre("save", function (next) {
   if (!this.createdAt) this.createdAt = new Date();

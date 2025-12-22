@@ -29,9 +29,18 @@ import {
   getBidStats,
   createShopByAdmin,
   toggleBlockShop
-
-
 } from "../controllers/adminController.js";
+import {
+  getAllStories,
+  getStoryById,
+  createStory,
+  updateStory,
+  deleteStory,
+  deactivateStory,
+  reorderStories
+} from '../controllers/happyStoryController.js';
+
+
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
 import { upload } from "../middlewares/upload.js";
 const router = express.Router();
@@ -43,11 +52,20 @@ const router = express.Router();
 // Auth
 router.post("/login", adminLogin);
 router.post("/verify-otp", verifyOtp);   
-router.post("/resend-otp", resendOtp);   
+router.post("/resend-otp", resendOtp);
+
+
+//happstories
+router.get('/happy-stories', getAllStories);
+router.get('/happy-stories/:id', getStoryById);
+
+
+
+//Authenticate
+router.use(authenticateAdmin);
 
 
 // Dashboard
-router.use(authenticateAdmin);
 router.get("/dashboard/stats", getDashboardStats);
 router.get("/dashboard/overview", getDashboardOverview);
 
@@ -84,7 +102,7 @@ router.put("/shops/:shopId/status", updateShopStatus);
 //customer routes
 router.get("/customers/stats", getCustomerStats);
 router.get("/customers", getAllCustomers);
-router.get("/customers/:customerId", getCustomerById);
+router.get("/customers/:id/details", getCustomerById);
 
 
 //update requests
@@ -131,7 +149,12 @@ router.get("/bids/:bidId", getBidDetails);
 
 
 
-
+//stories
+router.post('/happy-stories', upload.single('image'), createStory);
+router.put('/happy-stories/:id', upload.single('image'), updateStory);
+router.delete('/happy-stories/:id', deleteStory);
+router.patch('/happy-stories/:id/deactivate', deactivateStory);
+router.patch('/happy-stories/reorder',  reorderStories);
 
 
 export default router;

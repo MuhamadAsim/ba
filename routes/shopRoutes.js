@@ -8,7 +8,8 @@ import {
   forgotPassword,
   resetPassword,
   submitVerificationRequest,
-  getMyVerificationRequests
+  getMyVerificationRequests,
+  changePassword
 } from "../controllers/shopAuthController.js";
 import {
   getAvailableBidsForShops,
@@ -32,6 +33,7 @@ router.post("/verify-otp", verifyOtp);
 router.post("/signin", signin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+router.post("/change-password",authenticateShop,changePassword)
 
 //Registration
 router.post(
@@ -78,6 +80,7 @@ router.get(
 router.post("/offers", authenticateShop, makeOffer);
 router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
 router.post("/bids/:bidId/complete", authenticateShop, markBidCompleted);
+
 // counter offers
 router.post(
   "/counter-offers/:counterId/accept",

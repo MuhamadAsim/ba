@@ -1,11 +1,8 @@
 import Shop from "../models/shopModel.js";
 import { sendEmail } from "./sendEmail.js";
-import axios from "axios";
 import twilio from "twilio";
-import zipcodes from "zipcodes";
 
-const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const MAX_RADIUS_MILES = 1500;
+const MAX_RADIUS_MILES = 15
 
 // ---------------------- Haversine distance calculation ----------------------
 const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
@@ -25,49 +22,33 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
 // ---------------------- Notify Shops For Bid ----------------------
 export const notifyShopsForBid = async (newBid, customer) => {
   try {
-    const customerZip = customer.zip;
+    // ---------------------- 1️⃣ GET BID LOCATION (Use bid's location, not customer's) ----------------------
+    const bidLocation = {
+      latitude: newBid.latitude,
+      longitude: newBid.longitude,
+      address: newBid.address,
+      country: newBid.country,
+      zipCode: newBid.zipCode,
+    };
 
-    if (!customerZip) {
-      console.log("❌ Customer ZIP not provided. Cannot filter shops.");
+    console.log("📍 Bid Location Data:", {
+      latitude: bidLocation.latitude,
+      longitude: bidLocation.longitude,
+      address: bidLocation.address,
+      zipCode: bidLocation.zipCode,
+      country: bidLocation.country,
+    });
+
+    // Validate bid has location
+    if (!bidLocation.latitude || !bidLocation.longitude) {
+      console.log("❌ Bid missing location coordinates. Cannot filter shops.");
       return;
     }
 
-    let customerLat = null;
-    let customerLng = null;
+    const customerLat = bidLocation.latitude;
+    const customerLng = bidLocation.longitude;
 
-    // ---------------------- 1️⃣ TRY GOOGLE GEOCODING FIRST ----------------------
-    try {
-      const geoURL = `https://maps.googleapis.com/maps/api/geocode/json?address=${customerZip}&components=country:US&key=${GOOGLE_API_KEY}`;
-      const geoRes = await axios.get(geoURL);
-
-      if (geoRes.data.results.length > 0) {
-        customerLat = geoRes.data.results[0].geometry.location.lat;
-        customerLng = geoRes.data.results[0].geometry.location.lng;
-
-        console.log(`📍 Google resolved ZIP ${customerZip} → (${customerLat}, ${customerLng})`);
-      } else {
-        console.log(`⚠️ Google could NOT resolve ZIP ${customerZip}. Will try fallback.`);
-      }
-    } catch (err) {
-      console.log("⚠️ Google API error. Trying fallback ZIP resolver.");
-    }
-
-    // ---------------------- 2️⃣ FALLBACK → ZIPCODE DATABASE ----------------------
-    if (!customerLat || !customerLng) {
-      const zipData = zipcodes.lookup(customerZip);
-
-      if (zipData) {
-        customerLat = zipData.latitude;
-        customerLng = zipData.longitude;
-
-        console.log(`📌 Fallback ZIP resolver → (${customerLat}, ${customerLng})`);
-      } else {
-        console.log(`❌ ZIP ${customerZip} is INVALID or not found in fallback DB.`);
-        return;
-      }
-    }
-
-    // ---------------------- 3️⃣ GET VERIFIED SHOPS ----------------------
+    // ---------------------- 2️⃣ GET VERIFIED SHOPS ----------------------
     const shops = await Shop.find({
       status: "active",
       isEmailVerified: true,
@@ -79,7 +60,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       return;
     }
 
-    // ---------------------- 4️⃣ FILTER BY RADIUS (≤15 miles) ----------------------
+    // ---------------------- 3️⃣ FILTER BY RADIUS (≤15 miles) USING BID LOCATION ----------------------
     const nearbyShops = shops.filter((shop) => {
       let shopLat = null;
       let shopLng = null;
@@ -92,17 +73,29 @@ export const notifyShopsForBid = async (newBid, customer) => {
         shopLng = shop.longitude;
       }
 
-      if (!shopLat || !shopLng) return false;
+      if (!shopLat || !shopLng) {
+        console.log(`⚠️ Shop ${shop.businessName} missing location data`);
+        return false;
+      }
 
       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
-      return distance <= MAX_RADIUS_MILES;
+      const isWithinRadius = distance <= MAX_RADIUS_MILES;
+      
+      if (isWithinRadius) {
+        console.log(`✅ Shop ${shop.businessName} is ${distance.toFixed(2)} miles away`);
+      }
+      
+      return isWithinRadius;
     });
 
-    console.log(`📍 ${nearbyShops.length} shops found within 15 miles.`);
+    console.log(`📍 ${nearbyShops.length} shops found within ${MAX_RADIUS_MILES} miles of bid location.`);
 
-    if (!nearbyShops.length) return;
+    if (!nearbyShops.length) {
+      console.log("⚠️ No shops within radius.");
+      return;
+    }
 
-    // ---------------------- 5️⃣ EMAIL + SMS TEMPLATES ----------------------
+    // ---------------------- 4️⃣ EMAIL + SMS TEMPLATES ----------------------
     const customerName = customer.name || "Customer";
     const subject = `${customerName} posted a bid`;
 
@@ -111,23 +104,26 @@ export const notifyShopsForBid = async (newBid, customer) => {
       <p><strong>Email:</strong> ${customer.email}</p>
       <p><strong>Category:</strong> ${newBid.requestCategory}</p>
       <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
-      <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim}</p>
-      <p><strong>ZIP:</strong> ${customer.zip}</p>
+      <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
+      <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
+      <p><strong>Coordinates:</strong> ${bidLocation.latitude?.toFixed(6)}, ${bidLocation.longitude?.toFixed(6)}</p>
       <hr/>
-      <p>You received this because you are within 15 miles of the customer.</p>
+      <p>You received this because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
     `;
 
     const buildSMSText = () => `
 ${customerName} posted a new bid!
 Category: ${newBid.requestCategory}
 Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
-ZIP: ${customer.zip}
+Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Check dashboard'}
 Login to view.
     `;
 
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-    // ---------------------- 6️⃣ SEND NOTIFICATIONS ----------------------
+    // ---------------------- 5️⃣ SEND NOTIFICATIONS ----------------------
+    const notificationPromises = [];
+
     for (const shop of nearbyShops) {
       const emailHTML = buildEmailHTML();
       const smsText = buildSMSText();
@@ -151,16 +147,28 @@ Login to view.
             console.log(`📱 SMS sent → ${fullPhone}`);
           }
         } catch (err) {
-          console.error("❌ Notification error:", err);
+          console.error(`❌ Notification error for shop ${shop.businessName}:`, err.message);
         }
       };
 
+      // Professional plan shops get immediate notifications
+      // Basic plan shops get delayed notifications
       if (shop.plan === "professional") {
-        await sendNotifications();
+        notificationPromises.push(sendNotifications());
       } else {
-        setTimeout(sendNotifications, 60 * 60 * 1000); // 1-hour delay
+        notificationPromises.push(
+          new Promise(resolve => {
+            setTimeout(async () => {
+              await sendNotifications();
+              resolve();
+            }, 60 * 60 * 1000); // 1-hour delay
+          })
+        );
       }
     }
+
+    // Wait for all notifications to complete
+    await Promise.allSettled(notificationPromises);
 
     console.log("✅ Notification workflow complete.");
   } catch (error) {

@@ -1,11 +1,11 @@
 // ============================================
-// app.js (CLEAN - NO SOCKET.IO MIDDLEWARE)
+// app.js
 // ============================================
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
-import dotenv from "dotenv";
-import connectDB from "./configs/db.js";
+
+// Import routes
 import bidRoutes from "./routes/bidRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import shopRoutes from "./routes/shopRoutes.js";
@@ -13,36 +13,28 @@ import googleRoutes from "./routes/googleRoutes.js";
 import eventRoutes from "./routes/eventRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import videoRoutes from "./routes/videoRoutes.js";
 
 import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
-dotenv.config();
-connectDB();
-
+// Create Express app
 const app = express();
 
-
-// Middleware
+// ✅ MIDDLEWARE (BEFORE ROUTES)
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 app.use("/uploads", express.static("uploads"));
-// ======================= DEBUG MIDDLEWARE =======================
+
+// ✅ ATTACH SOCKET.IO TO REQ (BEFORE ROUTES)
 app.use((req, res, next) => {
-  console.log("🔥 Incoming Request:");
-  console.log("  Method:", req.method);
-  console.log("  URL:", req.originalUrl);
-  console.log("  Body:", req.body);
-  console.log("  Query:", req.query);
-  console.log("  Headers:", req.headers['content-type']); // optional
+  req.io = req.app.get("io");
+  console.log("✅ req.io attached");
   next();
 });
-// =================================================================
 
-
-
-// Routes
+// ✅ NOW ADD ROUTES (AFTER MIDDLEWARE)
 app.use("/api/bids", bidRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/shop", shopRoutes);
@@ -50,14 +42,14 @@ app.use("/api/OAuth", googleRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin", adminRoutes);
-
+app.use("/api/video", videoRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "OK", message: "Server is running" });
 });
 
-// Error handler (must be last)
+// Error handler
 app.use(errorHandler);
 
 export default app;

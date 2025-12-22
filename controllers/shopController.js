@@ -34,29 +34,134 @@ export const updateExpiredBids = async () => {
 
 
 
+// export const getAvailableBidsForShops = async (req, res) => {
+//   try {
+//     await updateExpiredBids();
+
+//     const shopId = req.shopId;
+
+//     // 1️⃣ Get all active bids
+//     const activeBids = await Bid.find({ status: "active" })
+//       .populate("user_id", "name address zip")
+//       .sort({ createdAt: -1 });
+
+//     // 2️⃣ Get all offers made by this shop
+//     const shopOffers = await Offer.find({ shopId })
+//       .populate("counterOffers.createdBy", "name")
+//       .lean();
+
+//     // 3️⃣ Quick lookup table for offers
+//     const offerMap = {};
+//     shopOffers.forEach((offer) => {
+//       offerMap[offer.bidId.toString()] = offer;
+//     });
+
+//     // 4️⃣ Get in-progress or completed bids assigned to this shop
+//     const relatedBids = await Bid.find({
+//       currentShopId: shopId,
+//       status: { $in: ["in_progress", "completed"] },
+//     })
+//       .populate("user_id", "name address zip")
+//       .sort({ createdAt: -1 });
+
+//     // 5️⃣ Merge active + related bids (avoid duplicates)
+//     const allBidsMap = {};
+//     [...activeBids, ...relatedBids].forEach((bid) => {
+//       allBidsMap[bid._id.toString()] = bid.toObject();
+//     });
+
+//     // 6️⃣ Attach hasOffered + myOffer for each bid
+//     const bidsWithOfferStatus = Object.values(allBidsMap).map((bid) => {
+//       const myOffer = offerMap[bid._id.toString()] || null;
+//       return {
+//         ...bid,
+//         hasOffered: !!myOffer,
+//         myOffer,
+//       };
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       total: bidsWithOfferStatus.length,
+//       bids: bidsWithOfferStatus,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching bids for shops:", error);
+//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
+//   }
+// };
+
+
+
+
+
+const MAX_RADIUS_MILES = 15;
+const METERS_PER_MILE = 1609.34;
+
+// ============================================
+// GET AVAILABLE BIDS FOR SHOP (15-mile radius)
+// ============================================
 export const getAvailableBidsForShops = async (req, res) => {
   try {
     await updateExpiredBids();
 
     const shopId = req.shopId;
 
-    // 1️⃣ Get all active bids
-    const activeBids = await Bid.find({ status: "active" })
+    // ---------------------- 1️⃣ GET SHOP LOCATION ----------------------
+    const shop = await Shop.findById(shopId).select("location latitude longitude");
+
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+      });
+    }
+
+    let shopLng = null;
+    let shopLat = null;
+
+    if (shop.location?.coordinates?.length === 2) {
+      shopLng = shop.location.coordinates[0];
+      shopLat = shop.location.coordinates[1];
+    } else if (shop.latitude && shop.longitude) {
+      shopLat = shop.latitude;
+      shopLng = shop.longitude;
+    }
+
+    if (!shopLat || !shopLng) {
+      return res.status(400).json({
+        success: false,
+        message: "Shop location not set",
+      });
+    }
+
+    // ---------------------- 2️⃣ ACTIVE BIDS (15-MILE RADIUS) ----------------------
+    const activeBids = await Bid.find({
+      status: "active",
+      location: {
+        $nearSphere: {
+          $geometry: {
+            type: "Point",
+            coordinates: [shopLng, shopLat],
+          },
+          $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
+        },
+      },
+    })
       .populate("user_id", "name address zip")
       .sort({ createdAt: -1 });
 
-    // 2️⃣ Get all offers made by this shop
+    // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
     const shopOffers = await Offer.find({ shopId })
       .populate("counterOffers.createdBy", "name")
       .lean();
 
-    // 3️⃣ Quick lookup table for offers
     const offerMap = {};
     shopOffers.forEach((offer) => {
       offerMap[offer.bidId.toString()] = offer;
     });
 
-    // 4️⃣ Get in-progress or completed bids assigned to this shop
+    // ---------------------- 4️⃣ RELATED BIDS (ALREADY ASSIGNED) ----------------------
     const relatedBids = await Bid.find({
       currentShopId: shopId,
       status: { $in: ["in_progress", "completed"] },
@@ -64,15 +169,17 @@ export const getAvailableBidsForShops = async (req, res) => {
       .populate("user_id", "name address zip")
       .sort({ createdAt: -1 });
 
-    // 5️⃣ Merge active + related bids (avoid duplicates)
+    // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
     const allBidsMap = {};
+
     [...activeBids, ...relatedBids].forEach((bid) => {
       allBidsMap[bid._id.toString()] = bid.toObject();
     });
 
-    // 6️⃣ Attach hasOffered + myOffer for each bid
+    // ---------------------- 6️⃣ ATTACH OFFER STATUS ----------------------
     const bidsWithOfferStatus = Object.values(allBidsMap).map((bid) => {
       const myOffer = offerMap[bid._id.toString()] || null;
+
       return {
         ...bid,
         hasOffered: !!myOffer,
@@ -80,20 +187,21 @@ export const getAvailableBidsForShops = async (req, res) => {
       };
     });
 
-    res.status(200).json({
+    // ---------------------- 7️⃣ RESPONSE ----------------------
+    return res.status(200).json({
       success: true,
       total: bidsWithOfferStatus.length,
+      radiusMiles: MAX_RADIUS_MILES,
       bids: bidsWithOfferStatus,
     });
   } catch (error) {
     console.error("❌ Error fetching bids for shops:", error);
-    res.status(500).json({ success: false, message: "Failed to fetch bids" });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch bids",
+    });
   }
 };
-
-
-
-
 
 
 

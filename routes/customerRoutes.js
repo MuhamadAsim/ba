@@ -6,6 +6,7 @@ import {
   updateProfile,
   forgotPassword,
   resetPassword,
+  changePassword
 } from "../controllers/customerAuthController.js";
 import {
   getCustomerBidStats,
@@ -31,6 +32,8 @@ router.post("/verify-otp", verifyOtp); // Step 2: verify OTP
 router.post("/signin", signin); // Step 3: normal login after verification
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
+router.post("/change-password",authenticateCustomer,changePassword)
+
 
 // 🧑‍💼 Profile update (with Cloudinary upload)
 router.put(

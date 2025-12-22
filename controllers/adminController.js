@@ -932,12 +932,11 @@ export const acceptShop = async (req, res) => {
 
 
 
-
-// Reject a shop
+// Reject a shop (hard delete)
 export const rejectShop = async (req, res) => {
   try {
     const { shopId } = req.params;
-    const { reason } = req.body; // Optional rejection reason
+    const { reason } = req.body; // Admin rejection reason
 
     const shop = await Shop.findById(shopId);
 
@@ -955,51 +954,50 @@ export const rejectShop = async (req, res) => {
       });
     }
 
-    // Update shop status to suspended or you can delete it
-    shop.status = "suspended";
-    shop.isVerified = false;
+    // Store details before deleting (needed for email)
+    const { email, businessName } = shop;
 
-    // You could add a rejectionReason field to the schema if needed
-    // shop.rejectionReason = reason;
+    // ❌ Delete shop completely
+    await Shop.findByIdAndDelete(shopId);
 
-    await shop.save();
-
-
-    // Send rejection email
+    // 📧 Send rejection email with admin reason
     await sendEmail(
-      shop.email,
-      "Your Shop Registration Request Was Not Approved",
+      email,
+      "Your Shop Registration Was Rejected",
       `
-    <h2>Hello ${shop.businessName},</h2>
-    <p>We have reviewed your shop registration request. Unfortunately, we are unable to approve it at this time.</p>
+        <h2>Hello ${businessName},</h2>
 
-    ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+        <p>Thank you for registering your shop with us.</p>
 
-    <p>You may fix the issues and reapply anytime.</p>
+        <p>After reviewing your application, we regret to inform you that your shop registration has been <strong>rejected</strong>.</p>
 
-    <p>If you believe this was a mistake or want more details, feel free to contact our support team.</p>
+        ${
+          reason
+            ? `<p><strong>Reason provided by admin:</strong> ${reason}</p>`
+            : `<p><strong>Reason:</strong> The provided information did not meet our requirements.</p>`
+        }
 
-    <br/>
-    <p>Best regards,<br/>Support Team</p>
-  `
+        <p>You may correct the issues and <strong>register again</strong> using the same email.</p>
+
+        <p>If you believe this was a mistake, feel free to contact our support team.</p>
+
+        <br/>
+        <p>Best regards,<br/>Support Team</p>
+      `
     );
 
-
-
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Shop rejected successfully",
+      message: "Shop rejected and deleted successfully",
       data: {
-        shopId: shop._id,
-        businessName: shop.businessName,
-        status: shop.status,
+        shopId,
+        businessName,
         reason: reason || "No reason provided",
       },
     });
   } catch (error) {
     console.error("Error rejecting shop:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to reject shop",
       error: error.message,
@@ -1117,12 +1115,32 @@ export const getAllCustomers = async (req, res) => {
   }
 };
 
-// Get single customer details with full bid history
+
+
+
+
+
+
+
+
+
+// Get single customer details for admin view
 export const getCustomerById = async (req, res) => {
   try {
-    const { customerId } = req.params;
+    const { id } = req.params;
 
-    const customer = await Customer.findById(customerId)
+    console.log(id);
+
+    // ✅ Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid customer ID",
+      });
+    }
+
+    // Find customer and exclude sensitive fields
+    const customer = await Customer.findById(id)
       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry")
       .lean();
 
@@ -1133,48 +1151,50 @@ export const getCustomerById = async (req, res) => {
       });
     }
 
-    // Get all bids for this customer
-    const bids = await Bid.find({ user_id: customerId })
-      .populate("currentShopId", "businessName email phone")
-      .populate("acceptedOffer")
-      .sort({ createdAt: -1 })
-      .lean();
+    // Bid statistics
+    const totalBids = await Bid.countDocuments({ user_id: id });
 
-    // Calculate statistics
-    const totalBids = bids.length;
-    const completedBids = bids.filter(bid => bid.status === "completed").length;
-    const activeBids = bids.filter(bid => bid.status === "active").length;
-    const inProgressBids = bids.filter(bid => bid.status === "in_progress").length;
+    const completedBids = await Bid.countDocuments({
+      user_id: id,
+      status: "completed",
+    });
 
-    res.status(200).json({
+    const activeBids = await Bid.countDocuments({
+      user_id: id,
+      status: { $in: ["active", "in_progress"] },
+    });
+
+    const inProgressBids = await Bid.countDocuments({
+      user_id: id,
+      status: "in_progress",
+    });
+
+    const successRate =
+      totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0;
+
+    // Combine response
+    const customerData = {
+      ...customer,
+      totalBids,
+      completedBids,
+      activeBids,
+      inProgressBids,
+      successRate,
+      status: customer.isEmailVerified ? "active" : "pending",
+    };
+
+    return res.status(200).json({
       success: true,
-      data: {
-        customer: {
-          ...customer,
-          status: customer.isEmailVerified ? "active" : "pending",
-        },
-        statistics: {
-          totalBids,
-          completedBids,
-          activeBids,
-          inProgressBids,
-          successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
-        },
-        bids,
-      },
+      data: customerData,
     });
   } catch (error) {
-    console.error("Error fetching customer details:", error);
-    res.status(500).json({
+    console.error("❌ Error fetching customer details:", error);
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch customer details",
-      error: error.message,
     });
   }
 };
-
-
-
 
 
 

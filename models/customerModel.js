@@ -14,6 +14,16 @@ const customerSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    registrationMethod: {
+      type: String,
+      enum: ['email_password', 'google'], // ✅ Added: Track registration method
+      default: 'email_password',
+      required: true
+    },
+    googleId: {
+      type: String,
+      sparse: true // Allows null values
+    },
     password: {
       type: String,
       required: true,
@@ -56,12 +66,12 @@ const customerSchema = new mongoose.Schema(
 
     isAuthenticated: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     resetPasswordOtp: { type: String, default: null },
     resetPasswordOtpExpiry: { type: Date, default: null },
   },
-  { timestamps: true } 
+  { timestamps: true }
 );
 
 export default mongoose.model("Customer", customerSchema);
