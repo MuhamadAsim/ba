@@ -34,29 +34,73 @@ export const updateExpiredBids = async () => {
 
 
 
+// const MAX_RADIUS_MILES = 15;
+// const METERS_PER_MILE = 1609.34;
+
+// // ============================================
+// // GET AVAILABLE BIDS FOR SHOP (15-mile radius)
+// // ============================================
 // export const getAvailableBidsForShops = async (req, res) => {
 //   try {
 //     await updateExpiredBids();
 
 //     const shopId = req.shopId;
 
-//     // 1️⃣ Get all active bids
-//     const activeBids = await Bid.find({ status: "active" })
+//     // ---------------------- 1️⃣ GET SHOP LOCATION ----------------------
+//     const shop = await Shop.findById(shopId).select("location latitude longitude");
+
+//     if (!shop) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Shop not found",
+//       });
+//     }
+
+//     let shopLng = null;
+//     let shopLat = null;
+
+//     if (shop.location?.coordinates?.length === 2) {
+//       shopLng = shop.location.coordinates[0];
+//       shopLat = shop.location.coordinates[1];
+//     } else if (shop.latitude && shop.longitude) {
+//       shopLat = shop.latitude;
+//       shopLng = shop.longitude;
+//     }
+
+//     if (!shopLat || !shopLng) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Shop location not set",
+//       });
+//     }
+
+//     // ---------------------- 2️⃣ ACTIVE BIDS (15-MILE RADIUS) ----------------------
+//     const activeBids = await Bid.find({
+//       status: "active",
+//       location: {
+//         $nearSphere: {
+//           $geometry: {
+//             type: "Point",
+//             coordinates: [shopLng, shopLat],
+//           },
+//           $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
+//         },
+//       },
+//     })
 //       .populate("user_id", "name address zip")
 //       .sort({ createdAt: -1 });
 
-//     // 2️⃣ Get all offers made by this shop
+//     // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
 //     const shopOffers = await Offer.find({ shopId })
 //       .populate("counterOffers.createdBy", "name")
 //       .lean();
 
-//     // 3️⃣ Quick lookup table for offers
 //     const offerMap = {};
 //     shopOffers.forEach((offer) => {
 //       offerMap[offer.bidId.toString()] = offer;
 //     });
 
-//     // 4️⃣ Get in-progress or completed bids assigned to this shop
+//     // ---------------------- 4️⃣ RELATED BIDS (ALREADY ASSIGNED) ----------------------
 //     const relatedBids = await Bid.find({
 //       currentShopId: shopId,
 //       status: { $in: ["in_progress", "completed"] },
@@ -64,15 +108,17 @@ export const updateExpiredBids = async () => {
 //       .populate("user_id", "name address zip")
 //       .sort({ createdAt: -1 });
 
-//     // 5️⃣ Merge active + related bids (avoid duplicates)
+//     // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
 //     const allBidsMap = {};
+
 //     [...activeBids, ...relatedBids].forEach((bid) => {
 //       allBidsMap[bid._id.toString()] = bid.toObject();
 //     });
 
-//     // 6️⃣ Attach hasOffered + myOffer for each bid
+//     // ---------------------- 6️⃣ ATTACH OFFER STATUS ----------------------
 //     const bidsWithOfferStatus = Object.values(allBidsMap).map((bid) => {
 //       const myOffer = offerMap[bid._id.toString()] || null;
+
 //       return {
 //         ...bid,
 //         hasOffered: !!myOffer,
@@ -80,14 +126,19 @@ export const updateExpiredBids = async () => {
 //       };
 //     });
 
-//     res.status(200).json({
+//     // ---------------------- 7️⃣ RESPONSE ----------------------
+//     return res.status(200).json({
 //       success: true,
 //       total: bidsWithOfferStatus.length,
+//       radiusMiles: MAX_RADIUS_MILES,
 //       bids: bidsWithOfferStatus,
 //     });
 //   } catch (error) {
 //     console.error("❌ Error fetching bids for shops:", error);
-//     res.status(500).json({ success: false, message: "Failed to fetch bids" });
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch bids",
+//     });
 //   }
 // };
 
@@ -95,8 +146,23 @@ export const updateExpiredBids = async () => {
 
 
 
+
+
+
+
 const MAX_RADIUS_MILES = 15;
 const METERS_PER_MILE = 1609.34;
+
+// Helper function to format name initials
+const formatNameInitials = (fullName) => {
+  if (!fullName) return '';
+  
+  // Split name into parts and get first letter of each part
+  const nameParts = fullName.trim().split(/\s+/);
+  const initials = nameParts.map(part => part.charAt(0).toUpperCase()).join(' ');
+  
+  return initials;
+};
 
 // ============================================
 // GET AVAILABLE BIDS FOR SHOP (15-mile radius)
@@ -148,7 +214,10 @@ export const getAvailableBidsForShops = async (req, res) => {
         },
       },
     })
-      .populate("user_id", "name address zip")
+      .populate({
+        path: "user_id",
+        select: "name email phone zip address", // Get all customer fields
+      })
       .sort({ createdAt: -1 });
 
     // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
@@ -166,7 +235,10 @@ export const getAvailableBidsForShops = async (req, res) => {
       currentShopId: shopId,
       status: { $in: ["in_progress", "completed"] },
     })
-      .populate("user_id", "name address zip")
+      .populate({
+        path: "user_id",
+        select: "name email phone zip address", // Get all customer fields
+      })
       .sort({ createdAt: -1 });
 
     // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
@@ -176,24 +248,69 @@ export const getAvailableBidsForShops = async (req, res) => {
       allBidsMap[bid._id.toString()] = bid.toObject();
     });
 
-    // ---------------------- 6️⃣ ATTACH OFFER STATUS ----------------------
-    const bidsWithOfferStatus = Object.values(allBidsMap).map((bid) => {
+    // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
+    const formattedBids = Object.values(allBidsMap).map((bid) => {
       const myOffer = offerMap[bid._id.toString()] || null;
+      
+      // Extract customer info
+      const customer = bid.user_id || {};
+      
+      console.log("🔄 Processing bid:", bid._id); // DEBUG
+      console.log("📦 Raw customer data:", customer); // DEBUG
+      console.log("📫 Customer zip:", customer.zip); // DEBUG
+      console.log("🏠 Customer address:", customer.address); // DEBUG
+      
+      // Format based on bid status
+      let customerInfo = {};
+      
+      if (bid.status === "active") {
+        // For active bids: initials only, no contact info
+        customerInfo = {
+          name: formatNameInitials(customer.name || ''),
+          zip: customer.zip || '',
+          address: customer.address || '',
+          // No email/phone for active bids
+        };
+      } else {
+        // For in_progress/completed bids: full info
+        customerInfo = {
+          name: customer.name || '',
+          email: customer.email || '',
+          phone: customer.phone || '',
+          zip: customer.zip || '',
+          address: customer.address || '',
+        };
+      }
+
+      console.log("✅ Formatted customer info:", customerInfo); // DEBUG
 
       return {
         ...bid,
+        user_id: customerInfo, // Replace populated object with formatted info
         hasOffered: !!myOffer,
         myOffer,
       };
     });
 
     // ---------------------- 7️⃣ RESPONSE ----------------------
-    return res.status(200).json({
+    // Add debug info to response
+    const responseData = {
       success: true,
-      total: bidsWithOfferStatus.length,
+      total: formattedBids.length,
       radiusMiles: MAX_RADIUS_MILES,
-      bids: bidsWithOfferStatus,
-    });
+      bids: formattedBids,
+      debug: formattedBids.length > 0 ? {
+        sampleBid: {
+          id: formattedBids[0]._id,
+          status: formattedBids[0].status,
+          user_id: formattedBids[0].user_id,
+        }
+      } : null
+    };
+
+    console.log("📤 Final response sample:", responseData.debug); // DEBUG
+    
+    return res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ Error fetching bids for shops:", error);
     return res.status(500).json({
@@ -202,6 +319,7 @@ export const getAvailableBidsForShops = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -260,13 +378,17 @@ export const getShopStats = async (req, res) => {
 
 
 
-
 // Make Offer
 export const makeOffer = async (req, res) => {
   try {
-    const { bidId, price, note } = req.body;
+    // Accept both 'note' and 'message' for compatibility
+    const { bidId, price, note, message } = req.body;
     const shopId = req.user?._id || req.shopId;
 
+    console.log("asssssssssssssssssssss",note,message);
+
+    // Use whichever is provided (message takes priority)
+    const offerMessage = message || note || "";
 
     // 1️⃣ Validate input
     if (!bidId || !price) {
@@ -308,12 +430,11 @@ export const makeOffer = async (req, res) => {
       bidId,
       shopId,
       price,
-      message: note || "",
+      message: offerMessage,  // Use the correct field name
       status: "pending",
     });
 
     await offer.save();
-
 
     // 6️⃣ Link offer to bid
     bid.offers.push(offer._id);
@@ -333,16 +454,14 @@ export const makeOffer = async (req, res) => {
 
     await event.save();
 
-    notifyNewOffer(offer, bidId, shopId, price, note);
-
+    // Fix: Pass the correct message variable
+    notifyNewOffer(offer, bidId, shopId, price, offerMessage);
 
     return res.status(201).json({
       success: true,
       message: "Offer submitted successfully.",
       data: offer,
     });
-
-
 
   } catch (error) {
     console.error("💥 Server error in makeOffer:", error);
@@ -353,7 +472,6 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
-
 
 
 

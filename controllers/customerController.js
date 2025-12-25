@@ -140,7 +140,7 @@ export const getBidOffers = async (req, res) => {
         select:
           "businessName email phone address serviceArea website socialMedia profilePic storeFrontPhoto workSpacePhoto plan",
       })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: 1 });
 
     if (!offers.length) {
       return res.status(200).json({
@@ -225,6 +225,10 @@ export const getBidOffers = async (req, res) => {
     });
   }
 };
+
+
+
+
 
 
 export const acceptOffer = async (req, res) => {

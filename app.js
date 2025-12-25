@@ -14,6 +14,8 @@ import eventRoutes from "./routes/eventRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import videoRoutes from "./routes/videoRoutes.js";
+import adminChatRoutes from "./routes/adminSupportRoutes.js";
+
 
 import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
@@ -43,6 +45,8 @@ app.use("/api/events", eventRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/video", videoRoutes);
+app.use("/api/admin-chat", adminChatRoutes);
+
 
 // Health check
 app.get("/health", (req, res) => {

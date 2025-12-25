@@ -4,32 +4,219 @@ import Shop from "../models/shopModel.js";
 import Offer from "../models/offerModel.js";
 import Bid from "../models/bidModel.js";
 
+
+export const searchShops = async (req, res) => {
+  try {
+    console.log("🔍 Search request received:", {
+      query: req.query.q,
+      limit: req.query.limit,
+      page: req.query.page,
+      timestamp: new Date().toISOString()
+    });
+
+    const q = (req.query.q || "").trim();
+    const limit = Math.min(Number(req.query.limit) || 10, 50); // Max 50 results per page
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    // Validate inputs
+    if (q.length < 2) {
+      console.log("⚠️ Search query too short:", q);
+      return res.json({
+        shops: [],
+        total: 0,
+        page: page,
+        totalPages: 0,
+        hasMore: false,
+        message: q.length === 0 ? 
+          "Enter a search term to find shops" : 
+          "Search term must be at least 2 characters"
+      });
+    }
+
+    // Validate limit
+    if (limit < 1 || limit > 50) {
+      return res.status(400).json({
+        error: "Limit must be between 1 and 50",
+        shops: [],
+        total: 0
+      });
+    }
+
+    // Validate page
+    if (page < 1) {
+      return res.status(400).json({
+        error: "Page number must be at least 1",
+        shops: [],
+        total: 0
+      });
+    }
+
+    const searchRegex = new RegExp(q, "i");
+
+    // Expanded search fields for better results
+    const filter = {
+      status: "active",
+      isBlocked: false,
+      $or: [
+        { businessName: searchRegex },
+        { ownerName: searchRegex },
+        { services: { $regex: searchRegex } }, // Search within services array
+        { "services.serviceName": searchRegex }, // If services is an array of objects
+        { category: searchRegex },
+        { description: searchRegex },
+        { country: searchRegex },
+        { city: searchRegex },
+        { address: searchRegex },
+        { zipCode: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { tags: searchRegex }, // If you have tags field
+      ],
+    };
+
+    const skip = (page - 1) * limit;
+
+    console.log(`📊 Executing search for: "${q}" - Page: ${page}, Limit: ${limit}, Skip: ${skip}`);
+
+    const [shops, total] = await Promise.all([
+      Shop.find(filter)
+        .select("businessName ownerName profilePic avatar address services category description rating reviewCount createdAt")
+        .sort({ rating: -1, reviewCount: -1, createdAt: -1 }) // Sort by rating, then reviews, then newest
+        .limit(limit)
+        .skip(skip)
+        .lean(),
+      Shop.countDocuments(filter),
+    ]);
+
+    console.log(`✅ Search completed: Found ${total} shops, returning ${shops.length} for page ${page}`);
+
+    // Format the response with additional info
+    const result = {
+      shops: shops.map(shop => ({
+        _id: shop._id,
+        businessName: shop.businessName,
+        ownerName: shop.ownerName,
+        avatar: shop.profilePic || shop.avatar,
+        description: shop.description,
+        category: shop.category,
+        services: shop.services || [],
+        address: shop.address,
+        rating: shop.rating || 0,
+        reviewCount: shop.reviewCount || 0,
+        createdAt: shop.createdAt
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore: total > skip + shops.length,
+      searchTerm: q,
+      message: total === 0 ? 
+        `No shops found for "${q}"` : 
+        `Found ${total} shop${total !== 1 ? 's' : ''} matching "${q}"`
+    };
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("❌ Search error:", {
+      error: err.message,
+      stack: err.stack,
+      query: req.query,
+      timestamp: new Date().toISOString()
+    });
+
+    res.status(500).json({ 
+      error: "Search failed due to server error",
+      shops: [],
+      total: 0,
+      page: 1,
+      totalPages: 0,
+      hasMore: false,
+      message: "An error occurred while searching. Please try again."
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
 // ==================== GET OR CREATE CHAT ====================
 export const getOrCreateChat = async (req, res) => {
   try {
-    const { customerId, shopId, offerId, bidId, counterOfferId } = req.body;
+    const { 
+      customerId, 
+      shopId, 
+      offerId, 
+      bidId, 
+      counterOfferId,
+      isShopToShop = false 
+    } = req.body;
+    
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    console.log("Creating/Getting chat - Customer:", customerId, "Shop:", shopId);
+    console.log("Creating/Getting chat - Customer:", customerId, "Shop:", shopId, "Shop-to-shop:", isShopToShop);
+
+    // ----- VALIDATE INPUT -----
+    if (!customerId || !shopId) {
+      return res.status(400).json({ error: "customerId and shopId are required" });
+    }
+
+    // For shop-to-shop chats, customerId is the other shop's ID
+    let customerModel = "Customer";
+    let shopModel = "Shop";
+
+    if (isShopToShop) {
+      customerModel = "Shop"; // The "customer" in this case is another shop
+      
+      // Verify the other shop exists
+      const otherShop = await Shop.findById(customerId);
+      if (!otherShop) {
+        return res.status(404).json({ error: "Shop not found" });
+      }
+    }
 
     // ----- AUTH CHECK -----
     if (userRole === "customer" && userId !== customerId) {
       return res.status(403).json({ error: "Unauthorized access" });
     }
 
-    if (userRole === "shop" && userId !== shopId) {
-      return res.status(403).json({ error: "Unauthorized access" });
+    if (userRole === "shop") {
+      // For shop-to-shop, current shop must be either the shopId OR the customerId (if they initiated)
+      if (isShopToShop) {
+        // Shop can be either the main shop or the "customer" shop in shop-to-shop chat
+        if (userId !== shopId && userId !== customerId) {
+          return res.status(403).json({ error: "Unauthorized access" });
+        }
+      } else {
+        // Regular customer-shop chat
+        if (userId !== shopId) {
+          return res.status(403).json({ error: "Unauthorized access" });
+        }
+      }
     }
 
-    if (customerId === shopId) {
+    if (!isShopToShop && customerId === shopId) {
       return res.status(400).json({ error: "Invalid chat participants" });
+    }
+
+    // For shop-to-shop, both IDs should be different shops
+    if (isShopToShop && customerId === shopId) {
+      return res.status(400).json({ error: "Cannot create chat with yourself" });
     }
 
     // ----- CHECK IF CHAT EXISTS -----
     let chat = await Chat.findOne({
       customerId,
       shopId,
+      isShopToShop,
+      customerModel
     });
 
     if (chat) {
@@ -50,27 +237,39 @@ export const getOrCreateChat = async (req, res) => {
       return res.status(200).json(chat);
     }
 
-    // ----- GET CUSTOMER + SHOP -----
-    const customer = await Customer.findById(customerId).select("name email avatar");
-    const shop = await Shop.findById(shopId).select("businessName email profilePic");
+    // ----- GET PARTICIPANT DETAILS -----
+    let customer = null;
+    let shop = null;
+
+    if (isShopToShop) {
+      // For shop-to-shop, customer is actually another shop
+      customer = await Shop.findById(customerId).select("businessName email profilePic");
+    } else {
+      // Regular customer
+      customer = await Customer.findById(customerId).select("name email avatar");
+    }
+    
+    shop = await Shop.findById(shopId).select("businessName email profilePic");
 
     if (!customer || !shop) {
-      return res.status(404).json({ error: "Customer or Shop not found" });
+      return res.status(404).json({ error: "Participant not found" });
     }
 
     // ----- CREATE CHAT -----
     chat = await Chat.create({
       customerId,
+      customerModel,
       shopId,
+      isShopToShop,
 
       // Initialize related arrays
       relatedOffers: offerId ? [offerId] : [],
       relatedBids: bidId ? [bidId] : [],
       relatedCounterOffers: counterOfferId ? [counterOfferId] : [],
 
-      // Customer Fields
-      customerName: customer.name,
-      customerAvatar: customer.avatar,
+      // Customer Fields (could be Customer or Shop)
+      customerName: isShopToShop ? customer.businessName : customer.name,
+      customerAvatar: isShopToShop ? customer.profilePic : customer.avatar,
 
       // Shop Fields
       shopName: shop.businessName,
@@ -88,6 +287,11 @@ export const getOrCreateChat = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+
+
+
+
 
 // ==================== GET CHAT CONTEXT DATA ====================
 // Fetches all related offers/bids/counter-offers for this chat
@@ -439,31 +643,109 @@ export const sendMessage = async (req, res) => {
   }
 };
 
-// ==================== GET ALL CHATS ==================== 
+
+
+
+
+
+
+
+
+
+// ==================== GET ALL CHATS (OPTIMIZED) ==================== 
 export const getUserChats = async (req, res) => {
   try {
     const userId = req.user._id;
     const userRole = req.user.role;
 
-    let chats;
+    let query;
+    
     if (userRole === "customer") {
-      chats = await Chat.find({ customerId: userId, isActive: true })
-        .sort({ updatedAt: -1 })
-        .lean();
+      // Customer: only see chats where they are the customer
+      query = { 
+        customerId: userId, 
+        customerModel: "Customer",
+        isActive: true 
+      };
+      
     } else if (userRole === "shop") {
-      chats = await Chat.find({ shopId: userId, isActive: true })
-        .sort({ updatedAt: -1 })
-        .lean();
+      // Shop: see all chats involving this shop
+      query = {
+        $and: [
+          { isActive: true },
+          {
+            $or: [
+              { shopId: userId }, // Shop is the service provider
+              { customerId: userId, isShopToShop: true } // Shop is chatting as "customer" with another shop
+            ]
+          }
+        ]
+      };
+      
     } else {
       return res.status(403).json({ error: "Invalid user role" });
     }
 
-    res.status(200).json(chats);
+    // Execute query with population for better data
+    const chats = await Chat.find(query)
+      .sort({ updatedAt: -1 })
+      .lean();
+    
+    // Enrich chat data with participant info
+    const enrichedChats = await Promise.all(chats.map(async (chat) => {
+      let otherParticipant = null;
+      
+      if (userRole === "customer") {
+        // For customer, get shop info
+        otherParticipant = await Shop.findById(chat.shopId)
+          .select('businessName profilePic category location')
+          .lean();
+      } else if (userRole === "shop") {
+        // For shop, determine if it's a shop-to-shop or regular chat
+        if (chat.isShopToShop) {
+          // Shop-to-shop chat
+          if (chat.shopId.toString() === userId.toString()) {
+            // Current shop is the shop, other participant is customer (another shop)
+            otherParticipant = await Shop.findById(chat.customerId)
+              .select('businessName profilePic category location')
+              .lean();
+          } else {
+            // Current shop is the customer, other participant is shop (another shop)
+            otherParticipant = await Shop.findById(chat.shopId)
+              .select('businessName profilePic category location')
+              .lean();
+          }
+        } else {
+          // Regular chat, other participant is customer
+          otherParticipant = await Customer.findById(chat.customerId)
+            .select('name avatar email')
+            .lean();
+        }
+      }
+      
+      return {
+        ...chat,
+        otherParticipant,
+        chatType: chat.isShopToShop ? "shop-to-shop" : "customer-to-shop",
+        // Determine unread count for current user
+        unreadCount: userRole === "customer" ? chat.unreadCountCustomer : chat.unreadCountShop
+      };
+    }));
+
+    res.status(200).json(enrichedChats);
+    
   } catch (error) {
     console.error("Error in getUserChats:", error);
     res.status(500).json({ error: error.message });
   }
 };
+
+
+
+
+
+
+
 
 // ==================== GET SINGLE CHAT ====================
 export const getChat = async (req, res) => {

@@ -5,6 +5,12 @@ import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js";
 import { notifyShopsForBid } from "../utils/notifyShops.js";
+import Shop from "../models/shopModel.js";
+
+
+
+
+
 
 export const createBid = async (req, res) => {
   try {

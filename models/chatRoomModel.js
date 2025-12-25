@@ -59,13 +59,24 @@ const chatRoomSchema = new mongoose.Schema(
     // Participants
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
+      refPath: 'customerModel',
+      required: true,
+    },
+    customerModel: {
+      type: String,
+      enum: ["Customer", "Shop"],
       required: true,
     },
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shop",
       required: true,
+    },
+
+    // Flag to identify shop-to-shop chats
+    isShopToShop: {
+      type: Boolean,
+      default: false,
     },
 
     // Context: All offers/bids/counter-offers discussed in this chat
@@ -81,7 +92,7 @@ const chatRoomSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
     }],
 
-    // Customer Information
+    // Customer Information (for both customers and shops when in shop-to-shop mode)
     customerName: {
       type: String,
       required: true,
@@ -141,5 +152,6 @@ chatRoomSchema.index({ customerId: 1, isActive: 1 });
 chatRoomSchema.index({ shopId: 1, isActive: 1 });
 chatRoomSchema.index({ relatedOffers: 1 });
 chatRoomSchema.index({ relatedBids: 1 });
+chatRoomSchema.index({ isShopToShop: 1 }); // Index for shop-to-shop chats
 
 export default mongoose.model("Chat", chatRoomSchema);
