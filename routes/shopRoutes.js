@@ -22,6 +22,9 @@ import {
   getPlanDetails,
   cancelSubscription,
   changePlan,
+  getBidActivities,
+  getBidHistorySummary,
+  getBidHistory
 } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
@@ -80,6 +83,9 @@ router.get(
 router.post("/offers", authenticateShop, makeOffer);
 router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
 router.post("/bids/:bidId/complete", authenticateShop, markBidCompleted);
+router.get("/bid-history", authenticateShop, getBidHistory);
+router.get("/bid-history/summary", authenticateShop, getBidHistorySummary);
+router.get("/bid-history/:bidId", authenticateShop, getBidActivities);
 
 // counter offers
 router.post(

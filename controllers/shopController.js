@@ -6,9 +6,562 @@ import Offer from "../models/offerModel.js";
 import Event from "../models/eventModel.js";
 import { notifyNewOffer } from "../utils/notifyNewOffer.js";
 import { notifyCounterAccepted } from "../utils/notifyCounterAccepted.js";
-import { notifyBidCompleted } from "../utils/notifyBidCompleted.js";
+import { notifyBidCompleted } from "../utils/notifyBidCompleted.js";'@sendgrid/mail'
+import BidActivity from "../models/bidLogsModel.js";
 
 dotenv.config();
+
+
+
+
+
+
+
+
+
+
+/**
+ * @route   GET /api/shop/bid-history
+ * @desc    Get bid activity history for a shop
+ * @access  Private (Shop)
+ */
+export const getBidHistory = async (req, res) => {
+  try {
+    const shopId = req.shop._id; // From auth middleware
+    const {
+      page = 1,
+      limit = 20,
+      activity_type,
+      bid_id,
+      startDate,
+      endDate,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Validate pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build filter query
+    const filter = { shop_id: shopId };
+
+    // Filter by activity type if provided
+    if (activity_type) {
+      if (Array.isArray(activity_type)) {
+        filter.activity_type = { $in: activity_type };
+      } else {
+        filter.activity_type = activity_type;
+      }
+    }
+
+    // Filter by bid_id if provided
+    if (bid_id) {
+      filter.bid_id = bid_id;
+    }
+
+    // Filter by date range if provided
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        filter.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filter.createdAt.$lte = new Date(endDate);
+      }
+    }
+
+    // Build sort
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Fetch activities with populate for Customer instead of User
+    const activities = await BidActivity.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
+      .populate('customer_id', 'name email phone zip') // Changed from User to Customer
+      .populate('bid_id', 'serviceDescription title status vehicleMake vehicleModel zipCode')
+      .populate('offer_id', 'price status')
+      .populate('counter_offer_id', 'counterPrice status')
+      .lean();
+
+    // Get total count for pagination
+    const total = await BidActivity.countDocuments(filter);
+    const totalPages = Math.ceil(total / limitNum);
+
+    // Format the response data
+    const formattedActivities = activities.map(activity => {
+      // Format timestamps
+      const createdAt = new Date(activity.createdAt);
+      const updatedAt = new Date(activity.updatedAt);
+
+      // Format activity description based on type
+      let activityText = '';
+      let shortDescription = '';
+
+      switch (activity.activity_type) {
+        case 'offer_made':
+          activityText = `Made an offer of $${activity.price} on bid`;
+          shortDescription = `Offer: $${activity.price}`;
+          break;
+        case 'offer_accepted':
+          activityText = `Your offer of $${activity.price} was accepted`;
+          shortDescription = `Offer Accepted: $${activity.price}`;
+          break;
+        case 'offer_rejected':
+          activityText = `Your offer of $${activity.price} was rejected`;
+          shortDescription = `Offer Rejected: $${activity.price}`;
+          break;
+        case 'counter_offer_received':
+          activityText = `Received counter offer of $${activity.counter_price}`;
+          shortDescription = `Counter: $${activity.counter_price}`;
+          break;
+        case 'counter_offer_accepted':
+          activityText = `Accepted counter offer of $${activity.counter_price}`;
+          shortDescription = `Accepted Counter: $${activity.counter_price}`;
+          break;
+        case 'counter_offer_rejected':
+          activityText = `Rejected counter offer of $${activity.counter_price}`;
+          shortDescription = `Rejected Counter: $${activity.counter_price}`;
+          break;
+        case 'bid_completed':
+          activityText = 'Marked bid as completed';
+          shortDescription = 'Bid Completed';
+          break;
+        case 'bid_cancelled':
+          activityText = 'Bid was cancelled';
+          shortDescription = 'Bid Cancelled';
+          break;
+        case 'offer_withdrawn':
+          activityText = `Withdrew offer of $${activity.price}`;
+          shortDescription = `Offer Withdrawn: $${activity.price}`;
+          break;
+        case 'counter_offer_withdrawn':
+          activityText = `Counter offer of $${activity.counter_price} was withdrawn`;
+          shortDescription = `Counter Withdrawn: $${activity.counter_price}`;
+          break;
+        default:
+          activityText = 'Activity recorded';
+          shortDescription = 'Activity';
+      }
+
+      // Get customer name
+      const customerName = activity.customer_id?.name || 
+                          activity.customer_snapshot?.name || 
+                          'Customer';
+
+      // Get bid details
+      const bidTitle = activity.bid_id?.title || 
+                      activity.bid_id?.serviceDescription || 
+                      activity.bid_snapshot?.bid_title || 
+                      'Untitled Bid';
+
+      return {
+        id: activity._id,
+        activity_type: activity.activity_type,
+        activity_text: activityText,
+        short_description: shortDescription,
+        full_description: `${customerName} - ${activityText} - ${bidTitle}`,
+        customer: {
+          id: activity.customer_id?._id,
+          name: customerName,
+          email: activity.customer_id?.email || activity.customer_snapshot?.email,
+          phone: activity.customer_id?.phone || activity.customer_snapshot?.phone,
+          zip: activity.customer_id?.zip || activity.customer_snapshot?.zip
+        },
+        bid: {
+          id: activity.bid_id?._id,
+          title: bidTitle,
+          service: activity.bid_id?.serviceDescription || activity.bid_snapshot?.service,
+          vehicle: `${activity.bid_id?.vehicleMake || ''} ${activity.bid_id?.vehicleModel || ''}`.trim() || 'Vehicle not specified',
+          location: activity.bid_id?.zipCode || activity.bid_snapshot?.location || 'Location not specified',
+          status: activity.bid_id?.status || activity.bid_snapshot?.status_at_time
+        },
+        price_details: {
+          offer_price: activity.price,
+          counter_price: activity.counter_price,
+          final_price: activity.counter_price || activity.price
+        },
+        message: activity.message,
+        timestamps: {
+          created_at: activity.createdAt,
+          created_at_formatted: createdAt.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          updated_at: activity.updatedAt,
+          updated_at_formatted: updatedAt.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        },
+        metadata: activity.metadata || {},
+        references: {
+          offer_id: activity.offer_id?._id,
+          counter_offer_id: activity.counter_offer_id?._id,
+          bid_id: activity.bid_id?._id
+        },
+        // For frontend display
+        icon: getActivityIcon(activity.activity_type),
+        color_class: getActivityColorClass(activity.activity_type)
+      };
+    });
+
+    // Get activity type statistics
+    const activityStats = await BidActivity.aggregate([
+      { $match: { shop_id: shopId } },
+      { $group: { _id: '$activity_type', count: { $sum: 1 } } }
+    ]);
+
+    // Convert stats to object
+    const stats = {};
+    activityStats.forEach(stat => {
+      stats[stat._id] = stat.count;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        activities: formattedActivities,
+        pagination: {
+          current_page: pageNum,
+          total_pages: totalPages,
+          total_items: total,
+          items_per_page: limitNum,
+          has_next: pageNum < totalPages,
+          has_previous: pageNum > 1
+        },
+        filters: {
+          activity_types: getActivityTypes(),
+          date_range: {
+            start: startDate,
+            end: endDate
+          }
+        },
+        statistics: {
+          total_activities: total,
+          by_type: stats
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching bid history:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bid history",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @route   GET /api/shop/bid-history/summary
+ * @desc    Get bid history summary for dashboard
+ * @access  Private (Shop)
+ */
+export const getBidHistorySummary = async (req, res) => {
+  try {
+    const shopId = req.shop._id;
+    
+    // Get last 30 days date
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Get recent activities
+    const recentActivities = await BidActivity.find({
+      shop_id: shopId,
+      createdAt: { $gte: thirtyDaysAgo }
+    })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .populate('customer_id', 'name')
+    .populate('bid_id', 'serviceDescription vehicleMake vehicleModel')
+    .lean();
+
+    // Get statistics for dashboard
+    const stats = await BidActivity.aggregate([
+      { $match: { shop_id: shopId } },
+      {
+        $facet: {
+          total_activities: [{ $count: "count" }],
+          by_type: [
+            { $group: { _id: "$activity_type", count: { $sum: 1 } } }
+          ],
+          recent_30_days: [
+            { 
+              $match: { 
+                createdAt: { $gte: thirtyDaysAgo } 
+              } 
+            },
+            { $count: "count" }
+          ],
+          offers_made: [
+            { 
+              $match: { 
+                activity_type: "offer_made" 
+              } 
+            },
+            { $count: "count" }
+          ],
+          completed_bids: [
+            { 
+              $match: { 
+                activity_type: "bid_completed" 
+              } 
+            },
+            { $count: "count" }
+          ]
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        recent_activities: recentActivities.map(activity => ({
+          id: activity._id,
+          type: activity.activity_type,
+          description: getShortDescription(activity),
+          customer_name: activity.customer_id?.name || 'Customer',
+          bid_description: activity.bid_id?.serviceDescription || 'Untitled',
+          vehicle: `${activity.bid_id?.vehicleMake || ''} ${activity.bid_id?.vehicleModel || ''}`.trim() || 'Vehicle',
+          date: activity.createdAt,
+          price: activity.price || activity.counter_price
+        })),
+        statistics: {
+          total: stats[0]?.total_activities[0]?.count || 0,
+          last_30_days: stats[0]?.recent_30_days[0]?.count || 0,
+          offers_made: stats[0]?.offers_made[0]?.count || 0,
+          completed_bids: stats[0]?.completed_bids[0]?.count || 0,
+          by_type: stats[0]?.by_type || []
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching bid history summary:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bid history summary",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @route   GET /api/shop/bid-history/:bidId
+ * @desc    Get bid activity history for a specific bid
+ * @access  Private (Shop)
+ */
+export const getBidActivities = async (req, res) => {
+  try {
+    const shopId = req.shop._id;
+    const { bidId } = req.params;
+
+    const activities = await BidActivity.find({
+      shop_id: shopId,
+      bid_id: bidId
+    })
+    .sort({ createdAt: -1 })
+    .populate('customer_id', 'name email')
+    .populate('offer_id', 'price status')
+    .populate('counter_offer_id', 'counterPrice status')
+    .lean();
+
+    // Format activities for this specific bid
+    const formattedActivities = activities.map(activity => ({
+      id: activity._id,
+      activity_type: activity.activity_type,
+      description: getActivityDescription(activity),
+      price: activity.price,
+      counter_price: activity.counter_price,
+      message: activity.message,
+      timestamp: activity.createdAt,
+      formatted_timestamp: new Date(activity.createdAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      icon: getActivityIcon(activity.activity_type),
+      color: getActivityColor(activity.activity_type)
+    }));
+
+    // Get bid details
+    const bid = await Bid.findById(bidId)
+      .select('serviceDescription title status vehicleMake vehicleModel zipCode')
+      .populate('user_id', 'name');
+
+    res.json({
+      success: true,
+      data: {
+        bid: {
+          id: bid?._id,
+          title: bid?.title,
+          service: bid?.serviceDescription,
+          vehicle: `${bid?.vehicleMake || ''} ${bid?.vehicleModel || ''}`.trim(),
+          location: bid?.zipCode,
+          status: bid?.status,
+          customer_name: bid?.user_id?.name || 'Customer'
+        },
+        activities: formattedActivities,
+        total_activities: activities.length
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching bid activities:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch bid activities",
+      error: error.message
+    });
+  }
+};
+
+// Helper functions
+const getActivityTypes = () => {
+  return [
+    { value: 'offer_made', label: 'Offer Made' },
+    { value: 'offer_accepted', label: 'Offer Accepted' },
+    { value: 'offer_rejected', label: 'Offer Rejected' },
+    { value: 'counter_offer_received', label: 'Counter Offer Received' },
+    { value: 'counter_offer_accepted', label: 'Counter Offer Accepted' },
+    { value: 'counter_offer_rejected', label: 'Counter Offer Rejected' },
+    { value: 'bid_completed', label: 'Bid Completed' },
+    { value: 'bid_cancelled', label: 'Bid Cancelled' },
+    { value: 'offer_withdrawn', label: 'Offer Withdrawn' },
+    { value: 'counter_offer_withdrawn', label: 'Counter Offer Withdrawn' }
+  ];
+};
+
+const getActivityIcon = (type) => {
+  switch (type) {
+    case 'offer_made':
+    case 'counter_offer_received':
+      return 'dollar-sign';
+    case 'offer_accepted':
+    case 'counter_offer_accepted':
+    case 'bid_completed':
+      return 'check-circle';
+    case 'offer_rejected':
+    case 'counter_offer_rejected':
+      return 'x-circle';
+    case 'bid_cancelled':
+      return 'x-octagon';
+    case 'offer_withdrawn':
+    case 'counter_offer_withdrawn':
+      return 'undo';
+    default:
+      return 'clock';
+  }
+};
+
+const getActivityColor = (type) => {
+  switch (type) {
+    case 'offer_made':
+      return 'blue';
+    case 'offer_accepted':
+    case 'counter_offer_accepted':
+    case 'bid_completed':
+      return 'green';
+    case 'offer_rejected':
+    case 'counter_offer_rejected':
+      return 'red';
+    case 'counter_offer_received':
+      return 'yellow';
+    case 'bid_cancelled':
+      return 'orange';
+    case 'offer_withdrawn':
+    case 'counter_offer_withdrawn':
+      return 'gray';
+    default:
+      return 'gray';
+  }
+};
+
+const getActivityColorClass = (type) => {
+  switch (type) {
+    case 'offer_made':
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'offer_accepted':
+    case 'counter_offer_accepted':
+    case 'bid_completed':
+      return 'bg-green-100 text-green-800 border-green-200';
+    case 'offer_rejected':
+    case 'counter_offer_rejected':
+      return 'bg-red-100 text-red-800 border-red-200';
+    case 'counter_offer_received':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'bid_cancelled':
+      return 'bg-orange-100 text-orange-800 border-orange-200';
+    case 'offer_withdrawn':
+    case 'counter_offer_withdrawn':
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    default:
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+const getActivityDescription = (activity) => {
+  const customerName = activity.customer_id?.name || activity.customer_snapshot?.name || 'Customer';
+  const bidTitle = activity.bid_id?.serviceDescription || activity.bid_snapshot?.bid_title || 'Untitled Bid';
+  
+  switch (activity.activity_type) {
+    case 'offer_made':
+      return `Made offer of $${activity.price} on "${bidTitle}" to ${customerName}`;
+    case 'offer_accepted':
+      return `${customerName} accepted your offer of $${activity.price}`;
+    case 'offer_rejected':
+      return `${customerName} rejected your offer of $${activity.price}`;
+    case 'counter_offer_received':
+      return `${customerName} sent counter offer of $${activity.counter_price}`;
+    case 'counter_offer_accepted':
+      return `Accepted counter offer of $${activity.counter_price} from ${customerName}`;
+    case 'counter_offer_rejected':
+      return `Rejected counter offer of $${activity.counter_price} from ${customerName}`;
+    case 'bid_completed':
+      return `Completed bid "${bidTitle}" with ${customerName}`;
+    default:
+      return 'Activity recorded';
+  }
+};
+
+const getShortDescription = (activity) => {
+  switch (activity.activity_type) {
+    case 'offer_made':
+      return `Offer: $${activity.price}`;
+    case 'offer_accepted':
+      return `Accepted: $${activity.price}`;
+    case 'offer_rejected':
+      return `Rejected: $${activity.price}`;
+    case 'counter_offer_received':
+      return `Counter: $${activity.counter_price}`;
+    case 'counter_offer_accepted':
+      return `Accepted Counter: $${activity.counter_price}`;
+    case 'counter_offer_rejected':
+      return `Rejected Counter: $${activity.counter_price}`;
+    case 'bid_completed':
+      return 'Completed';
+    default:
+      return 'Activity';
+  }
+};
+
+
+
+
+
+
+
 
 
 
@@ -166,7 +719,165 @@ const formatNameInitials = (fullName) => {
 
 // ============================================
 // GET AVAILABLE BIDS FOR SHOP (15-mile radius)
-// ============================================
+// // ============================================
+// export const getAvailableBidsForShops = async (req, res) => {
+//   try {
+//     await updateExpiredBids();
+
+//     const shopId = req.shopId;
+
+//     // ---------------------- 1️⃣ GET SHOP LOCATION ----------------------
+//     const shop = await Shop.findById(shopId).select("location latitude longitude");
+
+//     if (!shop) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Shop not found",
+//       });
+//     }
+
+//     let shopLng = null;
+//     let shopLat = null;
+
+//     if (shop.location?.coordinates?.length === 2) {
+//       shopLng = shop.location.coordinates[0];
+//       shopLat = shop.location.coordinates[1];
+//     } else if (shop.latitude && shop.longitude) {
+//       shopLat = shop.latitude;
+//       shopLng = shop.longitude;
+//     }
+
+//     if (!shopLat || !shopLng) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Shop location not set",
+//       });
+//     }
+
+//     // ---------------------- 2️⃣ ACTIVE BIDS (15-MILE RADIUS) ----------------------
+//     const activeBids = await Bid.find({
+//       status: "active",
+//       location: {
+//         $nearSphere: {
+//           $geometry: {
+//             type: "Point",
+//             coordinates: [shopLng, shopLat],
+//           },
+//           $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
+//         },
+//       },
+//     })
+//       .populate({
+//         path: "user_id",
+//         select: "name email phone zip address", // Get all customer fields
+//       })
+//       .sort({ createdAt: -1 });
+
+//     // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
+//     const shopOffers = await Offer.find({ shopId })
+//       .populate("counterOffers.createdBy", "name")
+//       .lean();
+
+//     const offerMap = {};
+//     shopOffers.forEach((offer) => {
+//       offerMap[offer.bidId.toString()] = offer;
+//     });
+
+//     // ---------------------- 4️⃣ RELATED BIDS (ALREADY ASSIGNED) ----------------------
+//     const relatedBids = await Bid.find({
+//       currentShopId: shopId,
+//       status: { $in: ["in_progress", "completed"] },
+//     })
+//       .populate({
+//         path: "user_id",
+//         select: "name email phone zip address", // Get all customer fields
+//       })
+//       .sort({ createdAt: -1 });
+
+//     // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
+//     const allBidsMap = {};
+
+//     [...activeBids, ...relatedBids].forEach((bid) => {
+//       allBidsMap[bid._id.toString()] = bid.toObject();
+//     });
+
+//     // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
+//     const formattedBids = Object.values(allBidsMap).map((bid) => {
+//       const myOffer = offerMap[bid._id.toString()] || null;
+      
+//       // Extract customer info
+//       const customer = bid.user_id || {};
+      
+//       console.log("🔄 Processing bid:", bid._id); // DEBUG
+//       console.log("📦 Raw customer data:", customer); // DEBUG
+//       console.log("📫 Customer zip:", customer.zip); // DEBUG
+//       console.log("🏠 Customer address:", customer.address); // DEBUG
+      
+//       // Format based on bid status
+//       let customerInfo = {};
+      
+//       if (bid.status === "active") {
+//         // For active bids: initials only, no contact info
+//         customerInfo = {
+//           name: formatNameInitials(customer.name || ''),
+//           zip: customer.zip || '',
+//           address: customer.address || '',
+//           // No email/phone for active bids
+//         };
+//       } else {
+//         // For in_progress/completed bids: full info
+//         customerInfo = {
+//           name: customer.name || '',
+//           email: customer.email || '',
+//           phone: customer.phone || '',
+//           zip: customer.zip || '',
+//           address: customer.address || '',
+//         };
+//       }
+
+//       console.log("✅ Formatted customer info:", customerInfo); // DEBUG
+
+//       return {
+//         ...bid,
+//         user_id: customerInfo, // Replace populated object with formatted info
+//         hasOffered: !!myOffer,
+//         myOffer,
+//       };
+//     });
+
+//     // ---------------------- 7️⃣ RESPONSE ----------------------
+//     // Add debug info to response
+//     const responseData = {
+//       success: true,
+//       total: formattedBids.length,
+//       radiusMiles: MAX_RADIUS_MILES,
+//       bids: formattedBids,
+//       debug: formattedBids.length > 0 ? {
+//         sampleBid: {
+//           id: formattedBids[0]._id,
+//           status: formattedBids[0].status,
+//           user_id: formattedBids[0].user_id,
+//         }
+//       } : null
+//     };
+
+//     console.log("📤 Final response sample:", responseData.debug); // DEBUG
+    
+//     return res.status(200).json(responseData);
+//   } catch (error) {
+//     console.error("❌ Error fetching bids for shops:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch bids",
+//     });
+//   }
+// };
+
+
+
+
+
+
 export const getAvailableBidsForShops = async (req, res) => {
   try {
     await updateExpiredBids();
@@ -216,7 +927,7 @@ export const getAvailableBidsForShops = async (req, res) => {
     })
       .populate({
         path: "user_id",
-        select: "name email phone zip address", // Get all customer fields
+        select: "name email phone zip address",
       })
       .sort({ createdAt: -1 });
 
@@ -237,7 +948,11 @@ export const getAvailableBidsForShops = async (req, res) => {
     })
       .populate({
         path: "user_id",
-        select: "name email phone zip address", // Get all customer fields
+        select: "name email phone zip address",
+      })
+      .populate({
+        path: "acceptedOffer", // ✅ CRITICAL: Populate accepted offer with appointment data
+        select: "price appointmentDate appointmentTime estimatedCompletionDays workingHours shopId",
       })
       .sort({ createdAt: -1 });
 
@@ -255,10 +970,8 @@ export const getAvailableBidsForShops = async (req, res) => {
       // Extract customer info
       const customer = bid.user_id || {};
       
-      console.log("🔄 Processing bid:", bid._id); // DEBUG
-      console.log("📦 Raw customer data:", customer); // DEBUG
-      console.log("📫 Customer zip:", customer.zip); // DEBUG
-      console.log("🏠 Customer address:", customer.address); // DEBUG
+      console.log("🔄 Processing bid:", bid._id);
+      console.log("📦 Raw customer data:", customer);
       
       // Format based on bid status
       let customerInfo = {};
@@ -282,13 +995,30 @@ export const getAvailableBidsForShops = async (req, res) => {
         };
       }
 
-      console.log("✅ Formatted customer info:", customerInfo); // DEBUG
+      console.log("✅ Formatted customer info:", customerInfo);
+      
+      // ✅ Extract appointment data from accepted offer for in-progress/completed bids
+      let appointmentData = null;
+      if (bid.status === "in_progress" || bid.status === "completed") {
+        if (bid.acceptedOffer) {
+          appointmentData = {
+            appointmentDate: bid.acceptedOffer.appointmentDate,
+            appointmentTime: bid.acceptedOffer.appointmentTime,
+            estimatedCompletionDays: bid.acceptedOffer.estimatedCompletionDays,
+            workingHours: bid.acceptedOffer.workingHours,
+          };
+        }
+      }
 
       return {
         ...bid,
-        user_id: customerInfo, // Replace populated object with formatted info
+        user_id: customerInfo,
         hasOffered: !!myOffer,
         myOffer,
+        // ✅ Include appointment data in response
+        appointment: appointmentData,
+        // Also include acceptedOffer directly for easier access
+        acceptedOffer: bid.acceptedOffer || null,
       };
     });
 
@@ -303,12 +1033,13 @@ export const getAvailableBidsForShops = async (req, res) => {
         sampleBid: {
           id: formattedBids[0]._id,
           status: formattedBids[0].status,
-          user_id: formattedBids[0].user_id,
+          hasAppointment: !!formattedBids[0].appointment, // ✅ Debug check
+          appointment: formattedBids[0].appointment,
         }
       } : null
     };
 
-    console.log("📤 Final response sample:", responseData.debug); // DEBUG
+    console.log("📤 Final response sample:", responseData.debug);
     
     return res.status(200).json(responseData);
   } catch (error) {
@@ -319,9 +1050,6 @@ export const getAvailableBidsForShops = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 export const getShopStats = async (req, res) => {
@@ -376,16 +1104,54 @@ export const getShopStats = async (req, res) => {
 
 
 
+// Helper function to create bid snapshot
+const createBidSnapshot = (bid) => {
+  return {
+    bid_title: bid.title || bid.serviceDescription || bid.service || 'Untitled',
+    bid_description: bid.description || bid.serviceDescription || '',
+    service: bid.service || bid.serviceDescription || 'General Service',
+    location: bid.location || bid.user_id?.zip || 'Unknown',
+    preferred_date: bid.preferredDate || bid.preferred_date,
+    status_at_time: bid.status
+  };
+};
+
+// Helper function to create customer snapshot
+const createCustomerSnapshot = (customer) => {
+  return {
+    name: customer.name || customer.username || 'Customer',
+    email: customer.email || '',
+    phone: customer.phone || '',
+    zip: customer.zip || ''
+  };
+};
+
+// Helper function to create shop snapshot
+const createShopSnapshot = (shop) => {
+  return {
+    business_name: shop.businessName || shop.business_name || shop.name || 'Shop',
+    business_type: shop.businessType || shop.business_type || '',
+    location: shop.location || shop.address || shop.city || 'Unknown'
+  };
+};
 
 
 // Make Offer
 export const makeOffer = async (req, res) => {
   try {
-    // Accept both 'note' and 'message' for compatibility
-    const { bidId, price, note, message } = req.body;
+    // Accept all fields including appointment details
+    const { 
+      bidId, 
+      price, 
+      note, 
+      message,
+      appointmentDate,
+      appointmentTime,
+      estimatedCompletionDays,
+      workingHours 
+    } = req.body;
+    
     const shopId = req.user?._id || req.shopId;
-
-    console.log("asssssssssssssssssssss",note,message);
 
     // Use whichever is provided (message takes priority)
     const offerMessage = message || note || "";
@@ -397,7 +1163,7 @@ export const makeOffer = async (req, res) => {
     }
 
     // 2️⃣ Verify the bid exists
-    const bid = await Bid.findById(bidId);
+    const bid = await Bid.findById(bidId).populate('user_id');
     if (!bid) {
       console.log("❌ Bid not found:", bidId);
       return res.status(404).json({ message: "Bid not found." });
@@ -425,13 +1191,18 @@ export const makeOffer = async (req, res) => {
       return res.status(400).json({ message: "You have already made an offer for this bid." });
     }
 
-    // 5️⃣ Create new offer
+    // 5️⃣ Create new offer with appointment fields
     const offer = new Offer({
       bidId,
       shopId,
       price,
-      message: offerMessage,  // Use the correct field name
+      message: offerMessage,
       status: "pending",
+      // Include appointment fields if provided
+      ...(appointmentDate && { appointmentDate: new Date(appointmentDate) }),
+      ...(appointmentTime && { appointmentTime }),
+      ...(estimatedCompletionDays && { estimatedCompletionDays }),
+      ...(workingHours && workingHours.start && workingHours.end && { workingHours }),
     });
 
     await offer.save();
@@ -442,7 +1213,45 @@ export const makeOffer = async (req, res) => {
 
     console.log("🔗 Linked offer to bid successfully");
 
-    // ⭐ 7️⃣ CREATE EVENT for both shop & customer  
+    // Prepare metadata for activity logging
+    const offerMetadata = {
+      price,
+      hasAppointment: !!(appointmentDate || appointmentTime),
+      appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+      appointmentTime,
+      estimatedCompletionDays,
+      workingHours
+    };
+
+    // ⭐ 7️⃣ LOG ACTIVITY to BidLogsModel
+    try {
+      const activityLog = new BidActivity({
+        shop_id: shopId,
+        customer_id: customerId._id || customerId,
+        bid_id: bidId,
+        activity_type: 'offer_made',
+        price: price,
+        message: offerMessage,
+        bid_snapshot: createBidSnapshot(bid),
+        customer_snapshot: createCustomerSnapshot(bid.user_id),
+        shop_snapshot: createShopSnapshot(shop),
+        offer_id: offer._id,
+        metadata: {
+          appointmentDetails: offerMetadata,
+          hasAppointment: !!(appointmentDate || appointmentTime)
+        },
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent']
+      });
+
+      await activityLog.save();
+      console.log("📝 Activity logged: offer_made");
+    } catch (activityError) {
+      console.error("⚠️ Failed to log activity (non-critical):", activityError);
+      // Don't fail the main operation if activity logging fails
+    }
+
+    // ⭐ 8️⃣ CREATE EVENT for both shop & customer  
     const event = new Event({
       type: "new-offer",
       bidId,
@@ -450,17 +1259,30 @@ export const makeOffer = async (req, res) => {
       shopId,
       customerId,
       message: `A new offer was submitted for bid (${bid.serviceDescription})`,
+      metadata: {
+        price,
+        hasAppointment: !!(appointmentDate || appointmentTime),
+        appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+        appointmentTime,
+        estimatedCompletionDays,
+        workingHours
+      }
     });
 
     await event.save();
 
-    // Fix: Pass the correct message variable
-    notifyNewOffer(offer, bidId, shopId, price, offerMessage);
+    // Fix: Pass the correct message variable with appointment details
+    notifyNewOffer(offer, bidId, shopId, price, offerMessage, offerMetadata);
 
     return res.status(201).json({
       success: true,
-      message: "Offer submitted successfully.",
-      data: offer,
+      message: offerMetadata.hasAppointment 
+        ? "Offer with appointment details submitted successfully." 
+        : "Offer submitted successfully.",
+      data: {
+        ...offer.toObject(),
+        hasAppointment: offerMetadata.hasAppointment
+      },
     });
 
   } catch (error) {
@@ -472,16 +1294,6 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
-
-
-
 
 export const getShops = async (req, res) => {
   try {
@@ -537,12 +1349,40 @@ export const getShops = async (req, res) => {
             resetPasswordOtp: 0,
             resetPasswordOtpExpiry: 0,
             paymentInfo: 0,
+            // ✅ Add fields to include for geo query
+            businessName: 1,
+            address: 1,
+            zipCode: 1,
+            country: 1,
+            latitude: 1,
+            longitude: 1,
+            services: 1,
+            countryCode: 1,
+            phone: 1,
+            rating: 1,
+            reviewCount: 1,
+            storeFrontPhoto: 1,
+            profilePic: 1,
+            ownerName: 1,
+            website: 1,
+            vinylFilms: 1,
+            certificates: 1,
+            socialMedia: 1,
+            workSpacePhoto: 1,
+            plan: 1,
+            startDate: 1,
+            // ✅ ADD NEW FIELDS HERE
+            yearsExperience: 1,
+            financingOffered: 1,
+            businessHours: 1,
           },
         },
       ]);
     } else {
       shops = await Shop.find(query)
         .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo")
+        // ✅ ADD NEW FIELDS TO SELECT
+        .select("+yearsExperience +financingOffered +businessHours")
         .limit(parseInt(limit))
         .skip((parseInt(page) - 1) * parseInt(limit))
         .sort({ createdAt: -1 });
@@ -559,16 +1399,25 @@ export const getShops = async (req, res) => {
       phone: `${shop.countryCode || ""} ${shop.phone || ""}`,
       rating: shop.rating || 0,
       reviews: shop.reviewCount || 0,
+      // ✅ ADD storeFrontPhoto field here
+      storeFrontPhoto: shop.storeFrontPhoto || "", // ✅ FIXED: Add this line
+      profilePic: shop.profilePic || "", // ✅ You might want this too
+      workSpacePhoto: shop.workSpacePhoto || "",
+      // ✅ Keep image for backward compatibility
       image: shop.storeFrontPhoto || shop.profilePic || "",
       ownerName: shop.ownerName || "",
       website: shop.website || "",
       vinylFilms: shop.vinylFilms || [],
       certificates: shop.certificates || [],
       socialMedia: shop.socialMedia || {},
-      workSpacePhoto: shop.workSpacePhoto || "",
       plan: shop.plan || "",
       startDate: shop.startDate || "",
       distance: shop.distance ? (shop.distance / 1000).toFixed(2) : null,
+      
+      // ✅ ADD NEW FIELDS TO RESPONSE (maintaining existing format)
+      yearsExperience: shop.yearsExperience || "",
+      financingOffered: shop.financingOffered || false,
+      businessHours: shop.businessHours || {},
     }));
 
     // Total count for pagination
@@ -589,14 +1438,6 @@ export const getShops = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch shops", error: error.message });
   }
 };
-
-
-
-
-
-
-
-
 
 
 
@@ -777,9 +1618,6 @@ export const getNearbyShops = async (req, res) => {
 
 
 
-
-
-
 export const acceptCounterOffer = async (req, res) => {
   try {
     const { counterId } = req.params;
@@ -823,12 +1661,13 @@ export const acceptCounterOffer = async (req, res) => {
     counterOffer.respondedAt = new Date();
 
     // 5️⃣ Update main offer price and status
+    const originalPrice = offer.price; // Store original price for logging
     offer.price = counterOffer.counterPrice;
     offer.status = "accepted";
     await offer.save();
 
     // 6️⃣ Update bid
-    const bid = await Bid.findById(bidId);
+    const bid = await Bid.findById(bidId).populate('user_id');
     if (bid) {
       bid.status = "in_progress";
       bid.acceptedOffer = offer._id;
@@ -846,10 +1685,41 @@ export const acceptCounterOffer = async (req, res) => {
       );
     }
 
+    // 7️⃣ LOG ACTIVITY to BidLogsModel
+    try {
+      const activityLog = new BidActivity({
+        shop_id: shopId,
+        customer_id: bid?.user_id?._id || bid?.user_id,
+        bid_id: bidId,
+        activity_type: 'counter_offer_accepted',
+        price: originalPrice, // Original offer price
+        counter_price: counterOffer.counterPrice, // New accepted price
+        message: counterOffer.message,
+        bid_snapshot: createBidSnapshot(bid),
+        customer_snapshot: createCustomerSnapshot(bid?.user_id),
+        shop_snapshot: createShopSnapshot(req.shop), // Shop data from auth middleware
+        offer_id: offer._id,
+        counter_offer_id: counterId,
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'],
+        metadata: {
+          original_price: originalPrice,
+          accepted_price: counterOffer.counterPrice,
+          price_difference: counterOffer.counterPrice - originalPrice
+        }
+      });
+
+      await activityLog.save();
+      console.log("📝 Activity logged: counter_offer_accepted");
+    } catch (activityError) {
+      console.error("⚠️ Failed to log activity (non-critical):", activityError);
+      // Don't fail the main operation if activity logging fails
+    }
+
+    // Trigger notification
     notifyCounterAccepted(offer, counterOffer, shopId, bidId);
 
-
-    // ⭐⭐⭐ 7️⃣ CREATE EVENT (ADDED ONLY — DOES NOT CHANGE OLD FLOW)
+    // ⭐⭐⭐ 8️⃣ CREATE EVENT (ADDED ONLY — DOES NOT CHANGE OLD FLOW)
     const customerId = bid.user_id; // from bid model
 
     await Event.create({
@@ -906,10 +1776,6 @@ export const acceptCounterOffer = async (req, res) => {
 
 
 
-
-
-
-
 // -------------------- REJECT COUNTER OFFER --------------------
 export const rejectCounterOffer = async (req, res) => {
   try {
@@ -950,10 +1816,45 @@ export const rejectCounterOffer = async (req, res) => {
     // ------------------ UPDATE COUNTER OFFER ------------------
     counterOffer.status = "rejected";
     counterOffer.respondedAt = new Date();
-
     await offer.save();
 
-    // ------------------ ADD ACTIVITY LOG ------------------
+    // ------------------ GET BID AND CUSTOMER DATA FOR ACTIVITY LOG ------------------
+    const bid = await Bid.findById(bidId).populate('user_id');
+    const customerId = bid?.user_id?._id || bid?.user_id;
+
+    // ------------------ LOG ACTIVITY TO BidLogsModel ------------------
+    try {
+      const activityLog = new BidActivity({
+        shop_id: shopId,
+        customer_id: customerId,
+        bid_id: bidId,
+        activity_type: 'counter_offer_rejected',
+        price: offer.price, // Original offer price
+        counter_price: counterOffer.counterPrice, // Rejected counter offer price
+        message: counterOffer.message || `Rejected counter offer of ${counterOffer.counterPrice}`,
+        bid_snapshot: createBidSnapshot(bid),
+        customer_snapshot: createCustomerSnapshot(bid?.user_id),
+        shop_snapshot: createShopSnapshot(req.shop), // Shop data from auth middleware
+        offer_id: offer._id,
+        counter_offer_id: counterId,
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'],
+        metadata: {
+          original_price: offer.price,
+          counter_price: counterOffer.counterPrice,
+          rejection_reason: counterOffer.rejectionReason || 'Not specified',
+          responded_at: counterOffer.respondedAt
+        }
+      });
+
+      await activityLog.save();
+      console.log("📝 Activity logged: counter_offer_rejected");
+    } catch (activityError) {
+      console.error("⚠️ Failed to log activity (non-critical):", activityError);
+      // Don't fail the main operation if activity logging fails
+    }
+
+    // ------------------ CREATE EVENT (EXISTING CODE) ------------------
     await Activity.create({
       userId: offer.userId,           // Who created the original bid
       shopId: shopId,                 // Shop rejecting the counter offer
@@ -980,6 +1881,7 @@ export const rejectCounterOffer = async (req, res) => {
           id: counterOffer._id,
           status: counterOffer.status,
           price: counterOffer.counterPrice,
+          respondedAt: counterOffer.respondedAt,
         },
       },
     });
@@ -998,19 +1900,15 @@ export const rejectCounterOffer = async (req, res) => {
 
 
 
-
-
-
-
 // -------------------- MARK BID AS COMPLETED --------------------
 export const markBidCompleted = async (req, res) => {
   try {
     const { bidId } = req.params;
     const shopId = req.shop._id; // From auth middleware
 
-    // Find the bid
-    const bid = await Bid.findById(bidId);
-
+    // Find the bid with populated user data
+    const bid = await Bid.findById(bidId).populate('user_id');
+    
     if (!bid) {
       return res.status(404).json({
         success: false,
@@ -1039,23 +1937,63 @@ export const markBidCompleted = async (req, res) => {
       });
     }
 
-    // Update bid status to completed
-    bid.status = "completed";
-    await bid.save();
-    notifyBidCompleted(shopId, bidId);
+    // Find shop details for activity log
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+      });
+    }
 
+    // Update bid status to completed
+    const previousStatus = bid.status;
+    bid.status = "completed";
+    bid.completedAt = new Date();
+    await bid.save();
+
+    // ⭐ LOG ACTIVITY to BidLogsModel
+    try {
+      const activityLog = new BidActivity({
+        shop_id: shopId,
+        customer_id: bid.user_id?._id || bid.userId,
+        bid_id: bidId,
+        activity_type: 'bid_completed',
+        price: acceptedOffer.price,
+        bid_snapshot: createBidSnapshot(bid),
+        customer_snapshot: createCustomerSnapshot(bid.user_id),
+        shop_snapshot: createShopSnapshot(shop),
+        offer_id: acceptedOffer._id,
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'],
+        metadata: {
+          previous_status: previousStatus,
+          completed_at: bid.completedAt
+        }
+      });
+
+      await activityLog.save();
+      console.log("📝 Activity logged: bid_completed");
+    } catch (activityError) {
+      console.error("⚠️ Failed to log activity (non-critical):", activityError);
+      // Don't fail the main operation if activity logging fails
+    }
+
+    // Trigger notification
+    notifyBidCompleted(shopId, bidId);
 
     // -------------------- SAVE EVENT --------------------
     await Event.create({
-      userId: bid.userId,
+      userId: bid.userId || bid.user_id?._id,
       shopId: shopId,
       bidId: bidId,
       type: "bid-completed",
-      message: `The bid has been completed ${bid.serviceDescription}.`,
+      message: `The bid "${bid.serviceDescription}" has been marked as completed.`,
       metadata: {
         bidId: bid._id,
         offerId: acceptedOffer._id,
-
+        price: acceptedOffer.price,
+        completedAt: bid.completedAt
       },
     });
 
@@ -1065,7 +2003,8 @@ export const markBidCompleted = async (req, res) => {
       bid: {
         id: bid._id,
         status: bid.status,
-        completedAt: bid.updatedAt,
+        completedAt: bid.completedAt,
+        serviceDescription: bid.serviceDescription
       },
     });
   } catch (error) {
@@ -1077,9 +2016,6 @@ export const markBidCompleted = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 

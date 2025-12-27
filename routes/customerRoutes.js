@@ -43,6 +43,10 @@ router.put(
   updateProfile
 );
 
+
+
+
+
 //bids
 router.get("/customer-stats/:userId", getCustomerBidStats);
 router.get("/my-bids", authenticateCustomer, getUserBidsWithOffers);

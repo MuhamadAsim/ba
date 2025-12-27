@@ -9,6 +9,8 @@ import VerificationRequest from "../models/updateProfileModel.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
+import sgMail from "@sendgrid/mail";
+
 
 
 
@@ -2638,6 +2640,353 @@ export const toggleBlockShop = async (req, res) => {
       success: false,
       message: 'Error updating shop status',
       error: error.message
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+import validator from "validator";
+
+// Initialize SendGrid
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+/**
+ * Send email controller
+ */
+export const sendEmail_To_User = async (req, res) => {
+  try {
+    const { recipientEmail, subject, message } = req.body;
+    
+    // Validate required fields
+    if (!recipientEmail || !subject || !message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: recipientEmail, subject, and message are required'
+      });
+    }
+
+    // Validate email format
+    if (!validator.isEmail(recipientEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email address format'
+      });
+    }
+
+    // Prepare email data
+    const msg = {
+      to: recipientEmail,
+      from: process.env.SENDGRID_SENDER || process.env.ADMIN_EMAIL || "admin@yourplatform.com",
+      subject: subject,
+      html: message,
+    };
+
+    console.log("Sending email to:", recipientEmail, "Subject:", subject);
+
+    // Send email using SendGrid
+    await sgMail.send(msg);
+    
+    console.log("✅ Email sent successfully to", recipientEmail);
+
+    // Return success response
+    res.json({
+      success: true,
+      message: 'Email sent successfully',
+      data: {
+        recipientEmail,
+        subject,
+        sentAt: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Email send error:", error.response?.body || error.message);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send email. Please try again later.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+
+
+
+
+
+
+
+/**
+ * Extend shop's free trial
+ * POST /api/admin/shops/:shopId/extend-trial
+ *//**
+ * Extend shop's free trial
+ * POST /api/admin/shops/:shopId/extend-trial
+ */
+export const extendShopTrial = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+    const { months } = req.body;
+
+    // Validate input
+    if (!months || typeof months !== 'number' || months < 1 || months > 24) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid extension duration. Must be a number between 1-24 months'
+      });
+    }
+
+    // Find the shop
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shop not found'
+      });
+    }
+
+    // Check if shop is blocked
+    if (shop.isBlocked) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot extend trial for a blocked shop'
+      });
+    }
+
+    // Calculate current and new end dates
+    const currentEndDate = shop.trialEndDate || new Date();
+    const newEndDate = new Date(currentEndDate);
+    newEndDate.setMonth(newEndDate.getMonth() + months);
+
+    // Store previous data for logging
+    const previousData = {
+      trialEndDate: shop.trialEndDate,
+      subscriptionStatus: shop.subscription?.status,
+      subscriptionEndDate: shop.subscription?.nextBillingDate
+    };
+
+    // Update shop's trial end date
+    shop.trialEndDate = newEndDate;
+    
+    // Update plan end date if it exists and is earlier than new trial end
+    if (shop.planEndDate && newEndDate > shop.planEndDate) {
+      shop.planEndDate = newEndDate;
+    }
+
+    // Update subscription information
+    if (shop.subscription) {
+      shop.subscription.status = 'trialing';
+      shop.subscription.nextBillingDate = newEndDate;
+      
+      // If shop is on paid plan, keep it as trialing
+      if (shop.subscription.status === 'active') {
+        shop.subscription.status = 'trialing';
+      }
+    }
+
+    // Save the updated shop
+    await shop.save();
+
+    // Create trial extension log (without adminId)
+    const trialExtensionLog = {
+      shopId: shop._id,
+      extensionMonths: months,
+      previousEndDate: currentEndDate,
+      newEndDate: newEndDate,
+      previousData: previousData,
+      extendedAt: new Date()
+    };
+
+    // Optional: Send notification to shop owner
+    // await sendTrialExtensionNotification(shop.email, shop.businessName, months, newEndDate);
+
+    res.json({
+      success: true,
+      message: `Free trial extended by ${months} month${months !== 1 ? 's' : ''}`,
+      data: {
+        shopId: shop._id,
+        shopName: shop.businessName,
+        extensionMonths: months,
+        previousEndDate: currentEndDate,
+        newTrialEndDate: newEndDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Error extending shop trial:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to extend free trial',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get shop's trial information
+ * GET /api/admin/shops/:shopId/trial-info
+ */
+export const getShopTrialInfo = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+
+    const shop = await Shop.findById(shopId)
+      .select('businessName trialEndDate planStartDate plan subscription isBlocked status');
+
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shop not found'
+      });
+    }
+
+    const now = new Date();
+    const trialEnd = new Date(shop.trialEndDate);
+    const isTrialActive = now < trialEnd;
+    
+    // Calculate days remaining
+    const diffTime = trialEnd - now;
+    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    res.json({
+      success: true,
+      data: {
+        shopId: shop._id,
+        shopName: shop.businessName,
+        plan: shop.plan,
+        trialStartDate: shop.planStartDate,
+        trialEndDate: shop.trialEndDate,
+        subscriptionStatus: shop.subscription?.status || 'trialing',
+        isTrialActive: isTrialActive,
+        daysRemaining: isTrialActive ? Math.max(0, daysRemaining) : 0,
+        isBlocked: shop.isBlocked,
+        status: shop.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching trial info:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch trial information'
+    });
+  }
+};
+
+/**
+ * Bulk extend trial for multiple shops
+ * POST /api/admin/shops/bulk-extend-trial
+ */
+export const bulkExtendTrial = async (req, res) => {
+  try {
+    const { shopIds, months, reason } = req.body;
+    const adminId = req.user._id;
+
+    // Validate input
+    if (!Array.isArray(shopIds) || shopIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an array of shop IDs'
+      });
+    }
+
+    if (!months || months < 1 || months > 24) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid extension duration. Must be between 1-24 months'
+      });
+    }
+
+    // Find all shops
+    const shops = await Shop.find({ 
+      _id: { $in: shopIds },
+      isBlocked: false 
+    });
+
+    if (shops.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No eligible shops found (all may be blocked)'
+      });
+    }
+
+    const results = [];
+    const errors = [];
+
+    // Process each shop
+    for (const shop of shops) {
+      try {
+        const currentEndDate = shop.trialEndDate || new Date();
+        const newEndDate = new Date(currentEndDate);
+        newEndDate.setMonth(newEndDate.getMonth() + months);
+
+        // Update shop
+        shop.trialEndDate = newEndDate;
+        
+        if (shop.subscription) {
+          shop.subscription.status = 'trialing';
+          shop.subscription.nextBillingDate = newEndDate;
+        }
+
+        await shop.save();
+
+        // Create log entry
+        const logEntry = {
+          shopId: shop._id,
+          shopName: shop.businessName,
+          adminId: adminId,
+          extensionMonths: months,
+          reason: reason || 'Bulk extension by admin',
+          previousEndDate: currentEndDate,
+          newEndDate: newEndDate,
+          extendedAt: new Date()
+        };
+
+        results.push({
+          shopId: shop._id,
+          shopName: shop.businessName,
+          success: true,
+          newEndDate: newEndDate,
+          log: logEntry
+        });
+
+      } catch (shopError) {
+        errors.push({
+          shopId: shop._id,
+          shopName: shop.businessName,
+          error: shopError.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Extended trial for ${results.length} shop${results.length !== 1 ? 's' : ''}`,
+      data: {
+        totalProcessed: shops.length,
+        successful: results.length,
+        failed: errors.length,
+        results: results,
+        errors: errors.length > 0 ? errors : undefined
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in bulk extend trial:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process bulk trial extension'
     });
   }
 };

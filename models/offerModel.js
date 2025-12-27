@@ -16,6 +16,7 @@ const counterOfferSchema = new mongoose.Schema(
   { _id: true }
 );
 
+// In your Offer model (backend)
 const offerSchema = new mongoose.Schema(
   {
     bidId: {
@@ -41,7 +42,27 @@ const offerSchema = new mongoose.Schema(
       enum: ["pending", "accepted", "rejected"],
       default: "pending",
     },
-
+    
+    // --- Appointment/Availability Fields ---
+    appointmentDate: {
+      type: Date,
+      default: null,
+    },
+    appointmentTime: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    estimatedCompletionDays: {
+      type: Number,
+      default: null,
+    },
+    workingHours: {
+      start: { type: String, trim: true, default: null }, // e.g., "09:00"
+      end: { type: String, trim: true, default: null },   // e.g., "17:00"
+    },
+    // --- End Appointment Fields ---
+    
     // --- New field for counter offers ---
     counterOffers: [counterOfferSchema],
   },

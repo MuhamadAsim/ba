@@ -28,7 +28,11 @@ import {
   getBidDetails,
   getBidStats,
   createShopByAdmin,
-  toggleBlockShop
+  toggleBlockShop,
+  sendEmail_To_User,
+  extendShopTrial,
+  bulkExtendTrial,
+  getShopTrialInfo
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -43,6 +47,7 @@ import {
 
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
 import { upload } from "../middlewares/upload.js";
+import { sendEmail } from "../utils/sendEmail.js";
 const router = express.Router();
 
 
@@ -95,6 +100,11 @@ router.get("/shops", getAllShops);
 router.get("/shops/map", getShopsForMap);
 // router.get("/shops/:shopId", getShopById);
 router.get("/shops/:shopId", getShopById);
+// Shop trial management routes
+router.post('/shops/:shopId/extend-trial', extendShopTrial);
+router.get('/shops/:shopId/trial-info', getShopTrialInfo);
+router.post('/shops/bulk-extend-trial', bulkExtendTrial);
+
 
 router.put("/shops/:shopId/status", updateShopStatus);
 
@@ -155,6 +165,11 @@ router.put('/happy-stories/:id', upload.single('image'), updateStory);
 router.delete('/happy-stories/:id', deleteStory);
 router.patch('/happy-stories/:id/deactivate', deactivateStory);
 router.patch('/happy-stories/reorder',  reorderStories);
+
+
+
+//send email
+router.post("/send-email", sendEmail_To_User);
 
 
 export default router;

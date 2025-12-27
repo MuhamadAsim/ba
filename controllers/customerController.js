@@ -1,12 +1,13 @@
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import Event from "../models/eventModel.js";
+import Customer from "../models/customerModel.js";
 import Shop from "../models/shopModel.js";
 import { notifyCounterOffer } from "../utils/notifyCounterOffer.js";
 import { offerAccepted } from "../utils/offerAccepted.js";
 import Review from "../models/reviewModel.js"
 import mongoose from "mongoose";
-
+import { notifyShopsForBid } from "../utils/notifyShops.js";
 
 
 // get the status
@@ -36,6 +37,94 @@ export const getCustomerBidStats = async (req, res) => {
       .json({ status: "error", message: "Server error fetching stats" });
   }
 };
+
+// // 🟩 Controller to get all bids of a customer with offers + shop info
+// export const getUserBidsWithOffers = async (req, res) => {
+//   try {
+//     const userId = req.customer._id;
+
+//     const bids = await Bid.find({ user_id: userId })
+//       .populate({
+//         path: "offers",
+//         populate: {
+//           path: "shopId",
+//           model: "Shop",
+//           select: "businessName legalEntityName email phone address",
+//         },
+//       })
+//       .populate({
+//         path: "acceptedOffer",
+//         populate: {
+//           path: "shopId",
+//           model: "Shop",
+//           select: "businessName legalEntityName email phone address",
+//         },
+//       })
+//       .populate("user_id", "name address zip") // ⭐ FIX ADDED HERE
+//       .sort({ createdAt: -1 });
+
+//     if (!bids || bids.length === 0) {
+//       return res.status(404).json({ message: "No bids found for this user" });
+//     }
+//     const formattedBids = bids.map((bid) => ({
+//       bidId: bid._id,
+//       product: {
+//         title: bid.productTitle,
+//         description: bid.productDescription,
+//         quantity: bid.quantity,
+//         unit: bid.unit,
+//       },
+//       user: {
+//         id: bid.user_id?._id,
+//         name: bid.user_id?.name,
+//         address: bid.user_id?.address,
+//         zip: bid.user_id?.zip,
+//       },
+//       offers: bid.offers.map((offer) => ({
+//         offerId: offer._id,
+//         price: offer.price,
+//         description: offer.description,
+//         shop: {
+//           id: offer.shopId?._id,
+//           businessName: offer.shopId?.businessName,
+//           legalEntityName: offer.shopId?.legalEntityName,
+//           email: offer.shopId?.email,
+//           phone: offer.shopId?.phone,
+//           address: offer.shopId?.address,
+//         },
+//       })),
+//       acceptedOffer: bid.acceptedOffer
+//         ? {
+//             offerId: bid.acceptedOffer._id,
+//             price: bid.acceptedOffer.price,
+//             shop: {
+//               id: bid.acceptedOffer.shopId?._id,
+//               businessName: bid.acceptedOffer.shopId?.businessName,
+//             },
+//           }
+//         : null,
+//       status: bid.status,
+//       createdAt: bid.createdAt,
+//     }));
+
+//     res.status(200).json({
+//       success: true,
+//       count: bids.length,
+//       bids,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching user bids:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching user bids",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
 
 // 🟩 Controller to get all bids of a customer with offers + shop info
 export const getUserBidsWithOffers = async (req, res) => {
@@ -83,6 +172,11 @@ export const getUserBidsWithOffers = async (req, res) => {
         offerId: offer._id,
         price: offer.price,
         description: offer.description,
+        // ✅ ADDED: Appointment fields for offers
+        appointmentDate: offer.appointmentDate,
+        appointmentTime: offer.appointmentTime,
+        estimatedCompletionDays: offer.estimatedCompletionDays,
+        workingHours: offer.workingHours,
         shop: {
           id: offer.shopId?._id,
           businessName: offer.shopId?.businessName,
@@ -94,17 +188,25 @@ export const getUserBidsWithOffers = async (req, res) => {
       })),
       acceptedOffer: bid.acceptedOffer
         ? {
-            offerId: bid.acceptedOffer._id,
-            price: bid.acceptedOffer.price,
-            shop: {
-              id: bid.acceptedOffer.shopId?._id,
-              businessName: bid.acceptedOffer.shopId?.businessName,
-            },
-          }
+          offerId: bid.acceptedOffer._id,
+          price: bid.acceptedOffer.price,
+          // ✅ ADDED: Appointment fields for accepted offer
+          appointmentDate: bid.acceptedOffer.appointmentDate,
+          appointmentTime: bid.acceptedOffer.appointmentTime,
+          estimatedCompletionDays: bid.acceptedOffer.estimatedCompletionDays,
+          workingHours: bid.acceptedOffer.workingHours,
+          shop: {
+            id: bid.acceptedOffer.shopId?._id,
+            businessName: bid.acceptedOffer.shopId?.businessName,
+          },
+        }
         : null,
       status: bid.status,
       createdAt: bid.createdAt,
     }));
+
+
+    console.log(bids);
 
     res.status(200).json({
       success: true,
@@ -121,7 +223,6 @@ export const getUserBidsWithOffers = async (req, res) => {
   }
 };
 
-
 export const getBidOffers = async (req, res) => {
   try {
     const { bidId } = req.params;
@@ -133,13 +234,14 @@ export const getBidOffers = async (req, res) => {
       return res.status(404).json({ message: "Bid not found or unauthorized" });
     }
 
-    // 2️⃣ Fetch all offers for this bid
+    // 2️⃣ Fetch all offers for this bid - INCLUDE APPOINTMENT FIELDS
     const offers = await Offer.find({ bidId })
       .populate({
         path: "shopId",
         select:
           "businessName email phone address serviceArea website socialMedia profilePic storeFrontPhoto workSpacePhoto plan",
       })
+      .select('price message status appointmentDate appointmentTime estimatedCompletionDays workingHours createdAt')
       .sort({ createdAt: 1 });
 
     if (!offers.length) {
@@ -178,7 +280,7 @@ export const getBidOffers = async (req, res) => {
       };
     });
 
-    // 5️⃣ Build final response
+    // 5️⃣ Build final response WITH APPOINTMENT FIELDS
     const formattedOffers = offers.map((offer) => {
       const shopId = offer.shopId?._id?.toString();
       const shopRating = ratingsMap[shopId] || {
@@ -186,12 +288,23 @@ export const getBidOffers = async (req, res) => {
         totalReviews: 0,
       };
 
+      // Check if offer has appointment details
+      const hasAppointmentDetails = !!(offer.appointmentDate || offer.appointmentTime);
+
       return {
         _id: offer._id,
         price: offer.price,
         message: offer.message || "",
         status: offer.status,
         createdAt: offer.createdAt,
+
+        // ⭐ Appointment Fields - Include in response
+        appointmentDate: offer.appointmentDate || null,
+        appointmentTime: offer.appointmentTime || null,
+        estimatedCompletionDays: offer.estimatedCompletionDays || null,
+        workingHours: offer.workingHours || null,
+        hasAppointment: hasAppointmentDetails, // Helper flag for frontend
+
         shopId: {
           _id: offer.shopId?._id,
           businessName: offer.shopId?.businessName,
@@ -205,15 +318,27 @@ export const getBidOffers = async (req, res) => {
           storeFrontPhoto: offer.shopId?.storeFrontPhoto || "",
           workSpacePhoto: offer.shopId?.workSpacePhoto || "",
           plan: offer.shopId?.plan || "basic",
+
         },
         shopRating, // ⭐ Send rating info here
       };
     });
 
+    // 6️⃣ Add statistics about appointments (optional but useful)
+    const offersWithAppointments = formattedOffers.filter(o => o.hasAppointment).length;
+    const appointmentStats = {
+      totalOffers: formattedOffers.length,
+      offersWithAppointments,
+      percentageWithAppointments: formattedOffers.length > 0
+        ? Math.round((offersWithAppointments / formattedOffers.length) * 100)
+        : 0,
+    };
+
     res.status(200).json({
       success: true,
       count: formattedOffers.length,
       offers: formattedOffers,
+      stats: appointmentStats, // Optional: include appointment statistics
     });
 
   } catch (error) {
@@ -225,8 +350,6 @@ export const getBidOffers = async (req, res) => {
     });
   }
 };
-
-
 
 
 
@@ -283,7 +406,7 @@ export const acceptOffer = async (req, res) => {
     });
 
 
-     // -------------------- SEND NOTIFICATION TO SHOP --------------------
+    // -------------------- SEND NOTIFICATION TO SHOP --------------------
     await offerAccepted({
       shopId: offer.shopId,
       customerId,
@@ -428,46 +551,234 @@ export const cancelBid = async (req, res) => {
   }
 };
 
+
+
 export const repostBid = async (req, res) => {
+  let session = null;
   try {
     const { bidId } = req.body;
     const userId = req.customer._id;
 
-    const bid = await Bid.findById(bidId);
-    if (!bid) return res.status(404).json({ message: "Bid not found" });
+    // Get the customer/user details
+    const customer = await Customer.findById(userId);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
 
-    if (bid.user_id.toString() !== userId.toString())
-      return res.status(403).json({ message: "Not authorized" });
-
-    // Reset bid for repost
-    bid.status = "active";
-    bid.dueDate = null;
-    bid.offers = [];
-    bid.acceptedOffer = null;
-    bid.createdAt = new Date();
-
-    await bid.save();
-
-    // -------------------- SAVE EVENT --------------------
-    await Event.create({
-      customerId: userId, // customer who reposted
-      shopId: null, // no shop involved
-      bidId: bid._id,
-      type: "bid-reposted",
-      message: `You reposted the bid ${bid.serviceDescription}`,
-      metadata: {
-        bidId: bid._id,
-      },
+    // Find the old bid
+    const oldBid = await Bid.findById(bidId);
+    if (!oldBid) return res.status(404).json({
+      success: false,
+      message: "Bid not found"
     });
 
-    res.status(200).json({ message: "Bid reposted successfully" });
+    if (oldBid.user_id.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to repost this bid"
+      });
+    }
+
+    // ============================================
+    // 🚫 CHECK DAILY BID LIMIT (MAX 2 BIDS PER DAY)
+    // ============================================
+    // Get the start of today (midnight)
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    // Get the end of today (23:59:59)
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // Count how many bids this user has created TODAY (including reposts)
+    const todaysBidCount = await Bid.countDocuments({
+      user_id: userId,
+      createdAt: {
+        $gte: startOfToday,
+        $lte: endOfToday
+      }
+    });
+
+    // If user has already created 2 bids today, block repost
+    if (todaysBidCount >= 2) {
+      return res.status(429).json({
+        success: false,
+        message: "Daily limit reached",
+        error: `You have already submitted ${todaysBidCount} bids today. The limit is 2 bids per day. Please try again tomorrow.`,
+        limit: 2,
+        used: todaysBidCount,
+        resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
+      });
+    }
+
+    // Calculate bids remaining for today
+    const bidsRemaining = 2 - todaysBidCount;
+
+    // Store old bid data
+    const oldBidData = oldBid.toObject();
+
+    // Start transaction
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    // 1. Delete all offers associated with the old bid
+    await Offer.deleteMany({ bidId: oldBid._id }).session(session);
+
+    // 2. Delete any events associated with the old bid (optional)
+    await Event.deleteMany({ bidId: oldBid._id }).session(session);
+
+    // 3. Delete the old bid
+    await Bid.findByIdAndDelete(oldBid._id).session(session);
+
+    // 4. Create a COMPLETELY NEW BID with fresh timestamps
+    const newBidData = {
+      // Vehicle info
+      vehicleYear: oldBidData.vehicleYear,
+      vehicleMake: oldBidData.vehicleMake,
+      vehicleModel: oldBidData.vehicleModel,
+      vehicleTrim: oldBidData.vehicleTrim,
+      vehicleCondition: oldBidData.vehicleCondition,
+      vehicleImages: oldBidData.vehicleImages || [],
+
+      // Service info
+      requestCategory: oldBidData.requestCategory,
+      serviceDescription: oldBidData.serviceDescription,
+      desiredFinish: oldBidData.desiredFinish,
+      hasExistingWrap: oldBidData.hasExistingWrap,
+      ppfCoverage: oldBidData.ppfCoverage,
+      brandingWrapCoverage: oldBidData.brandingWrapCoverage,
+      hasDesign: oldBidData.hasDesign,
+      hasLogo: oldBidData.hasLogo,
+      artworkFiles: oldBidData.artworkFiles || [],
+      exampleFiles: oldBidData.exampleFiles || [],
+
+      // Location info
+      zipCode: oldBidData.zipCode,
+      address: oldBidData.address,
+      latitude: oldBidData.latitude,
+      longitude: oldBidData.longitude,
+      country: oldBidData.country,
+      location: oldBidData.location,
+
+      // Bid settings
+      dueDate: null, // Reset due date
+      contactMethod: oldBidData.contactMethod,
+
+      // Status and references
+      user_id: userId,
+      status: "active",
+      offers: [],
+      acceptedOffer: null,
+      currentShopId: null,
+      reviewed: false,
+
+      // FRESH TIMESTAMPS - This is key!
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Create the new bid
+    const newBid = new Bid(newBidData);
+    await newBid.save({ session });
+
+    // 5. Create event for the NEW bid (same as createBid)
+    await Event.create([{
+      customerId: userId,
+      shopId: null,
+      bidId: newBid._id,
+      type: "bid-created", // Same as new bids!
+      title: "New Bid Created",
+      message: `A new bid has been submitted.`,
+      metadata: {
+        isRepost: true,
+        originalBidId: oldBid._id,
+        repostedAt: new Date(),
+      },
+    }], { session });
+
+    // Commit transaction
+    await session.commitTransaction();
+
+    // ------------------------------------
+    // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY (SAME AS createBid)
+    // ------------------------------------
+    notifyShopsForBid(newBid, customer).catch(error => {
+      console.error("Shop notification failed (non-critical):", error);
+      // Don't throw - this is background work
+      Event.create({
+        customerId: userId,
+        shopId: null,
+        bidId: newBid._id,
+        type: "system-error",
+        title: "Shop Notification Failed",
+        message: `Failed to notify shops about new bid: ${error.message}`,
+        metadata: {
+          bidId: newBid._id,
+          error: error.message,
+        },
+      }).catch(e => console.error("Failed to log notification error:", e));
+    });
+
+    // 🎯 IMMEDIATE RESPONSE TO USER (similar to createBid)
+    res.status(200).json({
+      success: true,
+      message: "✅ Bid reposted successfully as a new bid",
+      data: {
+        bidId: newBid._id,
+        status: newBid.status,
+        serviceDescription: newBid.serviceDescription,
+        vehicleInfo: `${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}`,
+        createdAt: newBid.createdAt,
+        offersCount: 0,
+      },
+      note: "Local shops are being notified. You'll receive bids within 24-48 hours.",
+      dailyLimit: {
+        max: 2,
+        used: todaysBidCount + 1, // +1 for this reposted bid
+        remaining: bidsRemaining - 1,
+        resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
+      }
+    });
+
   } catch (err) {
-    console.error("Error reposting bid:", err);
-    res.status(500).json({ message: "Server error" });
+    // Abort transaction if it exists
+    if (session) {
+      await session.abortTransaction();
+    }
+
+    console.error("❌ Error reposting bid:", err);
+
+    // Log error event
+    Event.create({
+      customerId: req.customer?._id || null,
+      shopId: null,
+      bidId: req.body?.bidId || null,
+      type: "system-error",
+      title: "Bid Repost Failed",
+      message: `Error reposting bid: ${err.message}`,
+      metadata: {
+        error: err.message,
+        bidId: req.body?.bidId,
+        operation: "repost_as_new",
+        stack: err.stack,
+      },
+    }).catch(e => console.error("Failed to log error event:", e));
+
+    res.status(500).json({
+      success: false,
+      message: "Server error while reposting bid",
+      error: process.env.NODE_ENV === 'development' ? err.message : "Internal server error",
+    });
+  } finally {
+    // End session if it exists
+    if (session) {
+      session.endSession();
+    }
   }
 };
-
-
 
 
 
@@ -516,17 +827,17 @@ export const counterOffer = async (req, res) => {
     await offer.save();
 
     // -------------------- SAVE EVENT --------------------
-await Event.create({
-  customerId: customerId,
-  shopId: offer.shopId,
-  bidId: offer.bidId._id,
-  type: "counter-offer",
-  message: `Counter offer ${counterPrice} is submitted for offer (${offer.price})`,
-  metadata: {
-    offerId: offer._id,
-    counterPrice,
-  },
-});
+    await Event.create({
+      customerId: customerId,
+      shopId: offer.shopId,
+      bidId: offer.bidId._id,
+      type: "counter-offer",
+      message: `Counter offer ${counterPrice} is submitted for offer (${offer.price})`,
+      metadata: {
+        offerId: offer._id,
+        counterPrice,
+      },
+    });
 
     notifyCounterOffer(offer, newCounterOffer);
 
@@ -550,11 +861,6 @@ await Event.create({
 
 
 
-
-
-
-
-
 export const getShopProfile = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -568,6 +874,7 @@ export const getShopProfile = async (req, res) => {
 
     // Map the shop document to the frontend format
     const shopData = {
+      _id: shop._id, // ✅ Important: Include the _id for rating fetch
       businessName: shop.businessName || "",
       ownerName: shop.ownerName || "",
       email: shop.email || "",
@@ -592,6 +899,24 @@ export const getShopProfile = async (req, res) => {
       avatar: shop.profilePic || "",
       storeFrontPhoto: shop.storeFrontPhoto || "",
       workSpacePhoto: shop.workSpacePhoto || "",
+
+      // ✅ ADDED: New fields required for the preview component
+      financingOffered: shop.financingOffered || false,
+      acceptedPayments: shop.acceptedPayments || [],
+      yearsExperience: shop.yearsExperience || "",
+      businessHours: shop.businessHours || {
+        monday: { open: "", close: "", closed: false },
+        tuesday: { open: "", close: "", closed: false },
+        wednesday: { open: "", close: "", closed: false },
+        thursday: { open: "", close: "", closed: false },
+        friday: { open: "", close: "", closed: false },
+        saturday: { open: "", close: "", closed: false },
+        sunday: { open: "", close: "", closed: false }
+      },
+
+      // Optional: Include rating and review count if needed
+      rating: shop.rating || 0,
+      reviewCount: shop.reviewCount || 0,
     };
 
     res.json(shopData);
@@ -600,9 +925,6 @@ export const getShopProfile = async (req, res) => {
     res.status(500).json({ status: "error", message: "Server error" });
   }
 };
-
-
-
 
 export const submitReview = async (req, res) => {
   try {
@@ -627,13 +949,13 @@ export const submitReview = async (req, res) => {
     }
 
     // Create a new review
-   const review = await Review.create({
-  bid: bid._id,
-  shop: bid.currentShopId._id,
-  customer: customerId,
-  rating,
-  comment,
-});
+    const review = await Review.create({
+      bid: bid._id,
+      shop: bid.currentShopId._id,
+      customer: customerId,
+      rating,
+      comment,
+    });
 
 
     // Update shop rating
@@ -699,7 +1021,7 @@ export const getShopRatingSummary = async (req, res) => {
     console.log("📩 Incoming shopId:", shopId);
 
     const stats = await Review.aggregate([
-{ $match: { shop: new mongoose.Types.ObjectId(shopId) } },
+      { $match: { shop: new mongoose.Types.ObjectId(shopId) } },
       {
         $group: {
           _id: "$shop",

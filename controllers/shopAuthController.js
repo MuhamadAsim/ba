@@ -874,62 +874,6 @@ export const completeRegistration = async (req, res) => {
 
 
 
-// export const updateShopProfile = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-
-//     const shop = await Shop.findById(id);
-//     if (!shop) return res.status(404).json({ message: "Shop not found" });
-
-//     const files = req.files || {};
-
-//     // Normalize file uploads
-//     const profilePic = files.profilePic?.[0]?.path || shop.profilePic;
-//     const storeFrontPhoto = files.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
-//     const workSpacePhoto = files.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
-//     const insuranceCertificate =
-//       files.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
-//     const certificateFiles = files.certificateFiles
-//       ? files.certificateFiles.map((f) => f.path)
-//       : shop.certificateFiles || [];
-
-//     // Parse JSON fields safely
-//     let parsedServices = [];
-//     if (Array.isArray(req.body.services)) {
-//       parsedServices = req.body.services;
-//     } else if (typeof req.body.services === "string") {
-//       try {
-//         parsedServices = JSON.parse(req.body.services);
-//       } catch {
-//         parsedServices = [];
-//       }
-//     }
-
-//     // Merge all updates
-//     const updatedData = {
-//       ...req.body,
-//       services: parsedServices,
-//       profilePic,
-//       storeFrontPhoto,
-//       workSpacePhoto,
-//       insuranceCertificate,
-//       certificateFiles,
-//     };
-
-//     const updatedShop = await Shop.findByIdAndUpdate(id, { $set: updatedData }, { new: true });
-
-//     res.status(200).json({
-//       message: "Shop profile updated successfully",
-//       shop: updatedShop,
-//     });
-//   } catch (error) {
-//     console.error("🔥 Update shop profile error:", error);
-//     res.status(500).json({ message: "Server error", error: error.message });
-//   }
-// };
-
-
-
 
 
 export const updateShopProfile = async (req, res) => {
@@ -1001,6 +945,13 @@ export const updateShopProfile = async (req, res) => {
       }
     }
 
+    // ✅ FIX: Handle social media links correctly (from flat fields to nested object)
+    const socialMedia = {
+      instagram: req.body.instagramLink || shop.socialMedia?.instagram || "",
+      facebook: req.body.facebookLink || shop.socialMedia?.facebook || "",
+      linkedin: req.body.linkedinLink || shop.socialMedia?.linkedin || "",
+    };
+
     // Merge all updates
     const updatedData = {
       ...req.body,
@@ -1008,6 +959,8 @@ export const updateShopProfile = async (req, res) => {
       businessHours: parsedBusinessHours,
       acceptedPayments: parsedAcceptedPayments,
       financingOffered: financingOffered,
+      // ✅ ADD: Proper social media structure
+      socialMedia: socialMedia,
       profilePic,
       storeFrontPhoto,
       workSpacePhoto,
@@ -1015,20 +968,28 @@ export const updateShopProfile = async (req, res) => {
       certificateFiles,
     };
 
+    // ✅ Remove flat social media fields to avoid conflicts
+    delete updatedData.instagramLink;
+    delete updatedData.facebookLink;
+    delete updatedData.linkedinLink;
+
     const updatedShop = await Shop.findByIdAndUpdate(id, { $set: updatedData }, { new: true });
 
     res.status(200).json({
       message: "Shop profile updated successfully",
-      shop: updatedShop,
+      shop: {
+        ...updatedShop._doc,
+        // Add flat social media fields for frontend compatibility
+        instagramLink: updatedShop.socialMedia?.instagram || "",
+        facebookLink: updatedShop.socialMedia?.facebook || "",
+        linkedinLink: updatedShop.socialMedia?.linkedin || "",
+      },
     });
   } catch (error) {
     console.error("🔥 Update shop profile error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
-
-
 
 
 
