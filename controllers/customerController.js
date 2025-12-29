@@ -124,12 +124,11 @@ export const getCustomerBidStats = async (req, res) => {
 
 
 
-
-
 // 🟩 Controller to get all bids of a customer with offers + shop info
 export const getUserBidsWithOffers = async (req, res) => {
   try {
     const userId = req.customer._id;
+
 
     const bids = await Bid.find({ user_id: userId })
       .populate({
@@ -137,7 +136,7 @@ export const getUserBidsWithOffers = async (req, res) => {
         populate: {
           path: "shopId",
           model: "Shop",
-          select: "businessName legalEntityName email phone address",
+          select: "businessName legalEntityName email phone address avatar ratings reviews",
         },
       })
       .populate({
@@ -145,38 +144,104 @@ export const getUserBidsWithOffers = async (req, res) => {
         populate: {
           path: "shopId",
           model: "Shop",
-          select: "businessName legalEntityName email phone address",
+          select: "businessName legalEntityName email phone address avatar ratings reviews",
         },
       })
-      .populate("user_id", "name address zip") // ⭐ FIX ADDED HERE
+      .populate("user_id", "name email phone address zip")
       .sort({ createdAt: -1 });
 
     if (!bids || bids.length === 0) {
-      return res.status(404).json({ message: "No bids found for this user" });
+      return res.status(404).json({
+        success: false,
+        message: "No bids found for this user"
+      });
     }
+
     const formattedBids = bids.map((bid) => ({
+      // Bid Basic Info
       bidId: bid._id,
-      product: {
-        title: bid.productTitle,
-        description: bid.productDescription,
-        quantity: bid.quantity,
-        unit: bid.unit,
+      requestCategory: bid.requestCategory,
+      serviceDescription: bid.serviceDescription,
+
+      // Vehicle Details
+      vehicle: {
+        year: bid.vehicleYear,
+        make: bid.vehicleMake,
+        model: bid.vehicleModel,
+        trim: bid.vehicleTrim,
+        condition: bid.vehicleCondition,
       },
-      user: {
-        id: bid.user_id?._id,
-        name: bid.user_id?.name,
-        address: bid.user_id?.address,
-        zip: bid.user_id?.zip,
+
+      // Service-Specific Fields
+      serviceDetails: {
+        // Color Wrap & PPF
+        desiredFinish: bid.desiredFinish,
+        hasExistingWrap: bid.hasExistingWrap,
+        wrapCoverage: bid.wrapCoverage,
+        wrapType: bid.wrapType,
+        desiredColor: bid.desiredColor,
+
+        // Business Wrap
+        brandingWrapCoverage: bid.brandingWrapCoverage,
+        hasDesign: bid.hasDesign,
+        hasLogo: bid.hasLogo,
+
+        // Window Tinting
+        hasExistingTint: bid.hasExistingTint,
+        tintCoverage: bid.tintCoverage,
+        tintType: bid.tintType,
+
+        // Ceramic Coating
+        paintFinish: bid.paintFinish,
+        coatingPackage: bid.coatingPackage,
+        coverageExterior: bid.coverageExterior,
+        coverageInterior: bid.coverageInterior,
+        coverageGlassTrims: bid.coverageGlassTrims,
+        coverageWheelsBrakes: bid.coverageWheelsBrakes,
+
+        // PPF
+        ppfCoverage: bid.ppfCoverage,
+        addCeramicCoating: bid.addCeramicCoating,
       },
-      offers: bid.offers.map((offer) => ({
+
+      // File Uploads
+      files: {
+        vehicleImages: bid.vehicleImages || [],
+        artworkFiles: bid.artworkFiles || [],
+        exampleFiles: bid.exampleFiles || [],
+        coatingPhotos: bid.coatingPhotos || [],
+        ppfPhotos: bid.ppfPhotos || [],
+      },
+
+      // Location Info
+      location: {
+        zipCode: bid.zipCode,
+        address: bid.address,
+        latitude: bid.latitude,
+        longitude: bid.longitude,
+        country: bid.country,
+      },
+
+      // Contact Info
+      contact: {
+        firstName: bid.firstName,
+        lastName: bid.lastName,
+        email: bid.email,
+        phone: bid.phone,
+        contactMethod: bid.contactMethod,
+      },
+
+      // Offers
+      offers: bid.offers?.map((offer) => ({
         offerId: offer._id,
         price: offer.price,
         description: offer.description,
-        // ✅ ADDED: Appointment fields for offers
         appointmentDate: offer.appointmentDate,
         appointmentTime: offer.appointmentTime,
         estimatedCompletionDays: offer.estimatedCompletionDays,
         workingHours: offer.workingHours,
+        status: offer.status,
+        createdAt: offer.createdAt,
         shop: {
           id: offer.shopId?._id,
           businessName: offer.shopId?.businessName,
@@ -184,34 +249,48 @@ export const getUserBidsWithOffers = async (req, res) => {
           email: offer.shopId?.email,
           phone: offer.shopId?.phone,
           address: offer.shopId?.address,
+          avatar: offer.shopId?.avatar,
+          ratings: offer.shopId?.ratings,
+          reviews: offer.shopId?.reviews,
         },
-      })),
-      acceptedOffer: bid.acceptedOffer
-        ? {
-          offerId: bid.acceptedOffer._id,
-          price: bid.acceptedOffer.price,
-          // ✅ ADDED: Appointment fields for accepted offer
-          appointmentDate: bid.acceptedOffer.appointmentDate,
-          appointmentTime: bid.acceptedOffer.appointmentTime,
-          estimatedCompletionDays: bid.acceptedOffer.estimatedCompletionDays,
-          workingHours: bid.acceptedOffer.workingHours,
-          shop: {
-            id: bid.acceptedOffer.shopId?._id,
-            businessName: bid.acceptedOffer.shopId?.businessName,
-          },
-        }
-        : null,
+      })) || [],
+
+      // Accepted Offer
+      acceptedOffer: bid.acceptedOffer ? {
+        offerId: bid.acceptedOffer._id,
+        price: bid.acceptedOffer.price,
+        description: bid.acceptedOffer.description,
+        appointmentDate: bid.acceptedOffer.appointmentDate,
+        appointmentTime: bid.acceptedOffer.appointmentTime,
+        estimatedCompletionDays: bid.acceptedOffer.estimatedCompletionDays,
+        workingHours: bid.acceptedOffer.workingHours,
+        status: bid.acceptedOffer.status,
+        createdAt: bid.acceptedOffer.createdAt,
+        shop: {
+          id: bid.acceptedOffer.shopId?._id,
+          businessName: bid.acceptedOffer.shopId?.businessName,
+          legalEntityName: bid.acceptedOffer.shopId?.legalEntityName,
+          email: bid.acceptedOffer.shopId?.email,
+          phone: bid.acceptedOffer.shopId?.phone,
+          address: bid.acceptedOffer.shopId?.address,
+          avatar: bid.acceptedOffer.shopId?.avatar,
+        },
+      } : null,
+
+      // Bid Status & Dates
       status: bid.status,
+      dueDate: bid.dueDate,
       createdAt: bid.createdAt,
+      updatedAt: bid.updatedAt,
     }));
 
 
-    console.log(bids);
+
 
     res.status(200).json({
       success: true,
-      count: bids.length,
-      bids,
+      count: formattedBids.length,
+      bids: formattedBids,
     });
   } catch (error) {
     console.error("❌ Error fetching user bids:", error);
@@ -222,6 +301,8 @@ export const getUserBidsWithOffers = async (req, res) => {
     });
   }
 };
+
+
 
 export const getBidOffers = async (req, res) => {
   try {
@@ -402,10 +483,10 @@ export const acceptOffer = async (req, res) => {
     });
 
     // Build notification message with customer phone
-    const phoneInfo = customer.phone && customer.phone.trim() !== "" 
-      ? ` Customer phone: ${customer.phone}.` 
+    const phoneInfo = customer.phone && customer.phone.trim() !== ""
+      ? ` Customer phone: ${customer.phone}.`
       : "";
-    
+
     const vehicleInfo = bid.vehicleYear && bid.vehicleMake && bid.vehicleModel
       ? ` Vehicle: ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel}.`
       : "";

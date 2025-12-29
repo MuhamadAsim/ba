@@ -16,16 +16,45 @@ const bidSchema = new mongoose.Schema(
 
     requestCategory: { type: String, trim: true },
     serviceDescription: { type: String, trim: true },
+    
+    // Color Wrap & PPF fields
     desiredFinish: { type: String, trim: true },
     hasExistingWrap: { type: String, trim: true },
-    ppfCoverage: { type: String, trim: true },
+    wrapCoverage: { type: String, trim: true },
+    wrapType: { type: String, trim: true },
+    desiredColor: { type: String, trim: true },
+    
+    // Business Wrap fields
     brandingWrapCoverage: { type: String, trim: true },
     hasDesign: { type: String, trim: true },
     hasLogo: { type: String, trim: true },
     artworkFiles: [{ type: String }],
     exampleFiles: [{ type: String }],
     
-    // Location fields
+    // Window Tinting fields
+    hasExistingTint: { type: String, trim: true },
+    tintCoverage: { type: String, trim: true },
+    tintType: { type: String, trim: true },
+    
+    // Ceramic Coating fields
+    paintFinish: { type: String, trim: true },
+    coatingPackage: { type: String, trim: true },
+    coverageExterior: { type: Boolean, default: false },
+    coverageInterior: { type: Boolean, default: false },
+    coverageGlassTrims: { type: Boolean, default: false },
+    coverageWheelsBrakes: { type: Boolean, default: false },
+    coatingPhotos: [{ type: String }],
+    
+    // PPF fields
+    ppfCoverage: { type: String, trim: true },
+    addCeramicCoating: { type: String, trim: true },
+    ppfPhotos: [{ type: String }],
+
+    // Contact Info
+    firstName: { type: String, trim: true },
+    lastName: { type: String, trim: true },
+    email: { type: String, trim: true },
+    phone: { type: String, trim: true },
     zipCode: { type: String, trim: true },
     address: { type: String, trim: true },
     latitude: { type: Number },
@@ -45,6 +74,12 @@ const bidSchema = new mongoose.Schema(
       }
     },
 
+    contactMethod: {
+      type: String,
+      enum: ["email", "sms", "both"],
+      default: "email",
+    },
+
     dueDate: { type: Date },
 
     status: {
@@ -59,12 +94,6 @@ const bidSchema = new mongoose.Schema(
         ref: "Offer",
       },
     ],
-    
-    contactMethod: {
-      type: String,
-      enum: ["email", "sms", "both"],
-      default: "email",
-    },
 
     acceptedOffer: {
       type: mongoose.Schema.Types.ObjectId,

@@ -4,7 +4,7 @@ import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
-import twilio from "twilio"; // enable only when credentials are added
+import twilio from "twilio";
 
 export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
   try {
@@ -74,30 +74,88 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
 
     console.log(`📧 Email sent to customer (${customer.email})`);
 
+    // ------------------------------------
+    // 7) SMS NOTIFICATION (Twilio)
+    // ------------------------------------
+    if (customer.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+      
+      // Clean the phone number - remove ALL non-numeric characters
+      const cleanedPhone = customer.phone.replace(/\D/g, '');
+      
+      console.log(`📱 SMS Details for customer ${customer.name}:`, {
+        originalPhone: customer.phone,
+        cleanedPhone: cleanedPhone,
+        phoneLength: cleanedPhone.length
+      });
+      
+      // Check if the phone number already has country code
+      // If it starts with '1' (US/Canada) and is 11 digits, it already has country code
+      // If it's 10 digits, add '+1' for US/Canada
+      let fullPhone;
+      
+      if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+        // Already has US country code
+        fullPhone = `+${cleanedPhone}`;
+      } else if (cleanedPhone.length === 10) {
+        // Add US country code
+        fullPhone = `+1${cleanedPhone}`;
+      } else if (cleanedPhone.length > 11) {
+        // International number, assume it has country code
+        fullPhone = `+${cleanedPhone}`;
+      } else {
+        console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
+        return;
+      }
+      
+      console.log(`📱 Formatted phone for Twilio: ${fullPhone}`);
+      
+      // Validate phone number format (E.164 format for Twilio)
+      if (!/^\+\d{10,15}$/.test(fullPhone)) {
+        console.error(`❌ Invalid phone number format: ${fullPhone}`);
+        console.error(`   Expected format: +[country code][phone number] (10-15 digits)`);
+        return;
+      }
 
-    // -------------------------------------------------------------
-    // OPTIONAL: SMS NOTIFICATION (Twilio)
-    const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-
-    if (customer.phone) {
       const smsText = `
 New Offer Received!
 
 Shop: ${shop.businessName}
-Price: $${price}
+Price: $${price || offer?.price}
 
 Check your dashboard for full details.
       `;
 
-      await client.messages.create({
-        body: smsText,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: customer.phone,
-      });
+      try {
+        console.log(`📱 Attempting to send SMS to ${fullPhone} for customer ${customer.name}...`);
+        
+        const twilioMessage = await twilioClient.messages.create({
+          body: smsText,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: fullPhone,
+        });
 
-      console.log("📱 SMS sent to:", customer.phone);
+        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for customer ${customer.name}`);
+        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
+        console.log(`   Message Status: ${twilioMessage.status}`);
+        
+      } catch (twilioError) {
+        console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
+          errorCode: twilioError.code,
+          errorMessage: twilioError.message,
+          phoneNumber: fullPhone
+        });
+        
+        // Check for common Twilio errors
+        if (twilioError.code === 21211) {
+          console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
+        } else if (twilioError.code === 21614) {
+          console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
+        }
+      }
+    } else {
+      console.log(`📱 No phone number available for customer ${customer.name}, skipping SMS`);
     }
-    // -------------------------------------------------------------
 
   } catch (err) {
     console.error("❌ notifyNewOffer FAILED:", err.message);

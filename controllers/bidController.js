@@ -5,27 +5,51 @@ import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js";
 import { notifyShopsForBid } from "../utils/notifyShops.js";
-import Shop from "../models/shopModel.js";
-
-
-
-
-
 
 export const createBid = async (req, res) => {
   try {
     const {
+      // Vehicle Details
       vehicleYear,
       vehicleMake,
       vehicleModel,
+      vehicleTrim,
+      vehicleCondition,
+      
+      // Service Request
       requestCategory,
       serviceDescription,
+      
+      // Color Wrap & PPF fields
       desiredFinish,
       hasExistingWrap,
-      ppfCoverage,
+      wrapCoverage,
+      wrapType,
+      desiredColor,
+      
+      // Business Wrap fields
       brandingWrapCoverage,
       hasDesign,
       hasLogo,
+      
+      // Window Tinting fields
+      hasExistingTint,
+      tintCoverage,
+      tintType,
+      
+      // Ceramic Coating fields
+      paintFinish,
+      coatingPackage,
+      coverageExterior,
+      coverageInterior,
+      coverageGlassTrims,
+      coverageWheelsBrakes,
+      
+      // PPF fields
+      ppfCoverage,
+      addCeramicCoating,
+      
+      // Contact Info
       contactMethod,
       dueDate,
       email,
@@ -33,12 +57,10 @@ export const createBid = async (req, res) => {
       firstName,
       lastName,
       zipCode,
-      address,        // Location field
-      latitude,       // Location field
-      longitude,      // Location field
-      country,        // Location field
-      vehicleTrim,
-      vehicleCondition,
+      address,
+      latitude,
+      longitude,
+      country,
     } = req.body;
 
     // Validate essential bid fields
@@ -60,9 +82,12 @@ export const createBid = async (req, res) => {
       });
     }
 
+    // Process file uploads
     const vehicleImages = (req.files?.["vehicleImages"] || []).map(f => f.path);
     const artworkFiles = (req.files?.["artworkFiles"] || []).map(f => f.path);
     const exampleFiles = (req.files?.["exampleFiles"] || []).map(f => f.path);
+    const coatingPhotos = (req.files?.["coatingPhotos"] || []).map(f => f.path);
+    const ppfPhotos = (req.files?.["ppfPhotos"] || []).map(f => f.path);
 
     // Guest submission case
     if (!user) {
@@ -129,7 +154,7 @@ export const createBid = async (req, res) => {
     });
 
     // If user has already created 2 bids today, block new submission
-    if (todaysBidCount >= 2) {
+    if (todaysBidCount >= 6) {
       return res.status(429).json({
         success: false,
         message: "Daily limit reached",
@@ -141,40 +166,76 @@ export const createBid = async (req, res) => {
     }
 
     // Calculate bids remaining for today
-    const bidsRemaining = 2 - todaysBidCount;
+    const bidsRemaining = 6 - todaysBidCount;
 
-    // Create the bid with ALL fields including location
+    // Create the bid with ALL fields
     const newBid = new Bid({
+      // Vehicle Details
       vehicleYear,
       vehicleMake,
       vehicleModel,
       vehicleTrim,
       vehicleCondition,
+      
+      // Service Request
       requestCategory,
       serviceDescription,
+      
+      // Color Wrap & PPF fields
       desiredFinish,
       hasExistingWrap,
-      ppfCoverage,
+      wrapCoverage,
+      wrapType,
+      desiredColor,
+      
+      // Business Wrap fields
       brandingWrapCoverage,
       hasDesign,
       hasLogo,
+      
+      // Window Tinting fields
+      hasExistingTint,
+      tintCoverage,
+      tintType,
+      
+      // Ceramic Coating fields
+      paintFinish,
+      coatingPackage,
+      coverageExterior: coverageExterior === 'true' || coverageExterior === true,
+      coverageInterior: coverageInterior === 'true' || coverageInterior === true,
+      coverageGlassTrims: coverageGlassTrims === 'true' || coverageGlassTrims === true,
+      coverageWheelsBrakes: coverageWheelsBrakes === 'true' || coverageWheelsBrakes === true,
+      
+      // PPF fields
+      ppfCoverage,
+      addCeramicCoating,
+      
+      // Contact Info
       contactMethod,
-      dueDate,
-      // Location fields (all required from frontend)
+      dueDate: dueDate ? new Date(dueDate) : null,
+      firstName,
+      lastName,
+      email,
+      phone,
+      zipCode,
       address,
       latitude,
       longitude,
       country,
-      zipCode,
-      // GeoJSON location field for geospatial queries
+      
+      // Location field for geospatial queries
       location: {
         type: 'Point',
         coordinates: [parseFloat(longitude), parseFloat(latitude)]  // [lng, lat]
       },
+      
       // File uploads
       vehicleImages,
       artworkFiles,
       exampleFiles,
+      coatingPhotos,
+      ppfPhotos,
+      
       user_id: user._id,
     });
 

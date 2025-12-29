@@ -67,9 +67,45 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     }
 
     // Send SMS
-    
-    if ((method === "sms" || method === "both") && customer.phone) {
-      const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+    if ((method === "sms" || method === "both") && customer.phone && 
+        process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+      
+      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+      
+      // Clean the phone number - remove ALL non-numeric characters
+      const cleanedPhone = customer.phone.replace(/\D/g, '');
+      
+      console.log(`📱 SMS Details for customer ${customer.name}:`, {
+        originalPhone: customer.phone,
+        cleanedPhone: cleanedPhone,
+        phoneLength: cleanedPhone.length
+      });
+      
+      // Check if the phone number already has country code
+      let fullPhone;
+      
+      if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+        // Already has US country code
+        fullPhone = `+${cleanedPhone}`;
+      } else if (cleanedPhone.length === 10) {
+        // Add US country code
+        fullPhone = `+1${cleanedPhone}`;
+      } else if (cleanedPhone.length > 11) {
+        // International number, assume it has country code
+        fullPhone = `+${cleanedPhone}`;
+      } else {
+        console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
+        return;
+      }
+      
+      console.log(`📱 Formatted phone for Twilio: ${fullPhone}`);
+      
+      // Validate phone number format (E.164 format for Twilio)
+      if (!/^\+\d{10,15}$/.test(fullPhone)) {
+        console.error(`❌ Invalid phone number format: ${fullPhone}`);
+        console.error(`   Expected format: +[country code][phone number] (10-15 digits)`);
+        return;
+      }
 
       const smsText = `
 Great news!
@@ -80,18 +116,43 @@ Accepted Price: $${counterOffer.counterPrice}
 Your bid is now in progress.
       `;
 
-      await client.messages.create({
-        body: smsText,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: customer.phone,
-      });
+      try {
+        console.log(`📱 Attempting to send SMS to ${fullPhone} for customer ${customer.name}...`);
+        
+        const twilioMessage = await twilioClient.messages.create({
+          body: smsText,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: fullPhone,
+        });
 
-      console.log("📱 SMS sent to customer:", customer.phone);
+        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for customer ${customer.name}`);
+        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
+        console.log(`   Message Status: ${twilioMessage.status}`);
+        
+      } catch (twilioError) {
+        console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
+          errorCode: twilioError.code,
+          errorMessage: twilioError.message,
+          phoneNumber: fullPhone
+        });
+        
+        // Check for common Twilio errors
+        if (twilioError.code === 21211) {
+          console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
+        } else if (twilioError.code === 21614) {
+          console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
+        }
+      }
+    } else if ((method === "sms" || method === "both") && !customer.phone) {
+      console.log(`📱 Customer ${customer.name} has no phone number, skipping SMS`);
     }
 
     // -----------------------------
 
   } catch (err) {
-    console.error("❌ Error notifying customer about counter acceptance:", err);
+    console.error("❌ Error notifying customer about counter acceptance:", {
+      error: err.message,
+      stack: err.stack
+    });
   }
 };
