@@ -602,11 +602,19 @@ const sendPasswordResetEmail = async (email, otp) => {
   await sgMail.send(msg);
 };
 
+
+
+
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
+
+
+
+
+
 
 // -------------------- STEP 1: SEND GOOGLE LOGIN URL --------------------
 export const getGoogleAuthURL = async (req, res) => {
@@ -673,7 +681,6 @@ export const googleCallback = async (req, res) => {
       // Update registration method if switching from email/password
       if (user.registrationMethod !== "google") {
         user.registrationMethod = "google";
-        user.password = ""; // Clear password if previously had one
         user.googleId = googleUser.sub;
         await user.save();
       }

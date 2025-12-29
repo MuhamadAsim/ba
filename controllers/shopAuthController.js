@@ -1066,9 +1066,6 @@ export const googleCallbackPartner = async (req, res) => {
       const newShop = new Shop({
         email,
         registrationMethod: "google", // ✅ Added: Track Google registration
-        // Password not required for Google auth, but you can store Google ID if needed
-        // Or set a placeholder that won't be used for authentication
-        password: "",
         phone: "000000000",
         businessName: "Business Name (Pending)",
         legalEntityName: "Legal Entity (Pending)",

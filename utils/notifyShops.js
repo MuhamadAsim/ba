@@ -13,8 +13,8 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
@@ -80,11 +80,11 @@ export const notifyShopsForBid = async (newBid, customer) => {
 
       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
       const isWithinRadius = distance <= MAX_RADIUS_MILES;
-      
+
       if (isWithinRadius) {
         console.log(`✅ Shop ${shop.businessName} is ${distance.toFixed(2)} miles away`);
       }
-      
+
       return isWithinRadius;
     });
 
@@ -99,8 +99,21 @@ export const notifyShopsForBid = async (newBid, customer) => {
     const customerName = customer.name || "Customer";
     const subject = `${customerName} posted a bid`;
 
-    const buildEmailHTML = () => `
-      <h2>${customerName} posted a new bid</h2>
+    const buildEmailHTML = () => {
+      // Get first letter of each name part
+      const getInitials = (name) => {
+        if (!name) return '';
+        return name
+          .trim()
+          .split(/\s+/)
+          .map(part => part.charAt(0).toUpperCase())
+          .join(' ');
+      };
+
+      const customerInitials = getInitials(customerName);
+
+      return `
+      <h2>${customerInitials} posted a new bid</h2>
       <p><strong>Email:</strong> ${customer.email}</p>
       <p><strong>Category:</strong> ${newBid.requestCategory}</p>
       <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
@@ -110,6 +123,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       <hr/>
       <p>You received this because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
     `;
+    };
 
     const buildSMSText = () => `
 ${customerName} posted a new bid!

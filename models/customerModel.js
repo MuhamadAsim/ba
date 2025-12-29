@@ -26,8 +26,11 @@ const customerSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return this.registrationMethod === "email_password";
+      },
     },
+
     phone: {
       type: String,
       trim: true,

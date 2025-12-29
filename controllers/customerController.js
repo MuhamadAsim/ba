@@ -353,50 +353,46 @@ export const getBidOffers = async (req, res) => {
 
 
 
-
 export const acceptOffer = async (req, res) => {
   try {
     const { offerId } = req.params;
-    const customerId = req.customer._id; // authenticated customer
+    const customerId = req.customer._id;
 
-    // 1️⃣ Find the offer
     const offer = await Offer.findById(offerId);
     if (!offer) return res.status(404).json({ message: "Offer not found" });
 
-    // 2️⃣ Find the associated bid
     const bid = await Bid.findById(offer.bidId);
     if (!bid) return res.status(404).json({ message: "Bid not found" });
 
-    // 3️⃣ Ensure this bid belongs to the current customer
     if (bid.user_id.toString() !== customerId.toString()) {
-      return res
-        .status(403)
-        .json({ message: "Unauthorized: This bid does not belong to you" });
+      return res.status(403).json({ message: "Unauthorized: This bid does not belong to you" });
     }
 
-    // 4️⃣ Accept the offer: update bid and track current shop
+    const customer = await Customer.findById(customerId);
+    if (!customer) return res.status(404).json({ message: "Customer not found" });
+
+    // Update bid and offer
     bid.acceptedOffer = offer._id;
     bid.status = "in_progress";
-    bid.currentShopId = offer.shopId; // 👈 track which shop owns the bid now
+    bid.currentShopId = offer.shopId;
     await bid.save();
 
-    // 5️⃣ Update offer status to accepted
     offer.status = "accepted";
     await offer.save();
 
-    // 6️⃣ Reject all other offers for this bid
+    // Reject other offers
     await Offer.updateMany(
       { bidId: bid._id, _id: { $ne: offer._id } },
       { $set: { status: "rejected" } }
     );
 
-    // -------------------- SAVE EVENT --------------------
+    // Save event
     await Event.create({
       customerId: customerId,
       shopId: offer.shopId,
       bidId: bid._id,
       type: "offer-accepted",
-      message: `Offer is accepted (${offer.price})`,
+      message: `Offer accepted - $${offer.price}`,
       metadata: {
         offerId: offer._id,
         shopId: offer.shopId,
@@ -405,18 +401,25 @@ export const acceptOffer = async (req, res) => {
       },
     });
 
+    // Build notification message with customer phone
+    const phoneInfo = customer.phone && customer.phone.trim() !== "" 
+      ? ` Customer phone: ${customer.phone}.` 
+      : "";
+    
+    const vehicleInfo = bid.vehicleYear && bid.vehicleMake && bid.vehicleModel
+      ? ` Vehicle: ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel}.`
+      : "";
 
-    // -------------------- SEND NOTIFICATION TO SHOP --------------------
     await offerAccepted({
       shopId: offer.shopId,
       customerId,
-      subject: "Your Offer Has Been Accepted!",
-      message: `The customer has accepted your offer of $${offer.price}.`,
+      subject: "🎉 Offer Accepted!",
+      message: `Great news! ${customer.name} has accepted your offer of $${offer.price}.${phoneInfo}${vehicleInfo}`,
       bid,
-      offer
+      offer,
+      customerPhone: customer.phone
     });
 
-    // 7️⃣ Respond with updated bid and offer
     res.status(200).json({
       success: true,
       message: "Offer accepted successfully",
@@ -437,6 +440,9 @@ export const acceptOffer = async (req, res) => {
     });
   }
 };
+
+
+
 
 export const submitCounterOffer = async (req, res) => {
   try {

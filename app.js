@@ -45,7 +45,7 @@ app.use("/api/events", eventRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/video", videoRoutes);
-app.use("/api/admin-chat", adminChatRoutes);
+app.use("/api/support", adminChatRoutes);
 
 
 // Health check
