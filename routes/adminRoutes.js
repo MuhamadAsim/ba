@@ -3,6 +3,9 @@ import {
   adminLogin,
   verifyOtp,
   resendOtp,
+  requestPasswordChange,
+  verifyPasswordChangeOtp,
+  changePassword,
   getDashboardOverview,
   getDashboardStats,
   getUnverifiedShops,
@@ -59,6 +62,10 @@ router.post("/login", adminLogin);
 router.post("/verify-otp", verifyOtp);   
 router.post("/resend-otp", resendOtp);
 
+// Password Change Routes
+router.post("/request-password-change", requestPasswordChange);
+router.post("/verify-password-change-otp", verifyPasswordChangeOtp);
+router.put("/change-password", authenticateAdmin, changePassword);
 
 //happstories
 router.get('/happy-stories', getAllStories);

@@ -20,7 +20,7 @@ const sendOtpEmail = async (email, otp) => {
   const msg = {
     to: email,
     from: process.env.SENDGRID_SENDER,
-    subject: "Your Verification Code - PrimeBank",
+    subject: "Your Verification Code ",
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;background:#f9f9f9;padding:20px;border-radius:8px;">
         <h2 style="color:#333;">Verify your account</h2>
@@ -610,7 +610,7 @@ const sendPasswordResetEmail = async (email, otp) => {
   const msg = {
     to: email,
     from: process.env.SENDGRID_SENDER,
-    subject: "Password Reset Code - PrimeBank",
+    subject: "Password Reset Code ",
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;background:#f9f9f9;padding:20px;border-radius:8px;">
         <h2 style="color:#333;">Reset Your Password</h2>

@@ -154,19 +154,19 @@ export const createBid = async (req, res) => {
     });
 
     // If user has already created 2 bids today, block new submission
-    if (todaysBidCount >= 6) {
+    if (todaysBidCount >= 3) {
       return res.status(429).json({
         success: false,
         message: "Daily limit reached",
         error: `You have already submitted ${todaysBidCount} bids today. The limit is 2 bids per day. Please try again tomorrow.`,
-        limit: 2,
+        limit: 3,
         used: todaysBidCount,
         resetsAt: new Date(endOfToday.getTime() + 1).toISOString() // When limit resets
       });
     }
 
     // Calculate bids remaining for today
-    const bidsRemaining = 6 - todaysBidCount;
+    const bidsRemaining = 3 - todaysBidCount;
 
     // Create the bid with ALL fields
     const newBid = new Bid({
@@ -272,7 +272,7 @@ export const createBid = async (req, res) => {
       data: newBid,
       note: `Local shops are being notified. You'll receive bids within 24-48 hours.`,
       dailyLimit: {
-        max: 2,
+        max: 3,
         used: todaysBidCount + 1, // +1 for this new bid
         remaining: bidsRemaining - 1,
         resetsAt: new Date(endOfToday.getTime() + 1).toISOString()

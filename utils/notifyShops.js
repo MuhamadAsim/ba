@@ -194,9 +194,6 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
 
 
 
-
-
-
 // ---------------------- Notify Shops For Bid ----------------------
 export const notifyShopsForBid = async (newBid, customer) => {
   try {
@@ -277,24 +274,25 @@ export const notifyShopsForBid = async (newBid, customer) => {
 
     // ---------------------- 4️⃣ EMAIL + SMS TEMPLATES ----------------------
     const customerName = customer.name || "Customer";
-    const subject = `${customerName} posted a bid`;
+    
+    // Get first letter of each name part for subject and content
+    const getInitials = (name) => {
+      if (!name) return '';
+      return name
+        .trim()
+        .split(/\s+/)
+        .map(part => part.charAt(0).toUpperCase())
+        .join(' ');
+    };
+
+    const customerInitials = getInitials(customerName);
+    
+    // Use initials in subject instead of full name
+    const subject = `${customerInitials} posted a bid`;
 
     const buildEmailHTML = () => {
-      // Get first letter of each name part
-      const getInitials = (name) => {
-        if (!name) return '';
-        return name
-          .trim()
-          .split(/\s+/)
-          .map(part => part.charAt(0).toUpperCase())
-          .join(' ');
-      };
-
-      const customerInitials = getInitials(customerName);
-
       return `
       <h2>${customerInitials} posted a new bid</h2>
-      <p><strong>Email:</strong> ${customer.email}</p>
       <p><strong>Category:</strong> ${newBid.requestCategory}</p>
       <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
       <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
@@ -306,7 +304,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
     };
 
     const buildSMSText = () => `
-${customerName} posted a new bid!
+${customerInitials} posted a new bid!
 Category: ${newBid.requestCategory}
 Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
 Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Check dashboard'}

@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import Admin from "../models/adminModel.js";
 import Shop from "../models/shopModel.js";
 import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
@@ -10,11 +11,6 @@ import { sendEmail } from "../utils/sendEmail.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import sgMail from "@sendgrid/mail";
-
-
-
-
-
 
 // ===== IN-MEMORY OTP STORE =====
 // NOTE: For production, consider using Redis for scalability and persistence
@@ -58,6 +54,809 @@ function generateOtp(length = OTP_LENGTH) {
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
 }
+
+// ===== ADMIN INITIALIZATION =====
+// This ensures there's at least one admin in the database
+const initializeAdmin = async () => {
+  try {
+    // Check if any admin exists
+    const adminCount = await Admin.countDocuments();
+    
+    if (adminCount <= 1) {
+      // Create initial admin from environment variables (for backward compatibility)
+      const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
+      const defaultAdminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+      
+      await Admin.create({
+        email: defaultAdminEmail,
+        password: defaultAdminPassword,
+        isActive: true
+      });
+      
+      console.log("Initial admin created from environment variables");
+    }
+  } catch (error) {
+    console.error("Error initializing admin:", error);
+  }
+};
+
+// Initialize admin on startup
+initializeAdmin();
+
+// ===== AUTHENTICATION ENDPOINTS =====
+
+/**
+ * POST /api/admin/login
+ * Body: { email, password }
+ * - Validates credentials against Admin model
+ * - Generates and stores OTP
+ * - Sends OTP via email
+ */
+export const adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    console.log("Login attempt for email:", email);
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    // Find admin by email
+    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+    
+    // Check if admin exists and is active
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+    
+    if (!admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin account is disabled",
+      });
+    }
+
+    // Validate credentials
+    const isPasswordValid = await admin.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    // Generate OTP
+    const otp = generateOtp();
+    const hashedOtp = hashOtp(otp);
+    const expiresAt = Date.now() + OTP_EXPIRY_MS;
+
+    // Store OTP with metadata
+    otpStore[email] = {
+      otp: hashedOtp,
+      expiresAt,
+      attempts: 0,
+      createdAt: Date.now(),
+      adminId: admin._id, // Store admin ID for verification
+      purpose: "login", // Track OTP purpose
+    };
+
+    // Update last login time
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Send OTP email
+    const subject = "Your Admin Login OTP Code";
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Admin Login Verification</h2>
+        <p>Your OTP code for login is:</p>
+        <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
+        <p>This code will expire in <strong>${Math.floor(
+          OTP_EXPIRY_MS / 60000
+        )} minute(s)</strong>.</p>
+        <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
+      </div>
+    `;
+
+    // Call sendEmail with correct parameters (to, subject, html)
+    await sendEmail(email, subject, html);
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent to your email",
+    });
+  } catch (error) {
+    console.error("adminLogin error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP. Please try again.",
+    });
+  }
+};
+
+/**
+ * POST /api/admin/verify-otp
+ * Body: { email, otp }
+ * - Validates OTP, expiry, and attempts
+ * - Returns JWT token on success
+ */
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body || {};
+
+    // Validate input
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    // Check if OTP exists
+    const record = otpStore[email];
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: "No OTP found. Please request a new one.",
+      });
+    }
+
+    // Check if OTP expired
+    if (Date.now() > record.expiresAt) {
+      delete otpStore[email];
+      return res.status(400).json({
+        success: false,
+        message: "OTP has expired. Please request a new one.",
+      });
+    }
+
+    // Check verification attempts
+    if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
+      delete otpStore[email];
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed attempts. Please request a new OTP.",
+      });
+    }
+
+    // Verify OTP
+    const hashedInputOtp = hashOtp(String(otp).trim());
+    if (record.otp !== hashedInputOtp) {
+      otpStore[email].attempts = record.attempts + 1;
+      const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[email].attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
+      });
+    }
+
+    // Get admin data from database
+    const admin = await Admin.findById(record.adminId);
+    if (!admin) {
+      delete otpStore[email];
+      return res.status(404).json({
+        success: false,
+        message: "Admin account not found",
+      });
+    }
+
+    // Success: Remove OTP and generate JWT
+    delete otpStore[email];
+
+    const token = jwt.sign(
+      { 
+        email, 
+        role: "admin",
+        adminId: admin._id,
+        isActive: admin.isActive
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRY }
+    );
+
+    const adminInfo = {
+      id: admin._id,
+      email,
+      role: "admin",
+      isActive: admin.isActive,
+      lastLogin: admin.lastLogin,
+      createdAt: admin.createdAt,
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      token,
+      admin: adminInfo,
+    });
+  } catch (error) {
+    console.error("verifyOtp error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Verification failed. Please try again.",
+    });
+  }
+};
+
+/**
+ * POST /api/admin/resend-otp
+ * Body: { email }
+ * - Generates new OTP and sends via email
+ */
+export const resendOtp = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    // Validate input
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Check if admin exists
+    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+    if (!admin) {
+      return res.status(400).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin account is disabled",
+      });
+    }
+
+    // Get OTP purpose from existing record or default to "login"
+    const existingRecord = otpStore[email];
+    const purpose = existingRecord?.purpose || "login";
+
+    // Generate new OTP
+    const otp = generateOtp();
+    const hashedOtp = hashOtp(otp);
+    const expiresAt = Date.now() + OTP_EXPIRY_MS;
+
+    // Store new OTP
+    otpStore[email] = {
+      otp: hashedOtp,
+      expiresAt,
+      attempts: 0,
+      createdAt: Date.now(),
+      adminId: admin._id,
+      purpose: purpose,
+    };
+
+    // Determine email subject based on purpose
+    const subject = purpose === "password_change" 
+      ? "Your Admin Password Change OTP Code"
+      : "Your New Admin Login OTP Code";
+
+    const actionText = purpose === "password_change" 
+      ? "password change" 
+      : "login";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Admin ${actionText.charAt(0).toUpperCase() + actionText.slice(1)} Verification</h2>
+        <p>Your new OTP code for ${actionText} is:</p>
+        <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
+        <p>This code will expire in <strong>${Math.floor(
+          OTP_EXPIRY_MS / 60000
+        )} minute(s)</strong>.</p>
+        <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
+      </div>
+    `;
+
+    await sendEmail(email, subject, html);
+
+    return res.status(200).json({
+      success: true,
+      message: `New OTP sent to your email for ${actionText}`,
+      purpose: purpose,
+    });
+  } catch (error) {
+    console.error("resendOtp error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to resend OTP. Please try again.",
+    });
+  }
+};
+
+/**
+ * GET /api/admin/verify-token
+ * Middleware-friendly endpoint to verify JWT token validity
+ */
+export const verifyToken = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Verify admin still exists and is active
+    const admin = await Admin.findOne({ 
+      email: decoded.email,
+      isActive: true 
+    });
+    
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: "Admin account not found or disabled",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      admin: {
+        id: admin._id,
+        email: decoded.email,
+        role: decoded.role,
+        isActive: admin.isActive,
+        lastLogin: admin.lastLogin,
+      },
+    });
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token",
+    });
+  }
+};
+
+// ===== PASSWORD CHANGE ENDPOINTS =====
+
+/**
+ * POST /api/admin/request-password-change
+ * Body: { email }
+ * - Initiates password change process by sending OTP to email
+ * - Requires the admin to be logged in (authenticated)
+ */
+export const requestPasswordChange = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    // Validate input
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Check if admin exists
+    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin account is disabled",
+      });
+    }
+
+    // Generate OTP for password change
+    const otp = generateOtp();
+    const hashedOtp = hashOtp(otp);
+    const expiresAt = Date.now() + OTP_EXPIRY_MS;
+
+    // Store OTP with password change purpose
+    otpStore[email] = {
+      otp: hashedOtp,
+      expiresAt,
+      attempts: 0,
+      createdAt: Date.now(),
+      adminId: admin._id,
+      purpose: "password_change",
+    };
+
+    // Send OTP email for password change
+    const subject = "Your Admin Password Change OTP Code";
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Admin Password Change Verification</h2>
+        <p>Your OTP code for password change is:</p>
+        <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
+        <p>This code will expire in <strong>${Math.floor(
+          OTP_EXPIRY_MS / 60000
+        )} minute(s)</strong>.</p>
+        <p style="color: #ff6b6b; font-weight: bold;">Do not share this OTP with anyone.</p>
+        <p style="color: #666; font-size: 12px;">If you didn't request a password change, please secure your account immediately.</p>
+      </div>
+    `;
+
+    await sendEmail(email, subject, html);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password change OTP sent to your email",
+    });
+  } catch (error) {
+    console.error("requestPasswordChange error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send password change OTP. Please try again.",
+    });
+  }
+};
+
+/**
+ * POST /api/admin/verify-password-change-otp
+ * Body: { email, otp, newPassword }
+ * - Verifies OTP for password change
+ * - Changes password if OTP is valid
+ */
+export const verifyPasswordChangeOtp = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body || {};
+
+    // Validate input
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, OTP, and new password are required",
+      });
+    }
+
+    // Validate new password strength
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    // Check if OTP exists
+    const record = otpStore[email];
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: "No OTP found. Please request a new one.",
+      });
+    }
+
+    // Check if OTP is for password change
+    if (record.purpose !== "password_change") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid OTP purpose",
+      });
+    }
+
+    // Check if OTP expired
+    if (Date.now() > record.expiresAt) {
+      delete otpStore[email];
+      return res.status(400).json({
+        success: false,
+        message: "OTP has expired. Please request a new one.",
+      });
+    }
+
+    // Check verification attempts
+    if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
+      delete otpStore[email];
+      return res.status(429).json({
+        success: false,
+        message: "Too many failed attempts. Please request a new OTP.",
+      });
+    }
+
+    // Verify OTP
+    const hashedInputOtp = hashOtp(String(otp).trim());
+    if (record.otp !== hashedInputOtp) {
+      otpStore[email].attempts = record.attempts + 1;
+      const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[email].attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
+      });
+    }
+
+    // Get admin
+    const admin = await Admin.findById(record.adminId);
+    if (!admin) {
+      delete otpStore[email];
+      return res.status(404).json({
+        success: false,
+        message: "Admin account not found",
+      });
+    }
+
+    // Check if new password is same as old password
+    const isSamePassword = await admin.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from current password",
+      });
+    }
+
+    // Update password
+    admin.password = newPassword; // This will be hashed by the pre-save hook
+    await admin.save();
+
+    // Remove OTP after successful password change
+    delete otpStore[email];
+
+    // Send confirmation email
+    const subject = "Admin Password Changed Successfully";
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Admin Password Changed</h2>
+        <p style="color: #4CAF50; font-weight: bold;">Your password has been changed successfully.</p>
+        <p>If you did not make this change, please contact support immediately.</p>
+        <p style="color: #666; font-size: 12px;">Time: ${new Date().toLocaleString()}</p>
+      </div>
+    `;
+
+    await sendEmail(email, subject, html);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("verifyPasswordChangeOtp error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to change password. Please try again.",
+    });
+  }
+};
+
+/**
+ * PUT /api/admin/change-password
+ * Body: { currentPassword, newPassword }
+ * - Changes password while logged in (requires current password)
+ * - Requires authentication via JWT token
+ */
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const adminId = req.admin?.id; // Assuming admin ID is attached by authentication middleware
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required",
+      });
+    }
+
+    // Validate new password strength
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 8 characters long",
+      });
+    }
+
+    // Get admin
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin account not found",
+      });
+    }
+
+    // Check if admin is active
+    if (!admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Admin account is disabled",
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await admin.comparePassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Check if new password is same as current password
+    const isSamePassword = await admin.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from current password",
+      });
+    }
+
+    // Update password
+    admin.password = newPassword; // This will be hashed by the pre-save hook
+    await admin.save();
+
+    // Send confirmation email
+    const subject = "Admin Password Changed Successfully";
+    const html = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h2>Admin Password Changed</h2>
+        <p style="color: #4CAF50; font-weight: bold;">Your password has been changed successfully.</p>
+        <p>If you did not make this change, please contact support immediately.</p>
+        <p style="color: #666; font-size: 12px;">Time: ${new Date().toLocaleString()}</p>
+      </div>
+    `;
+
+    await sendEmail(admin.email, subject, html);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("changePassword error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to change password. Please try again.",
+    });
+  }
+};
+
+/**
+ * Optional: Admin management endpoints
+ */
+
+/**
+ * POST /api/admin/create
+ * Create a new admin (protected endpoint)
+ */
+export const createAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    // Check if admin already exists
+    const existingAdmin = await Admin.findOne({ email: email.toLowerCase().trim() });
+    if (existingAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: "Admin with this email already exists",
+      });
+    }
+
+    const admin = await Admin.create({
+      email: email.toLowerCase().trim(),
+      password,
+      isActive: true,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Admin created successfully",
+      admin: {
+        id: admin._id,
+        email: admin.email,
+        isActive: admin.isActive,
+        createdAt: admin.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("createAdmin error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create admin",
+    });
+  }
+};
+
+/**
+ * PUT /api/admin/:id/toggle-status
+ * Toggle admin active status (protected endpoint)
+ */
+export const toggleAdminStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body || {};
+
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: "isActive must be a boolean",
+      });
+    }
+
+    const admin = await Admin.findByIdAndUpdate(
+      id,
+      { isActive },
+      { new: true }
+    );
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Admin ${isActive ? 'activated' : 'deactivated'} successfully`,
+      admin: {
+        id: admin._id,
+        email: admin.email,
+        isActive: admin.isActive,
+      },
+    });
+  } catch (error) {
+    console.error("toggleAdminStatus error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update admin status",
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 /**
@@ -233,271 +1032,6 @@ export const getDashboardStats = async (req, res) => {
 
 
 
-
-
-
-
-
-// ===== AUTHENTICATION ENDPOINTS =====
-
-/**
- * POST /api/admin/login
- * Body: { email, password }
- * - Validates credentials against environment variables
- * - Generates and stores OTP
- * - Sends OTP via email
- */export const adminLogin = async (req, res) => {
-  try {
-    const { email, password } = req.body || {};
-    console.log(email, password);
-
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
-
-    // Validate credentials
-    if (
-      email !== process.env.ADMIN_EMAIL ||
-      password !== process.env.ADMIN_PASSWORD
-    ) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
-
-    // Generate OTP
-    const otp = generateOtp();
-    const hashedOtp = hashOtp(otp);
-    const expiresAt = Date.now() + OTP_EXPIRY_MS;
-
-    // Store OTP with metadata
-    otpStore[email] = {
-      otp: hashedOtp,
-      expiresAt,
-      attempts: 0,
-      createdAt: Date.now(),
-    };
-
-    // Send OTP email
-    const subject = "Your Admin OTP Code";
-    const html = `
-      <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h2>Admin Login Verification</h2>
-        <p>Your OTP code is:</p>
-        <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
-        <p>This code will expire in <strong>${Math.floor(
-      OTP_EXPIRY_MS / 60000
-    )} minute(s)</strong>.</p>
-        <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
-      </div>
-    `;
-
-    // Call sendEmail with correct parameters (to, subject, html)
-    await sendEmail(email, subject, html);
-
-    return res.status(200).json({
-      success: true,
-      message: "OTP sent to your email",
-    });
-  } catch (error) {
-    console.error("adminLogin error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to send OTP. Please try again.",
-    });
-  }
-};//
-/**
- * POST /api/admin/verify-otp
- * Body: { email, otp }
- * - Validates OTP, expiry, and attempts
- * - Returns JWT token on success
- */
-export const verifyOtp = (req, res) => {
-  try {
-    const { email, otp } = req.body || {};
-
-    // Validate input
-    if (!email || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and OTP are required",
-      });
-    }
-
-    // Check if OTP exists
-    const record = otpStore[email];
-    if (!record) {
-      return res.status(400).json({
-        success: false,
-        message: "No OTP found. Please request a new one.",
-      });
-    }
-
-    // Check if OTP expired
-    if (Date.now() > record.expiresAt) {
-      delete otpStore[email];
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired. Please request a new one.",
-      });
-    }
-
-    // Check verification attempts
-    if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
-      delete otpStore[email];
-      return res.status(429).json({
-        success: false,
-        message: "Too many failed attempts. Please request a new OTP.",
-      });
-    }
-
-    // Verify OTP
-    const hashedInputOtp = hashOtp(String(otp).trim());
-    if (record.otp !== hashedInputOtp) {
-      otpStore[email].attempts = record.attempts + 1;
-      const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[email].attempts;
-      return res.status(400).json({
-        success: false,
-        message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
-      });
-    }
-
-    // Success: Remove OTP and generate JWT
-    delete otpStore[email];
-
-    const token = jwt.sign(
-      { email, role: "admin" },
-      process.env.JWT_SECRET,
-      { expiresIn: JWT_EXPIRY }
-    );
-
-    const adminInfo = {
-      email,
-      role: "admin",
-    };
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      admin: adminInfo,
-    });
-  } catch (error) {
-    console.error("verifyOtp error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Verification failed. Please try again.",
-    });
-  }
-};
-
-/**
- * POST /api/admin/resend-otp
- * Body: { email }
- * - Generates new OTP and sends via email
- */
-export const resendOtp = async (req, res) => {
-  try {
-    const { email } = req.body || {};
-
-    // Validate input
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email is required",
-      });
-    }
-
-    // Validate admin email
-    if (email !== process.env.ADMIN_EMAIL) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid admin email",
-      });
-    }
-
-    // Generate new OTP
-    const otp = generateOtp();
-    const hashedOtp = hashOtp(otp);
-    const expiresAt = Date.now() + OTP_EXPIRY_MS;
-
-    // Store new OTP
-    otpStore[email] = {
-      otp: hashedOtp,
-      expiresAt,
-      attempts: 0,
-      createdAt: Date.now(),
-    };
-
-    // Send OTP email
-    const subject = "Your New Admin OTP Code";
-    const text = `Your new OTP code is ${otp}. It expires in ${Math.floor(
-      OTP_EXPIRY_MS / 60000
-    )} minute(s).`;
-    const html = `
-      <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h2>Admin Login Verification</h2>
-        <p>Your new OTP code is:</p>
-        <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
-        <p>This code will expire in <strong>${Math.floor(
-      OTP_EXPIRY_MS / 60000
-    )} minute(s)</strong>.</p>
-        <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
-      </div>
-    `;
-
-    await sendEmail(email, subject, html);
-
-    return res.status(200).json({
-      success: true,
-      message: "New OTP sent to your email",
-    });
-  } catch (error) {
-    console.error("resendOtp error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to resend OTP. Please try again.",
-    });
-  }
-};
-
-/**
- * GET /api/admin/verify-token
- * Middleware-friendly endpoint to verify JWT token validity
- */
-export const verifyToken = (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(" ")[1];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "No token provided",
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    return res.status(200).json({
-      success: true,
-      admin: {
-        email: decoded.email,
-        role: decoded.role,
-      },
-    });
-  } catch (error) {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid or expired token",
-    });
-  }
-};
 
 
 
