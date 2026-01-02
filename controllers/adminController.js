@@ -61,18 +61,18 @@ const initializeAdmin = async () => {
   try {
     // Check if any admin exists
     const adminCount = await Admin.countDocuments();
-    
+
     if (adminCount <= 1) {
       // Create initial admin from environment variables (for backward compatibility)
       const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
       const defaultAdminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
-      
+
       await Admin.create({
         email: defaultAdminEmail,
         password: defaultAdminPassword,
         isActive: true
       });
-      
+
       console.log("Initial admin created from environment variables");
     }
   } catch (error) {
@@ -107,7 +107,7 @@ export const adminLogin = async (req, res) => {
 
     // Find admin by email
     const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
-    
+
     // Check if admin exists and is active
     if (!admin) {
       return res.status(401).json({
@@ -115,7 +115,7 @@ export const adminLogin = async (req, res) => {
         message: "Invalid credentials",
       });
     }
-    
+
     if (!admin.isActive) {
       return res.status(403).json({
         success: false,
@@ -159,8 +159,8 @@ export const adminLogin = async (req, res) => {
         <p>Your OTP code for login is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-          OTP_EXPIRY_MS / 60000
-        )} minute(s)</strong>.</p>
+      OTP_EXPIRY_MS / 60000
+    )} minute(s)</strong>.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
       </div>
     `;
@@ -251,8 +251,8 @@ export const verifyOtp = async (req, res) => {
     delete otpStore[email];
 
     const token = jwt.sign(
-      { 
-        email, 
+      {
+        email,
         role: "admin",
         adminId: admin._id,
         isActive: admin.isActive
@@ -339,12 +339,12 @@ export const resendOtp = async (req, res) => {
     };
 
     // Determine email subject based on purpose
-    const subject = purpose === "password_change" 
+    const subject = purpose === "password_change"
       ? "Your Admin Password Change OTP Code"
       : "Your New Admin Login OTP Code";
 
-    const actionText = purpose === "password_change" 
-      ? "password change" 
+    const actionText = purpose === "password_change"
+      ? "password change"
       : "login";
 
     const html = `
@@ -353,8 +353,8 @@ export const resendOtp = async (req, res) => {
         <p>Your new OTP code for ${actionText} is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-          OTP_EXPIRY_MS / 60000
-        )} minute(s)</strong>.</p>
+      OTP_EXPIRY_MS / 60000
+    )} minute(s)</strong>.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
       </div>
     `;
@@ -391,13 +391,13 @@ export const verifyToken = async (req, res) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     // Verify admin still exists and is active
-    const admin = await Admin.findOne({ 
+    const admin = await Admin.findOne({
       email: decoded.email,
-      isActive: true 
+      isActive: true
     });
-    
+
     if (!admin) {
       return res.status(401).json({
         success: false,
@@ -483,8 +483,8 @@ export const requestPasswordChange = async (req, res) => {
         <p>Your OTP code for password change is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-          OTP_EXPIRY_MS / 60000
-        )} minute(s)</strong>.</p>
+      OTP_EXPIRY_MS / 60000
+    )} minute(s)</strong>.</p>
         <p style="color: #ff6b6b; font-weight: bold;">Do not share this OTP with anyone.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request a password change, please secure your account immediately.</p>
       </div>
@@ -1424,7 +1424,7 @@ export const acceptShop = async (req, res) => {
 
     // Use the model method to approve shop
     await shop.approveShop();
-    
+
     // Send approval email
     await sendEmail(
       shop.email,
@@ -1507,11 +1507,10 @@ export const rejectShop = async (req, res) => {
 
         <p>After reviewing your application, we regret to inform you that your shop registration has been <strong>rejected</strong>.</p>
 
-        ${
-          reason
-            ? `<p><strong>Reason provided by admin:</strong> ${reason}</p>`
-            : `<p><strong>Reason:</strong> The provided information did not meet our requirements.</p>`
-        }
+        ${reason
+        ? `<p><strong>Reason provided by admin:</strong> ${reason}</p>`
+        : `<p><strong>Reason:</strong> The provided information did not meet our requirements.</p>`
+      }
 
         <p>You may correct the issues and <strong>register again</strong> using the same email.</p>
 
@@ -1900,15 +1899,15 @@ export const getShopStats = async (req, res) => {
       plan: "professional"
     });
     const pendingShops = await Shop.countDocuments({ isVerified: false });
-    
+
     // ADDED: Count blocked and active shops
-    const activeShops = await Shop.countDocuments({ 
-      isVerified: true, 
-      isBlocked: false 
+    const activeShops = await Shop.countDocuments({
+      isVerified: true,
+      isBlocked: false
     });
-    const blockedShops = await Shop.countDocuments({ 
-      isVerified: true, 
-      isBlocked: true 
+    const blockedShops = await Shop.countDocuments({
+      isVerified: true,
+      isBlocked: true
     });
 
     // Get total completed bids across all shops
@@ -2223,13 +2222,13 @@ export const getShopById = async (req, res) => {
           },
           // Check for active bids that this shop might be bidding on
           activeBids: {
-            $sum: { 
-              $cond: [{ 
+            $sum: {
+              $cond: [{
                 $and: [
                   { $eq: ["$status", "active"] },
                   { $ne: ["$currentShopId", null] }
-                ] 
-              }, 1, 0] 
+                ]
+              }, 1, 0]
             },
           },
         },
@@ -2267,8 +2266,8 @@ export const getShopById = async (req, res) => {
     };
 
     // Calculate success rate if there are any bids
-    const successRate = statsResult.totalBids > 0 
-      ? (statsResult.completedBids / statsResult.totalBids) * 100 
+    const successRate = statsResult.totalBids > 0
+      ? (statsResult.completedBids / statsResult.totalBids) * 100
       : 0;
 
     const shopData = {
@@ -2893,6 +2892,9 @@ export const getAllBids = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * Get single bid details by ID
  */
@@ -2964,32 +2966,125 @@ export const getBidDetails = async (req, res) => {
       return false;
     };
 
-    // Calculate additional statistics
-    const enrichedBid = {
-      ...bid,
-      totalOffers: bid.offers?.length || 0,
-      acceptedPrice: bid.acceptedOffer?.price || null,
-      isExpired: bid.status === "active" ? checkIfExpired(bid) : false,
-      counterOffersCount: bid.offers?.reduce(
-        (acc, offer) => acc + (offer.counterOffers?.length || 0),
-        0
-      ),
-      // Calculate average offer price
-      averageOfferPrice: bid.offers?.length > 0 
-        ? Math.round(bid.offers.reduce((sum, offer) => sum + (offer.price || 0), 0) / bid.offers.length)
-        : 0,
-      // Get highest and lowest offers
-      highestOffer: bid.offers?.length > 0 
-        ? Math.max(...bid.offers.map(offer => offer.price || 0))
-        : 0,
-      lowestOffer: bid.offers?.length > 0 
-        ? Math.min(...bid.offers.map(offer => offer.price || 0))
-        : 0,
+    // Organize bid data by category for better structure
+    const organizedBid = {
+      // Basic bid info
+      _id: bid._id,
+      status: bid.status,
+      reviewed: bid.reviewed,
+      createdAt: bid.createdAt,
+      updatedAt: bid.updatedAt,
+      dueDate: bid.dueDate,
+
+      // Vehicle Information
+      vehicleInfo: {
+        vehicleYear: bid.vehicleYear,
+        vehicleMake: bid.vehicleMake,
+        vehicleModel: bid.vehicleModel,
+        vehicleTrim: bid.vehicleTrim,
+        vehicleCondition: bid.vehicleCondition,
+        vehicleImages: bid.vehicleImages || [],
+      },
+
+      // Request Information
+      requestInfo: {
+        requestCategory: bid.requestCategory,
+        serviceDescription: bid.serviceDescription,
+      },
+
+      // Service-specific fields organized by category
+      serviceDetails: {
+        // Color Wrap & PPF
+        colorWrapPPF: {
+          desiredFinish: bid.desiredFinish,
+          hasExistingWrap: bid.hasExistingWrap,
+          wrapCoverage: bid.wrapCoverage,
+          wrapType: bid.wrapType,
+          desiredColor: bid.desiredColor,
+        },
+
+        // Business Wrap
+        businessWrap: {
+          brandingWrapCoverage: bid.brandingWrapCoverage,
+          hasDesign: bid.hasDesign,
+          hasLogo: bid.hasLogo,
+          artworkFiles: bid.artworkFiles || [],
+          exampleFiles: bid.exampleFiles || [],
+        },
+
+        // Window Tinting
+        windowTinting: {
+          hasExistingTint: bid.hasExistingTint,
+          tintCoverage: bid.tintCoverage,
+          tintType: bid.tintType,
+        },
+
+        // Ceramic Coating
+        ceramicCoating: {
+          paintFinish: bid.paintFinish,
+          coatingPackage: bid.coatingPackage,
+          coverageDetails: {
+            exterior: bid.coverageExterior,
+            interior: bid.coverageInterior,
+            glassTrims: bid.coverageGlassTrims,
+            wheelsBrakes: bid.coverageWheelsBrakes,
+          },
+          coatingPhotos: bid.coatingPhotos || [],
+        },
+
+        // PPF
+        ppf: {
+          ppfCoverage: bid.ppfCoverage,
+          addCeramicCoating: bid.addCeramicCoating,
+          ppfPhotos: bid.ppfPhotos || [],
+        }
+      },
+
+      // Contact Information
+      contactInfo: {
+        firstName: bid.firstName,
+        lastName: bid.lastName,
+        email: bid.email,
+        phone: bid.phone,
+        address: bid.address,
+        zipCode: bid.zipCode,
+        country: bid.country,
+        contactMethod: bid.contactMethod,
+        latitude: bid.latitude,
+        longitude: bid.longitude,
+        location: bid.location,
+      },
+
+      // References
+      user_id: bid.user_id,
+      offers: bid.offers,
+      acceptedOffer: bid.acceptedOffer,
+      currentShopId: bid.currentShopId,
+
+      // Statistics
+      statistics: {
+        totalOffers: bid.offers?.length || 0,
+        acceptedPrice: bid.acceptedOffer?.price || null,
+        isExpired: bid.status === "active" ? checkIfExpired(bid) : false,
+        counterOffersCount: bid.offers?.reduce(
+          (acc, offer) => acc + (offer.counterOffers?.length || 0),
+          0
+        ),
+        averageOfferPrice: bid.offers?.length > 0
+          ? Math.round(bid.offers.reduce((sum, offer) => sum + (offer.price || 0), 0) / bid.offers.length)
+          : 0,
+        highestOffer: bid.offers?.length > 0
+          ? Math.max(...bid.offers.map(offer => offer.price || 0))
+          : 0,
+        lowestOffer: bid.offers?.length > 0
+          ? Math.min(...bid.offers.map(offer => offer.price || 0))
+          : 0,
+      }
     };
 
     res.status(200).json({
       success: true,
-      data: enrichedBid,
+      data: organizedBid,
     });
   } catch (error) {
     console.error("Error fetching bid details:", error);
@@ -3000,6 +3095,9 @@ export const getBidDetails = async (req, res) => {
     });
   }
 };
+
+
+
 
 /**
  * Get bid statistics overview
@@ -3117,23 +3215,23 @@ export const toggleBlockShop = async (req, res) => {
     const { blocked, reason } = req.body;
 
     const shop = await Shop.findById(shopId);
-    
+
     if (!shop) {
       return res.status(404).json({
         success: false,
         message: 'Shop not found'
       });
     }
-    
+
     if (blocked === true) {
       // Block the shop
       shop.isBlocked = true;
       shop.status = "blocked";
       shop.blockedAt = new Date();
       shop.blockedReason = reason || "";
-      
+
       await shop.save();
-      
+
       // Optional: Cancel all active bids for this shop
       // await Bid.updateMany(
       //   { currentShopId: shopId, status: { $in: ["active", "in_progress"] } },
@@ -3143,7 +3241,7 @@ export const toggleBlockShop = async (req, res) => {
       //     cancelledAt: new Date() 
       //   }
       // );
-      
+
       res.status(200).json({
         success: true,
         message: 'Shop blocked successfully',
@@ -3154,9 +3252,9 @@ export const toggleBlockShop = async (req, res) => {
       shop.isBlocked = false;
       shop.status = "active";
       shop.lastUnblockedAt = new Date();
-      
+
       await shop.save();
-      
+
       res.status(200).json({
         success: true,
         message: 'Shop unblocked successfully',
@@ -3200,7 +3298,7 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 export const sendEmail_To_User = async (req, res) => {
   try {
     const { recipientEmail, subject, message } = req.body;
-    
+
     // Validate required fields
     if (!recipientEmail || !subject || !message) {
       return res.status(400).json({
@@ -3229,7 +3327,7 @@ export const sendEmail_To_User = async (req, res) => {
 
     // Send email using SendGrid
     await sgMail.send(msg);
-    
+
     console.log("✅ Email sent successfully to", recipientEmail);
 
     // Return success response
@@ -3245,7 +3343,7 @@ export const sendEmail_To_User = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Email send error:", error.response?.body || error.message);
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to send email. Please try again later.',
@@ -3265,9 +3363,9 @@ export const sendEmail_To_User = async (req, res) => {
  * Extend shop's free trial
  * POST /api/admin/shops/:shopId/extend-trial
  *//**
- * Extend shop's free trial
- * POST /api/admin/shops/:shopId/extend-trial
- */
+* Extend shop's free trial
+* POST /api/admin/shops/:shopId/extend-trial
+*/
 export const extendShopTrial = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -3312,7 +3410,7 @@ export const extendShopTrial = async (req, res) => {
 
     // Update shop's trial end date
     shop.trialEndDate = newEndDate;
-    
+
     // Update plan end date if it exists and is earlier than new trial end
     if (shop.planEndDate && newEndDate > shop.planEndDate) {
       shop.planEndDate = newEndDate;
@@ -3322,7 +3420,7 @@ export const extendShopTrial = async (req, res) => {
     if (shop.subscription) {
       shop.subscription.status = 'trialing';
       shop.subscription.nextBillingDate = newEndDate;
-      
+
       // If shop is on paid plan, keep it as trialing
       if (shop.subscription.status === 'active') {
         shop.subscription.status = 'trialing';
@@ -3388,7 +3486,7 @@ export const getShopTrialInfo = async (req, res) => {
     const now = new Date();
     const trialEnd = new Date(shop.trialEndDate);
     const isTrialActive = now < trialEnd;
-    
+
     // Calculate days remaining
     const diffTime = trialEnd - now;
     const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -3443,9 +3541,9 @@ export const bulkExtendTrial = async (req, res) => {
     }
 
     // Find all shops
-    const shops = await Shop.find({ 
+    const shops = await Shop.find({
       _id: { $in: shopIds },
-      isBlocked: false 
+      isBlocked: false
     });
 
     if (shops.length === 0) {
@@ -3467,7 +3565,7 @@ export const bulkExtendTrial = async (req, res) => {
 
         // Update shop
         shop.trialEndDate = newEndDate;
-        
+
         if (shop.subscription) {
           shop.subscription.status = 'trialing';
           shop.subscription.nextBillingDate = newEndDate;

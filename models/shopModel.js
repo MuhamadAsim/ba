@@ -317,12 +317,27 @@ const shopSchema = new mongoose.Schema(
     acceptedPolicy: {
       type: Boolean,
       required: true,
-      default: false,
+      default: true,
     },
     policyAcceptedAt: {
       type: Date,
       default: Date.now,
     },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+
+    registrationExpiresAt: {
+      type: Date,
+      index: {
+        expireAfterSeconds: 0,
+        partialFilterExpression: {
+          isVerified: false,
+        },
+      },
+    },
+
 
     // Account Status
     status: {

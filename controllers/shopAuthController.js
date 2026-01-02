@@ -86,11 +86,17 @@ export const registerShop = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOtp();
+    const EXPIRY_TIME = 2 * 60 * 60 * 1000; // 2 hours
 
     const newShop = new Shop({
       email,
       password: hashedPassword,
-      registrationMethod: "email_password", // ✅ Added: Track registration method
+      registrationMethod: "email_password",
+
+      // 👇 NEW
+      createdAt: new Date(),
+      registrationExpiresAt: new Date(Date.now() + EXPIRY_TIME),
+
       phone: "000000000",
       ownerPhone: "00000000",
       businessName: "Business Name (Pending)",
@@ -851,6 +857,8 @@ export const completeRegistration = async (req, res) => {
     // Keep registration in pending status & mark as not verified so admin review can happen
     shop.status = "pending";
     shop.isVerified = false;
+    shop.registrationExpiresAt = null;
+
 
     await shop.save();
 
@@ -1027,12 +1035,8 @@ export const getGoogleAuthURLShop = async (req, res) => {
 
 
 
-
-
-
-
 // ============================================
-// FIXED: googleCallbackPartner WITH VERIFICATION FILTERS
+// GOOGLE CALLBACK - COMPLETE & FIXED
 // ============================================
 export const googleCallbackPartner = async (req, res) => {
   try {
@@ -1049,23 +1053,50 @@ export const googleCallbackPartner = async (req, res) => {
     const googleUser = ticket.getPayload();
     const email = googleUser.email;
 
-    // ✅ Check if email exists in Customer collection
+    const EXPIRY_TIME = 2 * 60 * 60 * 1000; // 2 hours
+
+    // =====================================
+    // BLOCK CUSTOMER EMAILS
+    // =====================================
     const existingCustomer = await Customer.findOne({ email });
     if (existingCustomer) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=customer_exists&message=${encodeURIComponent("This email is already registered as a customer. Please use a different email for shop registration.")}`
+        `https://bidawrap1.netlify.app/google-status?status=customer_exists&message=${encodeURIComponent(
+          "This email is already registered as a customer. Please use a different email."
+        )}`
       );
     }
 
+    // =====================================
+    // FIND SHOP
+    // =====================================
     let user = await Shop.findOne({ email });
 
     // =====================================
-    // CASE 1: USER DOES NOT EXIST → SIGNUP
+    // DELETE EXPIRED INCOMPLETE ACCOUNTS
+    // =====================================
+    if (
+      user &&
+      !user.isVerified &&
+      user.registrationExpiresAt &&
+      new Date() > user.registrationExpiresAt
+    ) {
+      await Shop.deleteOne({ _id: user._id });
+      user = null;
+    }
+
+    // =====================================
+    // CREATE NEW SHOP (GOOGLE SIGNUP)
     // =====================================
     if (!user) {
       const newShop = new Shop({
         email,
-        registrationMethod: "google", // ✅ Added: Track Google registration
+        registrationMethod: "google",
+        googleId: googleUser.sub,
+
+        createdAt: new Date(),
+        registrationExpiresAt: new Date(Date.now() + EXPIRY_TIME),
+
         phone: "000000000",
         businessName: "Business Name (Pending)",
         legalEntityName: "Legal Entity (Pending)",
@@ -1073,17 +1104,19 @@ export const googleCallbackPartner = async (req, res) => {
         address: "Business Address (Pending)",
         country: "US (Pending)",
         startDate: new Date(),
+
         insuranceCarrier: "Insurance Carrier (Pending)",
         policyNumber: "Policy Number (Pending)",
         policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+
         insuranceCertificate: "Pending",
         storeFrontPhoto: "Pending",
         workSpacePhoto: "Pending",
         certificateFiles: [],
+
         zipCode: "00000",
         plan: "basic",
 
-        // New fields with defaults
         financingOffered: false,
         acceptedPayments: [],
         yearsExperience: "",
@@ -1097,30 +1130,32 @@ export const googleCallbackPartner = async (req, res) => {
           sunday: { open: "", close: "", closed: false },
         },
 
-        isEmailVerified: true, // Google already verified email
-        googleId: googleUser.sub, // ✅ Optional: Store Google ID for future reference
+        isEmailVerified: true,
+        isVerified: false,
       });
 
-      user = await newShop.save();
+      await newShop.save();
 
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-success-partner?` +
-        `email=${encodeURIComponent(email)}&flow=signup`
+        `https://bidawrap1.netlify.app/google-success-partner?email=${encodeURIComponent(
+          email
+        )}&flow=signup`
       );
     }
 
-    // ✅ Update registration method if it was previously email/password but now using Google
+    // =====================================
+    // UPDATE REG METHOD IF NEEDED
+    // =====================================
     if (user.registrationMethod !== "google") {
       user.registrationMethod = "google";
-      // Optionally clear password since they're using Google auth
       user.password = "";
-      user.googleId = googleUser.sub; // Store Google ID if using now
+      user.googleId = googleUser.sub;
       await user.save();
     }
 
-    // =========================================
-    // CASE 2: PROFILE STILL INCOMPLETE → GO SETUP
-    // =========================================
+    // =====================================
+    // INCOMPLETE PROFILE → REDIRECT
+    // =====================================
     const isIncomplete =
       user.businessName.includes("(Pending)") ||
       user.legalEntityName.includes("(Pending)") ||
@@ -1129,65 +1164,66 @@ export const googleCallbackPartner = async (req, res) => {
 
     if (isIncomplete) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-success-partner?` +
-        `email=${encodeURIComponent(email)}&flow=signup`
+        `https://bidawrap1.netlify.app/google-success-partner?email=${encodeURIComponent(
+          email
+        )}&flow=signup`
       );
     }
 
-    // =========================================
-    // 🚫 FILTER BEFORE TOKEN AND DATA
-    // =========================================
-
-    // EMAIL VERIFIED (Google login always verified)
+    // =====================================
+    // VERIFY EMAIL (GOOGLE = TRUSTED)
+    // =====================================
     if (!user.isEmailVerified) {
-      // Since it's Google auth, we should mark as verified if not already
       user.isEmailVerified = true;
       await user.save();
     }
 
-    // ADMIN VERIFIED
+    // =====================================
+    // ADMIN VERIFICATION CHECK
+    // =====================================
     if (!user.isVerified) {
       return res.redirect(
         `https://bidawrap1.netlify.app/google-status?status=not_approved`
       );
     }
 
-    // =========================================
-    // CHECK IF SHOP IS BLOCKED
-    // =========================================
-    if (user.isBlocked === true || user.status === "blocked") {
+    // =====================================
+    // BLOCKED CHECK
+    // =====================================
+    if (user.isBlocked || user.status === "blocked") {
       return res.redirect(
         `https://bidawrap1.netlify.app/google-status?status=blocked`
       );
     }
 
-    // =========================================
-    // CHECK IF SHOP IS ACTIVE
-    // =========================================
+    // =====================================
+    // STATUS CHECK
+    // =====================================
     if (user.status !== "active") {
       return res.redirect(
         `https://bidawrap1.netlify.app/google-status?status=inactive&shopStatus=${user.status}`
       );
     }
 
-    // ===============================================
-    // CASE 3: FULLY VERIFIED USER → SIGNIN + SEND DATA
-    // ===============================================
-
+    // =====================================
+    // JWT TOKEN
+    // =====================================
     const token = jwt.sign(
       {
         shopId: user._id,
         email: user.email,
         role: "shop",
-        isBlocked: user.isBlocked,
         status: user.status,
-        registrationMethod: user.registrationMethod // ✅ Include in JWT if needed
+        isBlocked: user.isBlocked,
+        registrationMethod: user.registrationMethod,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // Prepare complete shop data (same as signin response)
+    // =====================================
+    // RESPONSE DATA
+    // =====================================
     const shopData = {
       id: user._id,
       email: user.email,
@@ -1195,9 +1231,7 @@ export const googleCallbackPartner = async (req, res) => {
       ownerName: user.ownerName,
       plan: user.plan,
       avatar: user.profilePic || "",
-      registrationMethod: user.registrationMethod, // ✅ Include in response
 
-      // Contact
       countryCode: user.countryCode,
       phone: user.phone,
       ownerPhone: user.ownerPhone,
@@ -1208,75 +1242,50 @@ export const googleCallbackPartner = async (req, res) => {
       longitude: user.longitude,
       address: user.address,
 
-      // Services
       services: user.services,
       vinylFilms: user.vinylFilms,
       certificates: user.certificates,
       certificateFiles: user.certificateFiles,
-      startDate: user.startDate?.toISOString?.() || user.startDate,
-      bio: user.additionalInfo || "",
 
-      // Photos
+      startDate: user.startDate,
+      bio: user.additionalInfo,
+
       workSpacePhoto: user.workSpacePhoto,
       storeFrontPhoto: user.storeFrontPhoto,
 
-      // Legal
       legalEntityName: user.legalEntityName,
       insuranceCarrier: user.insuranceCarrier,
       policyNumber: user.policyNumber,
       policyExpiration: user.policyExpiration,
       insuranceCertificate: user.insuranceCertificate,
 
-      // Social media
       instagramLink: user.socialMedia?.instagram || "",
       facebookLink: user.socialMedia?.facebook || "",
       linkedinLink: user.socialMedia?.linkedin || "",
 
-      // New fields from registration
-      financingOffered: user.financingOffered || false,
-      acceptedPayments: user.acceptedPayments || [],
-      yearsExperience: user.yearsExperience || "",
-      businessHours: user.businessHours || {
-        monday: { open: "", close: "", closed: false },
-        tuesday: { open: "", close: "", closed: false },
-        wednesday: { open: "", close: "", closed: false },
-        thursday: { open: "", close: "", closed: false },
-        friday: { open: "", close: "", closed: false },
-        saturday: { open: "", close: "", closed: false },
-        sunday: { open: "", close: "", closed: false },
-      },
+      financingOffered: user.financingOffered,
+      acceptedPayments: user.acceptedPayments,
+      yearsExperience: user.yearsExperience,
+      businessHours: user.businessHours,
 
-      // Payment info
-      paymentInfo: user.paymentInfo || {},
+      paymentInfo: user.paymentInfo,
+      rating: user.rating,
+      reviewCount: user.reviewCount,
 
-      rating: user.rating || 0,
-      reviewCount: user.reviewCount || 0,
       isEmailVerified: user.isEmailVerified,
       isVerified: user.isVerified,
-      verifiedAt: user.verifiedAt?.toISOString?.() || null,
-      acceptedPolicy: user.acceptedPolicy,
-      policyAcceptedAt: user.policyAcceptedAt?.toISOString?.() || null,
       status: user.status,
       isBlocked: user.isBlocked,
-      blockedAt: user.blockedAt,
-      blockedReason: user.blockedReason,
 
-      // Additional fields
-      ownerPhone: user.ownerPhone,
-      websiteInput: user.website,
-      instagramInput: user.socialMedia?.instagram || "",
-      facebookInput: user.socialMedia?.facebook || "",
-      linkedinInput: user.socialMedia?.linkedin || "",
-      additionalInfo: user.additionalInfo || "",
+      acceptedPolicy: user.acceptedPolicy,
+      policyAcceptedAt: user.policyAcceptedAt,
     };
 
-    const shopDataEncoded = encodeURIComponent(JSON.stringify(shopData));
-
     return res.redirect(
-      `https://bidawrap1.netlify.app/google-success-partner?` +
-      `flow=signin&token=${token}&shopData=${shopDataEncoded}`
+      `https://bidawrap1.netlify.app/google-success-partner?flow=signin&token=${token}&shopData=${encodeURIComponent(
+        JSON.stringify(shopData)
+      )}`
     );
-
   } catch (error) {
     console.error("Google callback error:", error);
     return res.redirect(`https://bidawrap1.netlify.app/google-failed`);

@@ -640,6 +640,17 @@ export const cancelBid = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 export const repostBid = async (req, res) => {
   let session = null;
   try {
@@ -672,15 +683,12 @@ export const repostBid = async (req, res) => {
     // ============================================
     // 🚫 CHECK DAILY BID LIMIT (MAX 2 BIDS PER DAY)
     // ============================================
-    // Get the start of today (midnight)
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    // Get the end of today (23:59:59)
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
 
-    // Count how many bids this user has created TODAY (including reposts)
     const todaysBidCount = await Bid.countDocuments({
       user_id: userId,
       createdAt: {
@@ -689,7 +697,6 @@ export const repostBid = async (req, res) => {
       }
     });
 
-    // If user has already created 2 bids today, block repost
     if (todaysBidCount >= 2) {
       return res.status(429).json({
         success: false,
@@ -701,12 +708,11 @@ export const repostBid = async (req, res) => {
       });
     }
 
-    // Calculate bids remaining for today
     const bidsRemaining = 2 - todaysBidCount;
 
-    // Store old bid data
+    // Store old bid data - Get ALL fields as plain object
     const oldBidData = oldBid.toObject();
-
+    
     // Start transaction
     session = await mongoose.startSession();
     session.startTransaction();
@@ -714,15 +720,15 @@ export const repostBid = async (req, res) => {
     // 1. Delete all offers associated with the old bid
     await Offer.deleteMany({ bidId: oldBid._id }).session(session);
 
-    // 2. Delete any events associated with the old bid (optional)
+    // 2. Delete any events associated with the old bid
     await Event.deleteMany({ bidId: oldBid._id }).session(session);
 
     // 3. Delete the old bid
     await Bid.findByIdAndDelete(oldBid._id).session(session);
 
-    // 4. Create a COMPLETELY NEW BID with fresh timestamps
+    // 4. Create a COMPLETELY NEW BID with ALL data copied
     const newBidData = {
-      // Vehicle info
+      // Copy ALL vehicle info
       vehicleYear: oldBidData.vehicleYear,
       vehicleMake: oldBidData.vehicleMake,
       vehicleModel: oldBidData.vehicleModel,
@@ -730,19 +736,48 @@ export const repostBid = async (req, res) => {
       vehicleCondition: oldBidData.vehicleCondition,
       vehicleImages: oldBidData.vehicleImages || [],
 
-      // Service info
+      // Copy ALL service info
       requestCategory: oldBidData.requestCategory,
       serviceDescription: oldBidData.serviceDescription,
       desiredFinish: oldBidData.desiredFinish,
       hasExistingWrap: oldBidData.hasExistingWrap,
-      ppfCoverage: oldBidData.ppfCoverage,
+      
+      // Color Wrap & PPF fields
+      wrapCoverage: oldBidData.wrapCoverage,
+      wrapType: oldBidData.wrapType,
+      desiredColor: oldBidData.desiredColor,
+      
+      // Business Wrap fields
       brandingWrapCoverage: oldBidData.brandingWrapCoverage,
       hasDesign: oldBidData.hasDesign,
       hasLogo: oldBidData.hasLogo,
       artworkFiles: oldBidData.artworkFiles || [],
       exampleFiles: oldBidData.exampleFiles || [],
+      
+      // Window Tinting fields
+      hasExistingTint: oldBidData.hasExistingTint,
+      tintCoverage: oldBidData.tintCoverage,
+      tintType: oldBidData.tintType,
+      
+      // Ceramic Coating fields
+      paintFinish: oldBidData.paintFinish,
+      coatingPackage: oldBidData.coatingPackage,
+      coverageExterior: oldBidData.coverageExterior || false,
+      coverageInterior: oldBidData.coverageInterior || false,
+      coverageGlassTrims: oldBidData.coverageGlassTrims || false,
+      coverageWheelsBrakes: oldBidData.coverageWheelsBrakes || false,
+      coatingPhotos: oldBidData.coatingPhotos || [],
+      
+      // PPF fields
+      ppfCoverage: oldBidData.ppfCoverage,
+      addCeramicCoating: oldBidData.addCeramicCoating,
+      ppfPhotos: oldBidData.ppfPhotos || [],
 
-      // Location info
+      // Copy ALL contact info
+      firstName: oldBidData.firstName,
+      lastName: oldBidData.lastName,
+      email: oldBidData.email,
+      phone: oldBidData.phone,
       zipCode: oldBidData.zipCode,
       address: oldBidData.address,
       latitude: oldBidData.latitude,
@@ -750,11 +785,11 @@ export const repostBid = async (req, res) => {
       country: oldBidData.country,
       location: oldBidData.location,
 
-      // Bid settings
+      // Copy bid settings
       dueDate: null, // Reset due date
       contactMethod: oldBidData.contactMethod,
 
-      // Status and references
+      // Reset status and references
       user_id: userId,
       status: "active",
       offers: [],
@@ -762,21 +797,21 @@ export const repostBid = async (req, res) => {
       currentShopId: null,
       reviewed: false,
 
-      // FRESH TIMESTAMPS - This is key!
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      // 🔥 FRESH TIMESTAMPS - This is key!
+      createdAt: new Date(),  // TODAY'S DATE
+      updatedAt: new Date(),  // TODAY'S DATE
     };
 
     // Create the new bid
     const newBid = new Bid(newBidData);
     await newBid.save({ session });
 
-    // 5. Create event for the NEW bid (same as createBid)
+    // 5. Create event for the NEW bid
     await Event.create([{
       customerId: userId,
       shopId: null,
       bidId: newBid._id,
-      type: "bid-created", // Same as new bids!
+      type: "bid-created",
       title: "New Bid Created",
       message: `A new bid has been submitted.`,
       metadata: {
@@ -790,11 +825,10 @@ export const repostBid = async (req, res) => {
     await session.commitTransaction();
 
     // ------------------------------------
-    // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY (SAME AS createBid)
+    // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY
     // ------------------------------------
     notifyShopsForBid(newBid, customer).catch(error => {
       console.error("Shop notification failed (non-critical):", error);
-      // Don't throw - this is background work
       Event.create({
         customerId: userId,
         shopId: null,
@@ -809,7 +843,7 @@ export const repostBid = async (req, res) => {
       }).catch(e => console.error("Failed to log notification error:", e));
     });
 
-    // 🎯 IMMEDIATE RESPONSE TO USER (similar to createBid)
+    // 🎯 IMMEDIATE RESPONSE TO USER
     res.status(200).json({
       success: true,
       message: "✅ Bid reposted successfully as a new bid",
@@ -824,7 +858,7 @@ export const repostBid = async (req, res) => {
       note: "Local shops are being notified. You'll receive bids within 24-48 hours.",
       dailyLimit: {
         max: 2,
-        used: todaysBidCount + 1, // +1 for this reposted bid
+        used: todaysBidCount + 1,
         remaining: bidsRemaining - 1,
         resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
       }
@@ -866,6 +900,13 @@ export const repostBid = async (req, res) => {
     }
   }
 };
+
+
+
+
+
+
+
 
 
 

@@ -9,8 +9,8 @@ const router = express.Router();
 
 
 
-router.get("/for-customer",authenticateCustomer, getEvents);
-router.get("/for-shop",authenticateShop, getEvents);
+router.get("/",authenticateCustomer, getEvents);
+router.get("/shops",authenticateShop, getEvents);
 
 
 

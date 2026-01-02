@@ -1,11 +1,16 @@
 import Event from "../models/eventModel.js";
 
+
+
+
 // -------------------- GET EVENTS --------------------
 export const getEvents = async (req, res) => {
   try {
-    const customerId = req.customer?._id || null; // authenticated customer
-    const shopId = req.shop?._id || null; // authenticated shop
-    console.log(customerId, shopId);
+    const customerId = req.customer?._id;
+    const shopId = req.shop?._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const skip = (page - 1) * limit;
 
     if (!customerId && !shopId) {
       return res.status(403).json({
@@ -14,27 +19,36 @@ export const getEvents = async (req, res) => {
       });
     }
 
-    // Fetch events related to this user/shop
-    const events = await Event.find({
-      $or: [{ customerId: customerId }, { shopId: shopId }],
-    })
-      .sort({ createdAt: -1 }) // newest first
-      .limit(15) // limit to latest 15 events
+    // Simple query: who's asking?
+    let query = customerId ? { customerId } : { shopId };
+
+    // Get total count for pagination
+    const totalEvents = await Event.countDocuments(query);
+
+    // Fetch events with pagination
+    const events = await Event.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .lean();
 
-    // Map events to include display info
     const formattedEvents = events.map((e) => ({
       id: e._id,
       type: e.type,
-      title: e.type.replace(/-/g, " ").toUpperCase(), // simple title formatting
-      message: e.message || "",
+      title: e.title || e.type.replace(/-/g, " ").toUpperCase(),
+      message: e.message,
       metadata: e.metadata || {},
       createdAt: e.createdAt,
+      ...(e.bidId && { bidId: e.bidId }),
+      ...(e.offerId && { offerId: e.offerId }),
     }));
 
     res.status(200).json({
       success: true,
-      total: formattedEvents.length,
+      page,
+      limit,
+      total: totalEvents,
+      totalPages: Math.ceil(totalEvents / limit),
       events: formattedEvents,
     });
   } catch (err) {
