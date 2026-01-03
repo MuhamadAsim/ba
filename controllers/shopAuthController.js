@@ -688,7 +688,6 @@ export const completeRegistration = async (req, res) => {
       acceptPolicy,
     } = req.body;
 
-    console.log("completeRegistration body:", req.body);
 
     // Find shop by email
     const shop = await Shop.findOne({ email });

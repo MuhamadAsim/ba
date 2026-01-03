@@ -16,7 +16,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     );
 
     if (!bid) {
-      console.log("⚠️ notifyNewOffer: Bid not found");
       return;
     }
 
@@ -28,7 +27,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     );
 
     if (!customer) {
-      console.log("⚠️ notifyNewOffer: Customer not found");
       return;
     }
 
@@ -40,7 +38,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     );
 
     if (!shop) {
-      console.log("⚠️ notifyNewOffer: Shop not found");
       return;
     }
 
@@ -72,7 +69,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // ------------------------------------
     await sendEmail(customer.email, subject, html);
 
-    console.log(`📧 Email sent to customer (${customer.email})`);
 
     // ------------------------------------
     // 7) SMS NOTIFICATION (Twilio)
@@ -108,7 +104,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         return;
       }
       
-      console.log(`📱 Formatted phone for Twilio: ${fullPhone}`);
       
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
@@ -127,7 +122,6 @@ Check your dashboard for full details.
       `;
 
       try {
-        console.log(`📱 Attempting to send SMS to ${fullPhone} for customer ${customer.name}...`);
         
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
@@ -135,10 +129,7 @@ Check your dashboard for full details.
           to: fullPhone,
         });
 
-        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for customer ${customer.name}`);
-        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
-        console.log(`   Message Status: ${twilioMessage.status}`);
-        
+
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
           errorCode: twilioError.code,
@@ -153,10 +144,7 @@ Check your dashboard for full details.
           console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
         }
       }
-    } else {
-      console.log(`📱 No phone number available for customer ${customer.name}, skipping SMS`);
-    }
-
+    } 
   } catch (err) {
     console.error("❌ notifyNewOffer FAILED:", err.message);
   }

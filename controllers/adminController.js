@@ -73,7 +73,6 @@ const initializeAdmin = async () => {
         isActive: true
       });
 
-      console.log("Initial admin created from environment variables");
     }
   } catch (error) {
     console.error("Error initializing admin:", error);
@@ -95,7 +94,6 @@ initializeAdmin();
 export const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body || {};
-    console.log("Login attempt for email:", email);
 
     // Validate input
     if (!email || !password) {
@@ -1664,7 +1662,6 @@ export const getCustomerById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log(id);
 
     // ✅ Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -3323,12 +3320,10 @@ export const sendEmail_To_User = async (req, res) => {
       html: message,
     };
 
-    console.log("Sending email to:", recipientEmail, "Subject:", subject);
 
     // Send email using SendGrid
     await sgMail.send(msg);
 
-    console.log("✅ Email sent successfully to", recipientEmail);
 
     // Return success response
     res.json({

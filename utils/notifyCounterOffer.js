@@ -14,7 +14,6 @@ export const notifyCounterOffer = async (offer, counterData) => {
     // Fetch shop - ADDED countryCode and plan
     const shop = await Shop.findById(shopId).select("email phone countryCode businessName ownerName plan");
     if (!shop) {
-      console.log("⚠️ Shop not found for counter offer notification");
       return;
     }
 
@@ -45,7 +44,6 @@ export const notifyCounterOffer = async (offer, counterData) => {
 
     // ---------------------- EMAIL ----------------------
     await sendEmail(shop.email, subject, html);
-    console.log("📧 Counter offer email sent to shop:", shop.email);
 
     // ---------------------- TWILIO SMS ----------------------
     if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
@@ -96,19 +94,12 @@ Check your dashboard for details.
       `;
 
       try {
-        console.log(`📱 Attempting to send SMS to ${fullPhone} for shop ${shop.businessName}...`);
         
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
-
-        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for shop ${shop.businessName}`);
-        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
-        console.log(`   Message Status: ${twilioMessage.status}`);
-        console.log(`   Message Price: ${twilioMessage.price || 'N/A'}`);
-        console.log(`   Message Date Created: ${twilioMessage.dateCreated}`);
         
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for shop ${shop.businessName}:`, {
@@ -130,10 +121,7 @@ Check your dashboard for details.
           console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
         }
       }
-    } else {
-      console.log(`📱 No phone number available for shop ${shop.businessName}, skipping SMS`);
-    }
-
+    } 
   } catch (err) {
     console.error("❌ Error notifying shop about counter offer:", {
       error: err.message,

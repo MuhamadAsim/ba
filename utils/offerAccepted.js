@@ -10,7 +10,6 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     // Fetch shop
     const shop = await Shop.findById(shopId).select("email phone countryCode businessName ownerName plan");
     if (!shop) {
-      console.log("⚠️ Shop not found for notification");
       return;
     }
 
@@ -40,7 +39,6 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
 
     // ---------------------- SENDGRID EMAIL ----------------------
     await sendEmail(shop.email, subject, html);
-    console.log("📧 Email sent to shop:", shop.email);
 
     // ---------------------- TWILIO SMS ----------------------
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -90,7 +88,6 @@ ${bid ? `Category: ${bid.requestCategory}` : ""}
       }
 
       try {
-        console.log(`📱 Attempting to send SMS to ${fullPhone} for shop ${shop.businessName}...`);
         
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
@@ -98,11 +95,7 @@ ${bid ? `Category: ${bid.requestCategory}` : ""}
           to: fullPhone,
         });
 
-        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for shop ${shop.businessName}`);
-        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
-        console.log(`   Message Status: ${twilioMessage.status}`);
-        console.log(`   Message Price: ${twilioMessage.price || 'N/A'}`);
-        console.log(`   Message Date Created: ${twilioMessage.dateCreated}`);
+    
         
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
@@ -124,9 +117,7 @@ ${bid ? `Category: ${bid.requestCategory}` : ""}
           console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
         }
       }
-    } else {
-      console.log(`📱 No phone number available for shop ${shop.businessName}, skipping SMS`);
-    }
+    } 
 
   } catch (err) {
     console.error("❌ Error notifying shop:", err);

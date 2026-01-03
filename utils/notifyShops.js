@@ -19,180 +19,6 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-// // ---------------------- Notify Shops For Bid ----------------------
-// export const notifyShopsForBid = async (newBid, customer) => {
-//   try {
-//     // ---------------------- 1️⃣ GET BID LOCATION (Use bid's location, not customer's) ----------------------
-//     const bidLocation = {
-//       latitude: newBid.latitude,
-//       longitude: newBid.longitude,
-//       address: newBid.address,
-//       country: newBid.country,
-//       zipCode: newBid.zipCode,
-//     };
-
-//     console.log("📍 Bid Location Data:", {
-//       latitude: bidLocation.latitude,
-//       longitude: bidLocation.longitude,
-//       address: bidLocation.address,
-//       zipCode: bidLocation.zipCode,
-//       country: bidLocation.country,
-//     });
-
-//     // Validate bid has location
-//     if (!bidLocation.latitude || !bidLocation.longitude) {
-//       console.log("❌ Bid missing location coordinates. Cannot filter shops.");
-//       return;
-//     }
-
-//     const customerLat = bidLocation.latitude;
-//     const customerLng = bidLocation.longitude;
-
-//     // ---------------------- 2️⃣ GET VERIFIED SHOPS ----------------------
-//     const shops = await Shop.find({
-//       status: "active",
-//       isEmailVerified: true,
-//       isVerified: true,
-//     }).select("email phone countryCode businessName ownerName location latitude longitude plan");
-
-//     if (!shops.length) {
-//       console.log("⚠️ No shops found.");
-//       return;
-//     }
-
-//     // ---------------------- 3️⃣ FILTER BY RADIUS (≤15 miles) USING BID LOCATION ----------------------
-//     const nearbyShops = shops.filter((shop) => {
-//       let shopLat = null;
-//       let shopLng = null;
-
-//       if (shop.location?.coordinates?.length === 2) {
-//         shopLng = shop.location.coordinates[0];
-//         shopLat = shop.location.coordinates[1];
-//       } else if (shop.latitude && shop.longitude) {
-//         shopLat = shop.latitude;
-//         shopLng = shop.longitude;
-//       }
-
-//       if (!shopLat || !shopLng) {
-//         console.log(`⚠️ Shop ${shop.businessName} missing location data`);
-//         return false;
-//       }
-
-//       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
-//       const isWithinRadius = distance <= MAX_RADIUS_MILES;
-
-//       if (isWithinRadius) {
-//         console.log(`✅ Shop ${shop.businessName} is ${distance.toFixed(2)} miles away`);
-//       }
-
-//       return isWithinRadius;
-//     });
-
-//     console.log(`📍 ${nearbyShops.length} shops found within ${MAX_RADIUS_MILES} miles of bid location.`);
-
-//     if (!nearbyShops.length) {
-//       console.log("⚠️ No shops within radius.");
-//       return;
-//     }
-
-//     // ---------------------- 4️⃣ EMAIL + SMS TEMPLATES ----------------------
-//     const customerName = customer.name || "Customer";
-//     const subject = `${customerName} posted a bid`;
-
-//     const buildEmailHTML = () => {
-//       // Get first letter of each name part
-//       const getInitials = (name) => {
-//         if (!name) return '';
-//         return name
-//           .trim()
-//           .split(/\s+/)
-//           .map(part => part.charAt(0).toUpperCase())
-//           .join(' ');
-//       };
-
-//       const customerInitials = getInitials(customerName);
-
-//       return `
-//       <h2>${customerInitials} posted a new bid</h2>
-//       <p><strong>Email:</strong> ${customer.email}</p>
-//       <p><strong>Category:</strong> ${newBid.requestCategory}</p>
-//       <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
-//       <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
-//       <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
-//       <p><strong>Coordinates:</strong> ${bidLocation.latitude?.toFixed(6)}, ${bidLocation.longitude?.toFixed(6)}</p>
-//       <hr/>
-//       <p>You received this because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
-//     `;
-//     };
-
-//     const buildSMSText = () => `
-// ${customerName} posted a new bid!
-// Category: ${newBid.requestCategory}
-// Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
-// Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Check dashboard'}
-// Login to view.
-//     `;
-
-//     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-
-//     // ---------------------- 5️⃣ SEND NOTIFICATIONS ----------------------
-//     const notificationPromises = [];
-
-//     for (const shop of nearbyShops) {
-//       const emailHTML = buildEmailHTML();
-//       const smsText = buildSMSText();
-
-//       const sendNotifications = async () => {
-//         try {
-//           // EMAIL
-//           await sendEmail(shop.email, subject, emailHTML);
-//           console.log(`📧 Email sent → ${shop.email}`);
-
-//           // SMS
-//           if (shop.phone) {
-//             const fullPhone = `${shop.countryCode || "+1"}${shop.phone}`;
-
-//             await twilioClient.messages.create({
-//               body: smsText,
-//               from: process.env.TWILIO_PHONE_NUMBER,
-//               to: fullPhone,
-//             });
-
-//             console.log(`📱 SMS sent → ${fullPhone}`);
-//           }
-//         } catch (err) {
-//           console.error(`❌ Notification error for shop ${shop.businessName}:`, err.message);
-//         }
-//       };
-
-//       // Professional plan shops get immediate notifications
-//       // Basic plan shops get delayed notifications
-//       if (shop.plan === "professional") {
-//         notificationPromises.push(sendNotifications());
-//       } else {
-//         notificationPromises.push(
-//           new Promise(resolve => {
-//             setTimeout(async () => {
-//               await sendNotifications();
-//               resolve();
-//             }, 60 * 60 * 1000); // 1-hour delay
-//           })
-//         );
-//       }
-//     }
-
-//     // Wait for all notifications to complete
-//     await Promise.allSettled(notificationPromises);
-
-//     console.log("✅ Notification workflow complete.");
-//   } catch (error) {
-//     console.error("❌ Error in notifyShopsForBid:", error);
-//   }
-// };
-
-
-
-
 
 // ---------------------- Notify Shops For Bid ----------------------
 export const notifyShopsForBid = async (newBid, customer) => {
@@ -206,17 +32,10 @@ export const notifyShopsForBid = async (newBid, customer) => {
       zipCode: newBid.zipCode,
     };
 
-    console.log("📍 Bid Location Data:", {
-      latitude: bidLocation.latitude,
-      longitude: bidLocation.longitude,
-      address: bidLocation.address,
-      zipCode: bidLocation.zipCode,
-      country: bidLocation.country,
-    });
+
 
     // Validate bid has location
     if (!bidLocation.latitude || !bidLocation.longitude) {
-      console.log("❌ Bid missing location coordinates. Cannot filter shops.");
       return;
     }
 
@@ -231,11 +50,9 @@ export const notifyShopsForBid = async (newBid, customer) => {
     }).select("email phone countryCode businessName ownerName location latitude longitude plan");
 
     if (!shops.length) {
-      console.log("⚠️ No shops found.");
       return;
     }
 
-    console.log(`📊 Found ${shops.length} verified shops in system`);
 
     // ---------------------- 3️⃣ FILTER BY RADIUS (≤15 miles) USING BID LOCATION ----------------------
     const nearbyShops = shops.filter((shop) => {
@@ -251,24 +68,19 @@ export const notifyShopsForBid = async (newBid, customer) => {
       }
 
       if (!shopLat || !shopLng) {
-        console.log(`⚠️ Shop ${shop.businessName} missing location data`);
         return false;
       }
 
       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
       const isWithinRadius = distance <= MAX_RADIUS_MILES;
 
-      if (isWithinRadius) {
-        console.log(`📍 Shop ${shop.businessName} is ${distance.toFixed(2)} miles away`);
-      }
+  
 
       return isWithinRadius;
     });
 
-    console.log(`📍 ${nearbyShops.length} shops found within ${MAX_RADIUS_MILES} miles of bid location.`);
 
     if (!nearbyShops.length) {
-      console.log("⚠️ No shops within radius.");
       return;
     }
 
@@ -324,7 +136,6 @@ Login to view.
         try {
           // EMAIL
           await sendEmail(shop.email, subject, emailHTML);
-          console.log(`📧 Email sent → ${shop.email}`);
 
           // SMS - WITH DETAILED LOGGING AND VALIDATION
           if (shop.phone) {
@@ -363,7 +174,6 @@ Login to view.
             }
 
             try {
-              console.log(`📱 Attempting to send SMS to ${fullPhone} for shop ${shop.businessName}...`);
               
               const message = await twilioClient.messages.create({
                 body: smsText,
@@ -371,11 +181,6 @@ Login to view.
                 to: fullPhone,
               });
 
-              console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for shop ${shop.businessName}`);
-              console.log(`   Twilio Message SID: ${message.sid}`);
-              console.log(`   Message Status: ${message.status}`);
-              console.log(`   Message Price: ${message.price || 'N/A'}`);
-              console.log(`   Message Date Created: ${message.dateCreated}`);
               
             } catch (twilioError) {
               console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
@@ -397,9 +202,7 @@ Login to view.
                 console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
               }
             }
-          } else {
-            console.log(`📱 No phone number available for shop ${shop.businessName}, skipping SMS`);
-          }
+          } 
         } catch (err) {
           console.error(`❌ Notification error for shop ${shop.businessName}:`, {
             error: err.message,
@@ -411,14 +214,11 @@ Login to view.
       // Professional plan shops get immediate notifications
       // Basic plan shops get delayed notifications
       if (shop.plan === "professional") {
-        console.log(`⚡ Immediate notification scheduled for ${shop.businessName} (Professional plan)`);
         notificationPromises.push(sendNotifications());
       } else {
-        console.log(`⏰ Delayed notification scheduled for ${shop.businessName} (Basic plan - 1 hour delay)`);
         notificationPromises.push(
           new Promise(resolve => {
             setTimeout(async () => {
-              console.log(`⏰ Now sending delayed notification to ${shop.businessName}`);
               await sendNotifications();
               resolve();
             }, 60 * 60 * 1000); // 1-hour delay
@@ -428,17 +228,13 @@ Login to view.
     }
 
     // Wait for all notifications to complete
-    console.log(`🔄 Waiting for ${notificationPromises.length} notifications to complete...`);
     const results = await Promise.allSettled(notificationPromises);
     
     // Log summary of notification results
     const fulfilled = results.filter(r => r.status === 'fulfilled').length;
     const rejected = results.filter(r => r.status === 'rejected').length;
     
-    console.log(`📊 Notification Summary:`);
-    console.log(`   ✅ Successful: ${fulfilled}`);
-    console.log(`   ❌ Failed: ${rejected}`);
-    console.log(`   📨 Total shops notified: ${nearbyShops.length}`);
+ 
 
     // Log any rejected promises
     results.forEach((result, index) => {
@@ -447,7 +243,6 @@ Login to view.
       }
     });
 
-    console.log("✅ Notification workflow complete.");
   } catch (error) {
     console.error("❌ Error in notifyShopsForBid:", {
       error: error.message,

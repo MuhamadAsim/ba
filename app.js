@@ -32,7 +32,6 @@ app.use("/uploads", express.static("uploads"));
 // ✅ ATTACH SOCKET.IO TO REQ (BEFORE ROUTES)
 app.use((req, res, next) => {
   req.io = req.app.get("io");
-  console.log("✅ req.io attached");
   next();
 });
 

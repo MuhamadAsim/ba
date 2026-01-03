@@ -6,6 +6,7 @@ import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js";
 import { notifyShopsForBid } from "../utils/notifyShops.js";
 
+
 export const createBid = async (req, res) => {
   try {
     const {
@@ -133,41 +134,6 @@ export const createBid = async (req, res) => {
       }
     }
 
-    // ============================================
-    // 🚫 CHECK DAILY BID LIMIT (MAX 2 BIDS PER DAY)
-    // ============================================
-    // Get the start of today (midnight)
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    // Get the end of today (23:59:59)
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-
-    // Count how many bids this user has created today
-    const todaysBidCount = await Bid.countDocuments({
-      user_id: user._id,
-      createdAt: {
-        $gte: startOfToday,
-        $lte: endOfToday
-      }
-    });
-
-    // If user has already created 2 bids today, block new submission
-    if (todaysBidCount >= 3) {
-      return res.status(429).json({
-        success: false,
-        message: "Daily limit reached",
-        error: `You have already submitted ${todaysBidCount} bids today. The limit is 2 bids per day. Please try again tomorrow.`,
-        limit: 3,
-        used: todaysBidCount,
-        resetsAt: new Date(endOfToday.getTime() + 1).toISOString() // When limit resets
-      });
-    }
-
-    // Calculate bids remaining for today
-    const bidsRemaining = 3 - todaysBidCount;
-
     // Create the bid with ALL fields
     const newBid = new Bid({
       // Vehicle Details
@@ -270,13 +236,7 @@ export const createBid = async (req, res) => {
       success: true,
       message: "✅ Bid submitted successfully",
       data: newBid,
-      note: `Local shops are being notified. You'll receive bids within 24-48 hours.`,
-      dailyLimit: {
-        max: 3,
-        used: todaysBidCount + 1, // +1 for this new bid
-        remaining: bidsRemaining - 1,
-        resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
-      }
+      note: `Local shops are being notified. You'll receive bids within 24-48 hours.`
     });
 
   } catch (error) {

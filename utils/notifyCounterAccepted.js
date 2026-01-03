@@ -14,7 +14,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     );
 
     if (!bid) {
-      console.log("⚠️ Bid not found (notifyCounterAccepted)");
       return;
     }
 
@@ -24,7 +23,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     );
 
     if (!customer) {
-      console.log("⚠️ Customer not found (notifyCounterAccepted)");
       return;
     }
 
@@ -34,7 +32,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     );
 
     if (!shop) {
-      console.log("⚠️ Shop not found (notifyCounterAccepted)");
       return;
     }
 
@@ -63,7 +60,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     // Send EMAIL
     if (method === "email" || method === "both") {
       await sendEmail(customer.email, subject, html);
-      console.log("📧 Counter-accepted email sent to:", customer.email);
     }
 
     // Send SMS
@@ -98,7 +94,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
         return;
       }
       
-      console.log(`📱 Formatted phone for Twilio: ${fullPhone}`);
       
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
@@ -117,7 +112,6 @@ Your bid is now in progress.
       `;
 
       try {
-        console.log(`📱 Attempting to send SMS to ${fullPhone} for customer ${customer.name}...`);
         
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
@@ -125,9 +119,7 @@ Your bid is now in progress.
           to: fullPhone,
         });
 
-        console.log(`✅ SMS SUCCESSFULLY sent to ${fullPhone} for customer ${customer.name}`);
-        console.log(`   Twilio Message SID: ${twilioMessage.sid}`);
-        console.log(`   Message Status: ${twilioMessage.status}`);
+    
         
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
@@ -143,8 +135,6 @@ Your bid is now in progress.
           console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
         }
       }
-    } else if ((method === "sms" || method === "both") && !customer.phone) {
-      console.log(`📱 Customer ${customer.name} has no phone number, skipping SMS`);
     }
 
     // -----------------------------

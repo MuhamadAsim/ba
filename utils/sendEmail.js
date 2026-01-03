@@ -11,11 +11,9 @@ export const sendEmail = async (to, subject, html) => {
     subject,
     html,
   };
-  console.log("Sending email to:", to, "Subject:", subject, "From:", process.env.SENDGRID_SENDER);
 
   try {
     await sgMail.send(msg);
-    console.log("✅ Email sent successfully to", to);
   } catch (error) {
     console.error("❌ Email send error:", error.response?.body || error);
     throw new Error("Failed to send email");

@@ -647,10 +647,6 @@ export const cancelBid = async (req, res) => {
 
 
 
-
-
-
-
 export const repostBid = async (req, res) => {
   let session = null;
   try {
@@ -679,36 +675,6 @@ export const repostBid = async (req, res) => {
         message: "Not authorized to repost this bid"
       });
     }
-
-    // ============================================
-    // 🚫 CHECK DAILY BID LIMIT (MAX 2 BIDS PER DAY)
-    // ============================================
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-
-    const todaysBidCount = await Bid.countDocuments({
-      user_id: userId,
-      createdAt: {
-        $gte: startOfToday,
-        $lte: endOfToday
-      }
-    });
-
-    if (todaysBidCount >= 2) {
-      return res.status(429).json({
-        success: false,
-        message: "Daily limit reached",
-        error: `You have already submitted ${todaysBidCount} bids today. The limit is 2 bids per day. Please try again tomorrow.`,
-        limit: 2,
-        used: todaysBidCount,
-        resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
-      });
-    }
-
-    const bidsRemaining = 2 - todaysBidCount;
 
     // Store old bid data - Get ALL fields as plain object
     const oldBidData = oldBid.toObject();
@@ -855,13 +821,7 @@ export const repostBid = async (req, res) => {
         createdAt: newBid.createdAt,
         offersCount: 0,
       },
-      note: "Local shops are being notified. You'll receive bids within 24-48 hours.",
-      dailyLimit: {
-        max: 2,
-        used: todaysBidCount + 1,
-        remaining: bidsRemaining - 1,
-        resetsAt: new Date(endOfToday.getTime() + 1).toISOString()
-      }
+      note: "Local shops are being notified. You'll receive bids within 24-48 hours."
     });
 
   } catch (err) {
@@ -900,9 +860,6 @@ export const repostBid = async (req, res) => {
     }
   }
 };
-
-
-
 
 
 
@@ -1146,7 +1103,6 @@ export const getShopRatingSummary = async (req, res) => {
   try {
     const { shopId } = req.params;
 
-    console.log("📩 Incoming shopId:", shopId);
 
     const stats = await Review.aggregate([
       { $match: { shop: new mongoose.Types.ObjectId(shopId) } },
@@ -1159,11 +1115,9 @@ export const getShopRatingSummary = async (req, res) => {
       }
     ]);
 
-    console.log("🔍 Aggregation Match Result:", stats);
 
     // If no reviews exist
     if (stats.length === 0) {
-      console.log("ℹ️ No reviews found for shop:", shopId);
       return res.json({
         shopId,
         averageRating: 0,

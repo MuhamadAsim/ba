@@ -6,7 +6,7 @@ import Offer from "../models/offerModel.js";
 import Event from "../models/eventModel.js";
 import { notifyNewOffer } from "../utils/notifyNewOffer.js";
 import { notifyCounterAccepted } from "../utils/notifyCounterAccepted.js";
-import { notifyBidCompleted } from "../utils/notifyBidCompleted.js";'@sendgrid/mail'
+import { notifyBidCompleted } from "../utils/notifyBidCompleted.js"; '@sendgrid/mail'
 import BidActivity from "../models/bidLogsModel.js";
 
 dotenv.config();
@@ -148,15 +148,15 @@ export const getBidHistory = async (req, res) => {
       }
 
       // Get customer name
-      const customerName = activity.customer_id?.name || 
-                          activity.customer_snapshot?.name || 
-                          'Customer';
+      const customerName = activity.customer_id?.name ||
+        activity.customer_snapshot?.name ||
+        'Customer';
 
       // Get bid details
-      const bidTitle = activity.bid_id?.title || 
-                      activity.bid_id?.serviceDescription || 
-                      activity.bid_snapshot?.bid_title || 
-                      'Untitled Bid';
+      const bidTitle = activity.bid_id?.title ||
+        activity.bid_id?.serviceDescription ||
+        activity.bid_snapshot?.bid_title ||
+        'Untitled Bid';
 
       return {
         id: activity._id,
@@ -271,7 +271,7 @@ export const getBidHistory = async (req, res) => {
 export const getBidHistorySummary = async (req, res) => {
   try {
     const shopId = req.shop._id;
-    
+
     // Get last 30 days date
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -281,11 +281,11 @@ export const getBidHistorySummary = async (req, res) => {
       shop_id: shopId,
       createdAt: { $gte: thirtyDaysAgo }
     })
-    .sort({ createdAt: -1 })
-    .limit(10)
-    .populate('customer_id', 'name')
-    .populate('bid_id', 'serviceDescription vehicleMake vehicleModel')
-    .lean();
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate('customer_id', 'name')
+      .populate('bid_id', 'serviceDescription vehicleMake vehicleModel')
+      .lean();
 
     // Get statistics for dashboard
     const stats = await BidActivity.aggregate([
@@ -297,26 +297,26 @@ export const getBidHistorySummary = async (req, res) => {
             { $group: { _id: "$activity_type", count: { $sum: 1 } } }
           ],
           recent_30_days: [
-            { 
-              $match: { 
-                createdAt: { $gte: thirtyDaysAgo } 
-              } 
+            {
+              $match: {
+                createdAt: { $gte: thirtyDaysAgo }
+              }
             },
             { $count: "count" }
           ],
           offers_made: [
-            { 
-              $match: { 
-                activity_type: "offer_made" 
-              } 
+            {
+              $match: {
+                activity_type: "offer_made"
+              }
             },
             { $count: "count" }
           ],
           completed_bids: [
-            { 
-              $match: { 
-                activity_type: "bid_completed" 
-              } 
+            {
+              $match: {
+                activity_type: "bid_completed"
+              }
             },
             { $count: "count" }
           ]
@@ -370,11 +370,11 @@ export const getBidActivities = async (req, res) => {
       shop_id: shopId,
       bid_id: bidId
     })
-    .sort({ createdAt: -1 })
-    .populate('customer_id', 'name email')
-    .populate('offer_id', 'price status')
-    .populate('counter_offer_id', 'counterPrice status')
-    .lean();
+      .sort({ createdAt: -1 })
+      .populate('customer_id', 'name email')
+      .populate('offer_id', 'price status')
+      .populate('counter_offer_id', 'counterPrice status')
+      .lean();
 
     // Format activities for this specific bid
     const formattedActivities = activities.map(activity => ({
@@ -514,7 +514,7 @@ const getActivityColorClass = (type) => {
 const getActivityDescription = (activity) => {
   const customerName = activity.customer_id?.name || activity.customer_snapshot?.name || 'Customer';
   const bidTitle = activity.bid_id?.serviceDescription || activity.bid_snapshot?.bid_title || 'Untitled Bid';
-  
+
   switch (activity.activity_type) {
     case 'offer_made':
       return `Made offer of $${activity.price} on "${bidTitle}" to ${customerName}`;
@@ -709,171 +709,13 @@ const METERS_PER_MILE = 1609.34;
 // Helper function to format name initials
 const formatNameInitials = (fullName) => {
   if (!fullName) return '';
-  
+
   // Split name into parts and get first letter of each part
   const nameParts = fullName.trim().split(/\s+/);
   const initials = nameParts.map(part => part.charAt(0).toUpperCase()).join(' ');
-  
+
   return initials;
 };
-
-// ============================================
-// GET AVAILABLE BIDS FOR SHOP (15-mile radius)
-// // ============================================
-// export const getAvailableBidsForShops = async (req, res) => {
-//   try {
-//     await updateExpiredBids();
-
-//     const shopId = req.shopId;
-
-//     // ---------------------- 1️⃣ GET SHOP LOCATION ----------------------
-//     const shop = await Shop.findById(shopId).select("location latitude longitude");
-
-//     if (!shop) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Shop not found",
-//       });
-//     }
-
-//     let shopLng = null;
-//     let shopLat = null;
-
-//     if (shop.location?.coordinates?.length === 2) {
-//       shopLng = shop.location.coordinates[0];
-//       shopLat = shop.location.coordinates[1];
-//     } else if (shop.latitude && shop.longitude) {
-//       shopLat = shop.latitude;
-//       shopLng = shop.longitude;
-//     }
-
-//     if (!shopLat || !shopLng) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Shop location not set",
-//       });
-//     }
-
-//     // ---------------------- 2️⃣ ACTIVE BIDS (15-MILE RADIUS) ----------------------
-//     const activeBids = await Bid.find({
-//       status: "active",
-//       location: {
-//         $nearSphere: {
-//           $geometry: {
-//             type: "Point",
-//             coordinates: [shopLng, shopLat],
-//           },
-//           $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
-//         },
-//       },
-//     })
-//       .populate({
-//         path: "user_id",
-//         select: "name email phone zip address", // Get all customer fields
-//       })
-//       .sort({ createdAt: -1 });
-
-//     // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
-//     const shopOffers = await Offer.find({ shopId })
-//       .populate("counterOffers.createdBy", "name")
-//       .lean();
-
-//     const offerMap = {};
-//     shopOffers.forEach((offer) => {
-//       offerMap[offer.bidId.toString()] = offer;
-//     });
-
-//     // ---------------------- 4️⃣ RELATED BIDS (ALREADY ASSIGNED) ----------------------
-//     const relatedBids = await Bid.find({
-//       currentShopId: shopId,
-//       status: { $in: ["in_progress", "completed"] },
-//     })
-//       .populate({
-//         path: "user_id",
-//         select: "name email phone zip address", // Get all customer fields
-//       })
-//       .sort({ createdAt: -1 });
-
-//     // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
-//     const allBidsMap = {};
-
-//     [...activeBids, ...relatedBids].forEach((bid) => {
-//       allBidsMap[bid._id.toString()] = bid.toObject();
-//     });
-
-//     // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
-//     const formattedBids = Object.values(allBidsMap).map((bid) => {
-//       const myOffer = offerMap[bid._id.toString()] || null;
-      
-//       // Extract customer info
-//       const customer = bid.user_id || {};
-      
-//       console.log("🔄 Processing bid:", bid._id); // DEBUG
-//       console.log("📦 Raw customer data:", customer); // DEBUG
-//       console.log("📫 Customer zip:", customer.zip); // DEBUG
-//       console.log("🏠 Customer address:", customer.address); // DEBUG
-      
-//       // Format based on bid status
-//       let customerInfo = {};
-      
-//       if (bid.status === "active") {
-//         // For active bids: initials only, no contact info
-//         customerInfo = {
-//           name: formatNameInitials(customer.name || ''),
-//           zip: customer.zip || '',
-//           address: customer.address || '',
-//           // No email/phone for active bids
-//         };
-//       } else {
-//         // For in_progress/completed bids: full info
-//         customerInfo = {
-//           name: customer.name || '',
-//           email: customer.email || '',
-//           phone: customer.phone || '',
-//           zip: customer.zip || '',
-//           address: customer.address || '',
-//         };
-//       }
-
-//       console.log("✅ Formatted customer info:", customerInfo); // DEBUG
-
-//       return {
-//         ...bid,
-//         user_id: customerInfo, // Replace populated object with formatted info
-//         hasOffered: !!myOffer,
-//         myOffer,
-//       };
-//     });
-
-//     // ---------------------- 7️⃣ RESPONSE ----------------------
-//     // Add debug info to response
-//     const responseData = {
-//       success: true,
-//       total: formattedBids.length,
-//       radiusMiles: MAX_RADIUS_MILES,
-//       bids: formattedBids,
-//       debug: formattedBids.length > 0 ? {
-//         sampleBid: {
-//           id: formattedBids[0]._id,
-//           status: formattedBids[0].status,
-//           user_id: formattedBids[0].user_id,
-//         }
-//       } : null
-//     };
-
-//     console.log("📤 Final response sample:", responseData.debug); // DEBUG
-    
-//     return res.status(200).json(responseData);
-//   } catch (error) {
-//     console.error("❌ Error fetching bids for shops:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch bids",
-//     });
-//   }
-// };
-
-
 
 
 
@@ -964,21 +806,21 @@ export const getAvailableBidsForShops = async (req, res) => {
     });
 
     // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
+    // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
     const formattedBids = Object.values(allBidsMap).map((bid) => {
       const myOffer = offerMap[bid._id.toString()] || null;
-      
+
       // Extract customer info
       const customer = bid.user_id || {};
-      
-      console.log("🔄 Processing bid:", bid._id);
-      console.log("📦 Raw customer data:", customer);
-      
+
+
       // Format based on bid status
       let customerInfo = {};
-      
+
       if (bid.status === "active") {
         // For active bids: initials only, no contact info
         customerInfo = {
+          _id: customer._id || customer.id || '', // ✅ CRITICAL: Include _id
           name: formatNameInitials(customer.name || ''),
           zip: customer.zip || '',
           address: customer.address || '',
@@ -987,6 +829,7 @@ export const getAvailableBidsForShops = async (req, res) => {
       } else {
         // For in_progress/completed bids: full info
         customerInfo = {
+          _id: customer._id || customer.id || '', // ✅ CRITICAL: Include _id
           name: customer.name || '',
           email: customer.email || '',
           phone: customer.phone || '',
@@ -995,8 +838,8 @@ export const getAvailableBidsForShops = async (req, res) => {
         };
       }
 
-      console.log("✅ Formatted customer info:", customerInfo);
-      
+
+
       // ✅ Extract appointment data from accepted offer for in-progress/completed bids
       let appointmentData = null;
       if (bid.status === "in_progress" || bid.status === "completed") {
@@ -1039,8 +882,7 @@ export const getAvailableBidsForShops = async (req, res) => {
       } : null
     };
 
-    console.log("📤 Final response sample:", responseData.debug);
-    
+
     return res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ Error fetching bids for shops:", error);
@@ -1090,9 +932,9 @@ export const getShopStats = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error fetching partner stats:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to fetch partner statistics" 
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch partner statistics"
     });
   }
 };
@@ -1140,17 +982,17 @@ const createShopSnapshot = (shop) => {
 export const makeOffer = async (req, res) => {
   try {
     // Accept all fields including appointment details
-    const { 
-      bidId, 
-      price, 
-      note, 
+    const {
+      bidId,
+      price,
+      note,
       message,
       appointmentDate,
       appointmentTime,
       estimatedCompletionDays,
-      workingHours 
+      workingHours
     } = req.body;
-    
+
     const shopId = req.user?._id || req.shopId;
 
     // Use whichever is provided (message takes priority)
@@ -1158,19 +1000,16 @@ export const makeOffer = async (req, res) => {
 
     // 1️⃣ Validate input
     if (!bidId || !price) {
-      console.log("❌ Missing bidId or price");
       return res.status(400).json({ message: "Bid ID and price are required." });
     }
 
     // 2️⃣ Verify the bid exists
     const bid = await Bid.findById(bidId).populate('user_id');
     if (!bid) {
-      console.log("❌ Bid not found:", bidId);
       return res.status(404).json({ message: "Bid not found." });
     }
 
     if (bid.status !== "active") {
-      console.log("❌ Bid not active:", bid.status);
       return res.status(400).json({ message: "Cannot make an offer on this bid." });
     }
 
@@ -1180,14 +1019,12 @@ export const makeOffer = async (req, res) => {
     // 3️⃣ Verify shop
     const shop = await Shop.findById(shopId);
     if (!shop) {
-      console.log("❌ Shop not found:", shopId);
       return res.status(404).json({ message: "Shop not found or not authorized." });
     }
 
     // 4️⃣ Check for duplicate offers
     const existingOffer = await Offer.findOne({ bidId, shopId });
     if (existingOffer) {
-      console.log("⚠️ Duplicate offer by same shop for same bid");
       return res.status(400).json({ message: "You have already made an offer for this bid." });
     }
 
@@ -1211,7 +1048,6 @@ export const makeOffer = async (req, res) => {
     bid.offers.push(offer._id);
     await bid.save();
 
-    console.log("🔗 Linked offer to bid successfully");
 
     // Prepare metadata for activity logging
     const offerMetadata = {
@@ -1245,7 +1081,6 @@ export const makeOffer = async (req, res) => {
       });
 
       await activityLog.save();
-      console.log("📝 Activity logged: offer_made");
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
       // Don't fail the main operation if activity logging fails
@@ -1276,8 +1111,8 @@ export const makeOffer = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: offerMetadata.hasAppointment 
-        ? "Offer with appointment details submitted successfully." 
+      message: offerMetadata.hasAppointment
+        ? "Offer with appointment details submitted successfully."
         : "Offer submitted successfully.",
       data: {
         ...offer.toObject(),
@@ -1413,7 +1248,7 @@ export const getShops = async (req, res) => {
       plan: shop.plan || "",
       startDate: shop.startDate || "",
       distance: shop.distance ? (shop.distance / 1000).toFixed(2) : null,
-      
+
       // ✅ ADD NEW FIELDS TO RESPONSE (maintaining existing format)
       yearsExperience: shop.yearsExperience || "",
       financingOffered: shop.financingOffered || false,
@@ -1710,7 +1545,6 @@ export const acceptCounterOffer = async (req, res) => {
       });
 
       await activityLog.save();
-      console.log("📝 Activity logged: counter_offer_accepted");
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
       // Don't fail the main operation if activity logging fails
@@ -1848,7 +1682,6 @@ export const rejectCounterOffer = async (req, res) => {
       });
 
       await activityLog.save();
-      console.log("📝 Activity logged: counter_offer_rejected");
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
       // Don't fail the main operation if activity logging fails
@@ -1908,7 +1741,7 @@ export const markBidCompleted = async (req, res) => {
 
     // Find the bid with populated user data
     const bid = await Bid.findById(bidId).populate('user_id');
-    
+
     if (!bid) {
       return res.status(404).json({
         success: false,
@@ -1973,7 +1806,6 @@ export const markBidCompleted = async (req, res) => {
       });
 
       await activityLog.save();
-      console.log("📝 Activity logged: bid_completed");
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
       // Don't fail the main operation if activity logging fails
@@ -2088,8 +1920,8 @@ export const changePlan = async (req, res) => {
 
     // Validate plan
     if (!plan || !['basic', 'professional'].includes(plan)) {
-      return res.status(400).json({ 
-        message: 'Invalid plan. Must be either "basic" or "professional"' 
+      return res.status(400).json({
+        message: 'Invalid plan. Must be either "basic" or "professional"'
       });
     }
 
@@ -2101,8 +1933,8 @@ export const changePlan = async (req, res) => {
 
     // Check if already on this plan
     if (shop.plan === plan) {
-      return res.status(400).json({ 
-        message: `You are already on the ${plan} plan` 
+      return res.status(400).json({
+        message: `You are already on the ${plan} plan`
       });
     }
 
@@ -2115,7 +1947,7 @@ export const changePlan = async (req, res) => {
     await shop.save();
 
     const action = plan === 'professional' ? 'upgraded' : 'downgraded';
-    
+
     res.status(200).json({
       message: `Successfully ${action} from ${previousPlan} to ${plan} plan`,
       plan: shop.plan,

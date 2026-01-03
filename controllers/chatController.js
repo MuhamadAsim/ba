@@ -20,7 +20,6 @@ export const searchShops = async (req, res) => {
 
     // Validate inputs
     if (q.length < 2) {
-      console.log("⚠️ Search query too short:", q);
       return res.json({
         shops: [],
         total: 0,
@@ -76,7 +75,6 @@ export const searchShops = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    console.log(`📊 Executing search for: "${q}" - Page: ${page}, Limit: ${limit}, Skip: ${skip}`);
 
     const [shops, total] = await Promise.all([
       Shop.find(filter)
@@ -88,7 +86,6 @@ export const searchShops = async (req, res) => {
       Shop.countDocuments(filter),
     ]);
 
-    console.log(`✅ Search completed: Found ${total} shops, returning ${shops.length} for page ${page}`);
 
     // Format the response with additional info
     const result = {
@@ -161,7 +158,6 @@ export const getOrCreateChat = async (req, res) => {
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    console.log("Creating/Getting chat - Customer:", customerId, "Shop:", shopId, "Shop-to-shop:", isShopToShop);
 
     // ----- VALIDATE INPUT -----
     if (!customerId || !shopId) {
@@ -603,11 +599,9 @@ export const sendMessage = async (req, res) => {
     // ✅ GET the saved message with its _id
     const savedMessage = chat.messages[chat.messages.length - 1];
 
-    console.log("✅ Message saved with ID:", savedMessage._id);
 
     // ✅ EMIT ONLY TO OTHER USERS (NOT THE SENDER)
     if (req.io) {
-      console.log("📡 Emitting newMessage to room (excluding sender):", chatId);
       
       req.io.to(chatId).emit("newMessage", {
         _id: savedMessage._id,
@@ -621,7 +615,6 @@ export const sendMessage = async (req, res) => {
         chatId,
       });
 
-      console.log("📡 Emitting chatUpdated to room:", chatId);
       req.io.to(chatId).emit("chatUpdated", {
         chatId,
         lastMessage: savedMessage.text,
