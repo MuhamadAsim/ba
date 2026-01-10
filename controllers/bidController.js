@@ -6,7 +6,6 @@ import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js";
 import { notifyShopsForBid } from "../utils/notifyShops.js";
 
-
 export const createBid = async (req, res) => {
   try {
     const {
@@ -50,6 +49,12 @@ export const createBid = async (req, res) => {
       ppfCoverage,
       addCeramicCoating,
       
+      // Detailing fields
+      packageExterior,
+      packageInterior,
+      packageWheelsBrakes,
+      detailLevel,
+      
       // Contact Info
       contactMethod,
       dueDate,
@@ -89,6 +94,7 @@ export const createBid = async (req, res) => {
     const exampleFiles = (req.files?.["exampleFiles"] || []).map(f => f.path);
     const coatingPhotos = (req.files?.["coatingPhotos"] || []).map(f => f.path);
     const ppfPhotos = (req.files?.["ppfPhotos"] || []).map(f => f.path);
+    const detailPhotos = (req.files?.["detailPhotos"] || []).map(f => f.path);
 
     // Guest submission case
     if (!user) {
@@ -176,6 +182,12 @@ export const createBid = async (req, res) => {
       ppfCoverage,
       addCeramicCoating,
       
+      // Detailing fields
+      packageExterior: packageExterior === 'true' || packageExterior === true,
+      packageInterior: packageInterior === 'true' || packageInterior === true,
+      packageWheelsBrakes: packageWheelsBrakes === 'true' || packageWheelsBrakes === true,
+      detailLevel,
+      
       // Contact Info
       contactMethod,
       dueDate: dueDate ? new Date(dueDate) : null,
@@ -201,6 +213,7 @@ export const createBid = async (req, res) => {
       exampleFiles,
       coatingPhotos,
       ppfPhotos,
+      detailPhotos,
       
       user_id: user._id,
     });

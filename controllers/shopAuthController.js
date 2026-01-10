@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import VerificationRequest from "../models/updateProfileModel.js";
+import Stripe from 'stripe';
 
 
 dotenv.config();
@@ -185,8 +186,204 @@ export const verifyOtp = async (req, res) => {
 };
 
 
+// // ============================================
+// // FIXED: signin with shop.isVerified check
+// // ============================================
+// export const signin = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     const shop = await Shop.findOne({ email });
+//     if (!shop)
+//       return res.json({
+//         status: "invalid_credentials",
+//         message: "Invalid email or password",
+//       });
+
+//     if (shop.registrationMethod === "google") {
+//       return res.json({
+//         status: "google_auth_required",
+//         message: "This account was created with Google. Please sign in with Google.",
+//         redirectToGoogle: true
+//       });
+//     }
+
+//     const isMatch = await bcrypt.compare(password, shop.password);
+//     if (!isMatch)
+//       return res.json({
+//         status: "invalid_credentials",
+//         message: "Invalid email or password",
+//       });
+
+//     // ============================
+//     // STEP 1: Check if shop is blocked
+//     // ============================
+//     if (shop.isBlocked === true || shop.status === "blocked") {
+//       return res.json({
+//         status: "blocked",
+//         message: "Your shop account has been blocked. Please contact support.",
+//         blockedAt: shop.blockedAt,
+//         blockedReason: shop.blockedReason || "Account suspended"
+//       });
+//     }
+
+//     // ============================
+//     // STEP 2: Email must be verified
+//     // ============================
+//     if (!shop.isEmailVerified) {
+//       const otp = generateOtp();
+//       shop.otp = otp;
+//       shop.otpExpiry = Date.now() + 10 * 60 * 1000;
+//       await shop.save();
+
+//       await sendOtpEmail(email, otp);
+
+//       return res.json({
+//         status: "not_verified",
+//         message: "Email not verified. OTP sent to your email.",
+//       });
+//     }
+
+//     // ============================
+//     // STEP 3: Admin approval required
+//     // ============================
+//     if (!shop.isVerified) {
+//       return res.json({
+//         status: "not_approved",
+//         message: "Your shop account is pending admin approval.",
+//       });
+//     }
+
+//     // ============================
+//     // STEP 4: Check if shop is active (not suspended/cancelled)
+//     // ============================
+//     if (shop.status !== "active") {
+//       return res.json({
+//         status: "inactive",
+//         message: `Your shop account is ${shop.status}. Please contact support.`,
+//       });
+//     }
+
+//     // ============================
+//     // STEP 5: Everything OK → login
+//     // ============================
+//     const token = jwt.sign(
+//       {
+//         shopId: shop._id,
+//         email: shop.email,
+//         role: "shop",
+//         isBlocked: shop.isBlocked,
+//         status: shop.status
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     res.json({
+//       status: "success",
+//       message: "Login successful",
+//       token,
+//       shop: {
+//         id: shop._id,
+//         email: shop.email,
+//         businessName: shop.businessName,
+//         ownerName: shop.ownerName,
+//         plan: shop.plan,
+//         avatar: shop.profilePic || "",
+
+//         // Contact
+//         countryCode: shop.countryCode,
+//         phone: shop.phone,
+//         ownerPhone: shop.ownerPhone, // Added
+//         website: shop.website,
+//         country: shop.country,
+//         zipCode: shop.zipCode,
+//         latitude: shop.latitude,
+//         longitude: shop.longitude,
+//         address: shop.address,
+
+//         // Services
+//         services: shop.services,
+//         vinylFilms: shop.vinylFilms,
+//         certificates: shop.certificates,
+//         certificateFiles: shop.certificateFiles,
+//         startDate: shop.startDate?.toISOString?.() || shop.startDate,
+//         bio: shop.additionalInfo || "",
+
+//         // Photos
+//         workSpacePhoto: shop.workSpacePhoto,
+//         storeFrontPhoto: shop.storeFrontPhoto,
+
+//         // Legal
+//         legalEntityName: shop.legalEntityName,
+//         insuranceCarrier: shop.insuranceCarrier,
+//         policyNumber: shop.policyNumber,
+//         policyExpiration: shop.policyExpiration,
+//         insuranceCertificate: shop.insuranceCertificate,
+
+//         // Social media
+//         instagramLink: shop.socialMedia?.instagram || "",
+//         facebookLink: shop.socialMedia?.facebook || "",
+//         linkedinLink: shop.socialMedia?.linkedin || "",
+
+//         // New fields from registration
+//         financingOffered: shop.financingOffered || false,
+//         acceptedPayments: shop.acceptedPayments || [],
+//         yearsExperience: shop.yearsExperience || "",
+//         businessHours: shop.businessHours || {
+//           monday: { open: "", close: "", closed: false },
+//           tuesday: { open: "", close: "", closed: false },
+//           wednesday: { open: "", close: "", closed: false },
+//           thursday: { open: "", close: "", closed: false },
+//           friday: { open: "", close: "", closed: false },
+//           saturday: { open: "", close: "", closed: false },
+//           sunday: { open: "", close: "", closed: false },
+//         },
+
+//         // Payment info
+//         paymentInfo: shop.paymentInfo || {},
+
+//         rating: shop.rating || 0,
+//         reviewCount: shop.reviewCount || 0,
+//         isEmailVerified: shop.isEmailVerified,
+//         isVerified: shop.isVerified,
+//         verifiedAt: shop.verifiedAt?.toISOString?.() || null,
+//         acceptedPolicy: shop.acceptedPolicy,
+//         policyAcceptedAt: shop.policyAcceptedAt?.toISOString?.() || null,
+//         status: shop.status,
+//         isBlocked: shop.isBlocked,
+//         blockedAt: shop.blockedAt,
+//         blockedReason: shop.blockedReason,
+
+//         // Additional fields if they exist
+//         ownerPhone: shop.ownerPhone, // Alias for ownerPhone
+//         additionalInfo: shop.additionalInfo || "",
+//         storeFrontPhoto: shop.storeFrontPhoto,
+//         workSpacePhoto: shop.workSpacePhoto,
+//       },
+//     });
+
+//   } catch (error) {
+//     console.error("Signin error:", error);
+//     res.status(500).json({
+//       status: "error",
+//       message: "Server error during signin",
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
 // ============================================
-// FIXED: signin with shop.isVerified check
+// FIXED: signin with shop.isVerified check + Subscription Data
 // ============================================
 export const signin = async (req, res) => {
   try {
@@ -264,7 +461,59 @@ export const signin = async (req, res) => {
     }
 
     // ============================
-    // STEP 5: Everything OK → login
+    // STEP 5: Check subscription status
+    // ============================
+    const subscriptionStatus = shop.subscriptionStatus;
+    const isInTrial = shop.isInTrial;
+    const hasActiveSubscription = shop.hasActiveSubscription;
+    const trialDaysRemaining = shop.trialDaysRemaining || 0;
+    const trialInfo = shop.trialInfo || {};
+
+    // Define subscription access rules
+    let shouldBlockAccess = false;
+    let subscriptionMessage = "";
+    let requiresPlanSelection = false;
+
+    // Check subscription scenarios
+    if (subscriptionStatus === "inactive" || subscriptionStatus === "incomplete") {
+      // New shop - needs to select a plan
+      requiresPlanSelection = true;
+      subscriptionMessage = "Please select a subscription plan to continue";
+    } else if (subscriptionStatus === "trialing") {
+      // In trial period
+      if (trialDaysRemaining <= 0) {
+        shouldBlockAccess = true;
+        subscriptionMessage = "Your trial has ended. Please select a plan to continue";
+      } else {
+        subscriptionMessage = `You have ${trialDaysRemaining} days left in your trial`;
+      }
+    } else if (subscriptionStatus === "past_due" || subscriptionStatus === "unpaid") {
+      // Payment failed
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your payment is past due. Please update your payment method";
+    } else if (subscriptionStatus === "cancelled" || subscriptionStatus === "incomplete_expired") {
+      // Subscription cancelled or expired
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your subscription has been cancelled. Please select a new plan";
+    } else if (subscriptionStatus === "paused") {
+      // Subscription paused
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your subscription is paused. Please contact support";
+    }
+
+    // Block access if subscription check fails
+    if (shouldBlockAccess) {
+      return res.json({
+        status: "subscription_required",
+        message: subscriptionMessage,
+        subscriptionStatus: subscriptionStatus,
+        requiresPlanSelection: true,
+        trialInfo: trialInfo
+      });
+    }
+
+    // ============================
+    // STEP 6: Everything OK → login
     // ============================
     const token = jwt.sign(
       {
@@ -272,16 +521,51 @@ export const signin = async (req, res) => {
         email: shop.email,
         role: "shop",
         isBlocked: shop.isBlocked,
-        status: shop.status
+        status: shop.status,
+        subscriptionStatus: shop.subscriptionStatus,
+        hasActiveSubscription: shop.hasActiveSubscription
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    // Prepare subscription data for frontend
+    const subscriptionData = {
+      status: subscriptionStatus,
+      isInTrial: isInTrial,
+      hasActiveSubscription: hasActiveSubscription,
+      trialDaysRemaining: trialDaysRemaining,
+      trialInfo: trialInfo,
+      requiresPlanSelection: requiresPlanSelection,
+
+      // Current subscription details
+      currentSubscription: shop.currentSubscription ? {
+        planName: shop.currentSubscription.planName,
+        amount: shop.currentSubscription.amount,
+        currency: shop.currentSubscription.currency,
+        interval: shop.currentSubscription.interval,
+        currentPeriodStart: shop.currentSubscription.currentPeriodStart,
+        currentPeriodEnd: shop.currentSubscription.currentPeriodEnd,
+        trialStart: shop.currentSubscription.trialStart,
+        trialEnd: shop.currentSubscription.trialEnd,
+        trialDays: shop.currentSubscription.trialDays,
+        cancelAtPeriodEnd: shop.currentSubscription.cancelAtPeriodEnd,
+        trialExtended: shop.currentSubscription.trialExtended,
+        stripeSubscriptionId: shop.stripeSubscriptionId
+      } : null,
+
+      // Plan information
+      plan: shop.plan,
+      planDisplay: shop.planDisplay,
+      planPrice: shop.planPrice,
+      stripePriceId: shop.stripePriceId
+    };
+
     res.json({
       status: "success",
       message: "Login successful",
       token,
+      subscription: subscriptionData,
       shop: {
         id: shop._id,
         email: shop.email,
@@ -293,7 +577,7 @@ export const signin = async (req, res) => {
         // Contact
         countryCode: shop.countryCode,
         phone: shop.phone,
-        ownerPhone: shop.ownerPhone, // Added
+        ownerPhone: shop.ownerPhone,
         website: shop.website,
         country: shop.country,
         zipCode: shop.zipCode,
@@ -339,9 +623,6 @@ export const signin = async (req, res) => {
           sunday: { open: "", close: "", closed: false },
         },
 
-        // Payment info
-        paymentInfo: shop.paymentInfo || {},
-
         rating: shop.rating || 0,
         reviewCount: shop.reviewCount || 0,
         isEmailVerified: shop.isEmailVerified,
@@ -354,11 +635,16 @@ export const signin = async (req, res) => {
         blockedAt: shop.blockedAt,
         blockedReason: shop.blockedReason,
 
+        // Subscription fields
+        subscriptionStatus: shop.subscriptionStatus,
+        stripeCustomerId: shop.stripeCustomerId,
+        stripeSubscriptionId: shop.stripeSubscriptionId,
+        hasActiveSubscription: shop.hasActiveSubscription,
+        isInTrial: shop.isInTrial,
+        trialDaysRemaining: shop.trialDaysRemaining,
+
         // Additional fields if they exist
-        ownerPhone: shop.ownerPhone, // Alias for ownerPhone
         additionalInfo: shop.additionalInfo || "",
-        storeFrontPhoto: shop.storeFrontPhoto,
-        workSpacePhoto: shop.workSpacePhoto,
       },
     });
 
@@ -370,6 +656,10 @@ export const signin = async (req, res) => {
     });
   }
 };
+
+
+
+
 
 
 
@@ -645,9 +935,18 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
+
+
+
+
+
+
+
 // ---------------------- COMPLETE REGISTRATION ----------------------
 export const completeRegistration = async (req, res) => {
+  console.log(req.body);
   try {
+
     const {
       businessName,
       legalEntityName,
@@ -688,7 +987,6 @@ export const completeRegistration = async (req, res) => {
       acceptPolicy,
     } = req.body;
 
-
     // Find shop by email
     const shop = await Shop.findOne({ email });
     if (!shop) {
@@ -705,7 +1003,6 @@ export const completeRegistration = async (req, res) => {
         message: "Email not verified",
       });
     }
-
 
     // Handle uploaded files (if any)
     const uploadedFiles = req.files || {};
@@ -743,6 +1040,14 @@ export const completeRegistration = async (req, res) => {
       parsedPayment = paymentData;
     }
 
+    // Validate Stripe payment method ID
+    if (!parsedPayment.stripePaymentMethodId) {
+      return res.status(400).json({
+        status: "error",
+        message: "Payment method ID is required",
+      });
+    }
+
     let parsedAcceptedPayments = [];
     if (typeof acceptedPayments === "string") {
       try {
@@ -765,7 +1070,7 @@ export const completeRegistration = async (req, res) => {
       parsedBusinessHours = businessHours;
     }
 
-    // ✅ FIX: Parse financingOffered correctly (FormData sends it as string)
+    // ✅ Parse financingOffered correctly (FormData sends it as string)
     let parsedFinancingOffered = false;
     if (financingOffered !== undefined) {
       if (typeof financingOffered === 'string') {
@@ -812,8 +1117,8 @@ export const completeRegistration = async (req, res) => {
         wednesday: { open: "", close: "", closed: false },
         thursday: { open: "", close: "", closed: false },
         friday: { open: "", close: "", closed: false },
-        saturday: { open: "", close: "", closed: false },
-        sunday: { open: "", close: "", closed: false },
+        saturday: { open: "", close: "", closed: true }, // Default closed on weekends
+        sunday: { open: "", close: "", closed: true },
       };
     }
 
@@ -848,17 +1153,119 @@ export const completeRegistration = async (req, res) => {
     shop.workSpacePhoto = workSpacePhoto || shop.workSpacePhoto;
     shop.certificateFiles = certificateFiles.length ? certificateFiles : shop.certificateFiles || [];
     shop.plan = plan || shop.plan;
-    shop.paymentInfo = Object.keys(parsedPayment).length ? parsedPayment : shop.paymentInfo || {};
+
+    // Save payment method info (for reference, not used for billing directly)
+    shop.paymentInfo = {
+      stripePaymentMethodId: parsedPayment.stripePaymentMethodId,
+      plan: parsedPayment.plan || plan,
+      stripePriceId: parsedPayment.stripePriceId,
+      lastUpdated: new Date()
+    };
 
     shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
     shop.policyAcceptedAt = new Date();
 
-    // Keep registration in pending status & mark as not verified so admin review can happen
+    // Update shop status to pending verification
     shop.status = "pending";
     shop.isVerified = false;
     shop.registrationExpiresAt = null;
 
 
+    // ✅ STRIPE INTEGRATION
+    // =======================
+    try {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+      // 1️⃣ Create or retrieve Stripe customer
+      let stripeCustomerId = shop.stripeCustomerId;
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          email: shop.email,
+          name: shop.businessName,
+          phone: shop.phone,
+          metadata: {
+            shopId: shop._id.toString(),
+            businessName: shop.businessName
+          }
+        });
+        stripeCustomerId = customer.id;
+        shop.stripeCustomerId = stripeCustomerId;
+      }
+
+      // 2️⃣ Attach payment method
+      await stripe.paymentMethods.attach(parsedPayment.stripePaymentMethodId, {
+        customer: stripeCustomerId,
+      });
+
+      // 3️⃣ Set default payment method
+      await stripe.customers.update(stripeCustomerId, {
+        invoice_settings: {
+          default_payment_method: parsedPayment.stripePaymentMethodId,
+        },
+      });
+
+      // 4️⃣ Determine price ID
+      const planDetails = Shop.getPlanDetails(plan || "basic");
+      const stripePriceId = parsedPayment.stripePriceId || planDetails?.stripePriceId;
+      if (!stripePriceId) throw new Error(`No Stripe price ID found for plan: ${plan}`);
+
+      // 5️⃣ Create subscription with guaranteed 30-day trial, no immediate charge
+      const now = Math.floor(Date.now() / 1000);
+      const trialDays = 30;
+      const subscription = await stripe.subscriptions.create({
+        customer: stripeCustomerId,
+        items: [{ price: stripePriceId }],
+        trial_end: now + trialDays * 24 * 60 * 60, // 30-day trial
+        payment_behavior: "default_incomplete",    // prevents immediate charge
+        expand: ["latest_invoice.payment_intent"],
+        metadata: {
+          shopId: shop._id.toString(),
+          plan: plan
+        }
+      });
+
+      // 6️⃣ Update shop with subscription info
+      shop.stripeSubscriptionId = subscription.id;
+      shop.subscriptionStatus = subscription.status; // usually "trialing"
+
+      const price = subscription.items.data[0]?.price;
+      const safeStripeDate = (timestamp) => timestamp ? new Date(timestamp * 1000) : null;
+
+      shop.currentSubscription = {
+        priceId: price?.id || null,
+        productId: price?.product || null,
+        planName: plan || "basic",
+        amount: price?.unit_amount || 0,
+        currency: price?.currency || "usd",
+        interval: price?.recurring?.interval || "month",
+
+        currentPeriodStart: safeStripeDate(subscription.current_period_start),
+        currentPeriodEnd: safeStripeDate(subscription.current_period_end),
+        trialStart: safeStripeDate(subscription.trial_start),
+        trialEnd: safeStripeDate(subscription.trial_end),
+
+        trialDays: trialDays,
+        cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
+        trialExtended: false,
+        trialExtensions: [],
+        daysRemaining: trialDays,
+        isTrial: true
+      };
+
+      console.log(`✅ Stripe subscription created: ${subscription.id} for shop: ${shop._id}`);
+
+    } catch (stripeError) {
+      console.error("❌ Stripe integration error:", stripeError);
+
+      // Keep registration going even if Stripe fails
+      shop.stripeCustomerId = shop.stripeCustomerId || null;
+      shop.stripeSubscriptionId = null;
+      shop.subscriptionStatus = "inactive";
+      shop.currentSubscription = null;
+    }
+
+
+    // Save the shop with all updates
     await shop.save();
 
     // IMPORTANT: This endpoint intentionally does NOT return a JWT or shop data.
@@ -867,6 +1274,11 @@ export const completeRegistration = async (req, res) => {
       status: "pending_verification",
       message:
         "Your registration has been submitted successfully. Verification will take up to 48 hours. You will be notified when verification is complete.",
+      stripeInfo: {
+        hasSubscription: !!shop.stripeSubscriptionId,
+        trialEnd: shop.currentSubscription?.trialEnd,
+        trialDaysRemaining: shop.trialDaysRemaining
+      }
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -877,6 +1289,15 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1034,6 +1455,11 @@ export const getGoogleAuthURLShop = async (req, res) => {
 
 
 
+
+
+
+
+
 // ============================================
 // GOOGLE CALLBACK - COMPLETE & FIXED
 // ============================================
@@ -1060,7 +1486,7 @@ export const googleCallbackPartner = async (req, res) => {
     const existingCustomer = await Customer.findOne({ email });
     if (existingCustomer) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=customer_exists&message=${encodeURIComponent(
+        `https://bidawrap.com/google-status?status=customer_exists&message=${encodeURIComponent(
           "This email is already registered as a customer. Please use a different email."
         )}`
       );
@@ -1116,6 +1542,11 @@ export const googleCallbackPartner = async (req, res) => {
         zipCode: "00000",
         plan: "basic",
 
+        // Subscription defaults
+        subscriptionStatus: "inactive",
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+
         financingOffered: false,
         acceptedPayments: [],
         yearsExperience: "",
@@ -1136,7 +1567,7 @@ export const googleCallbackPartner = async (req, res) => {
       await newShop.save();
 
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-success-partner?email=${encodeURIComponent(
+        `https://bidawrap.com/google-success-partner?email=${encodeURIComponent(
           email
         )}&flow=signup`
       );
@@ -1163,7 +1594,7 @@ export const googleCallbackPartner = async (req, res) => {
 
     if (isIncomplete) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-success-partner?email=${encodeURIComponent(
+        `https://bidawrap.com/google-success-partner?email=${encodeURIComponent(
           email
         )}&flow=signup`
       );
@@ -1182,7 +1613,7 @@ export const googleCallbackPartner = async (req, res) => {
     // =====================================
     if (!user.isVerified) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=not_approved`
+        `https://bidawrap.com/google-status?status=not_approved`
       );
     }
 
@@ -1191,7 +1622,7 @@ export const googleCallbackPartner = async (req, res) => {
     // =====================================
     if (user.isBlocked || user.status === "blocked") {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=blocked`
+        `https://bidawrap.com/google-status?status=blocked`
       );
     }
 
@@ -1200,7 +1631,57 @@ export const googleCallbackPartner = async (req, res) => {
     // =====================================
     if (user.status !== "active") {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=inactive&shopStatus=${user.status}`
+        `https://bidawrap.com/google-status?status=inactive&shopStatus=${user.status}`
+      );
+    }
+
+    // =====================================
+    // SUBSCRIPTION CHECK (Matching regular signin logic)
+    // =====================================
+    const subscriptionStatus = user.subscriptionStatus;
+    const isInTrial = user.isInTrial;
+    const hasActiveSubscription = user.hasActiveSubscription;
+    const trialDaysRemaining = user.trialDaysRemaining || 0;
+    const trialInfo = user.trialInfo || {};
+
+    // Define subscription access rules
+    let shouldBlockAccess = false;
+    let subscriptionMessage = "";
+    let requiresPlanSelection = false;
+
+    // Check subscription scenarios
+    if (subscriptionStatus === "inactive" || subscriptionStatus === "incomplete") {
+      // New shop - needs to select a plan
+      requiresPlanSelection = true;
+      subscriptionMessage = "Please select a subscription plan to continue";
+    } else if (subscriptionStatus === "trialing") {
+      // In trial period
+      if (trialDaysRemaining <= 0) {
+        shouldBlockAccess = true;
+        subscriptionMessage = "Your trial has ended. Please select a plan to continue";
+      } else {
+        subscriptionMessage = `You have ${trialDaysRemaining} days left in your trial`;
+      }
+    } else if (subscriptionStatus === "past_due" || subscriptionStatus === "unpaid") {
+      // Payment failed
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your payment is past due. Please update your payment method";
+    } else if (subscriptionStatus === "cancelled" || subscriptionStatus === "incomplete_expired") {
+      // Subscription cancelled or expired
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your subscription has been cancelled. Please select a new plan";
+    } else if (subscriptionStatus === "paused") {
+      // Subscription paused
+      shouldBlockAccess = true;
+      subscriptionMessage = "Your subscription is paused. Please contact support";
+    }
+
+    // Block access if subscription check fails
+    if (shouldBlockAccess) {
+      return res.redirect(
+        `https://bidawrap.com/google-status?status=subscription_required&message=${encodeURIComponent(
+          subscriptionMessage
+        )}&requiresPlanSelection=true`
       );
     }
 
@@ -1215,13 +1696,15 @@ export const googleCallbackPartner = async (req, res) => {
         status: user.status,
         isBlocked: user.isBlocked,
         registrationMethod: user.registrationMethod,
+        subscriptionStatus: user.subscriptionStatus,
+        hasActiveSubscription: user.hasActiveSubscription
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     // =====================================
-    // RESPONSE DATA
+    // RESPONSE DATA (with subscription info like regular signin)
     // =====================================
     const shopData = {
       id: user._id,
@@ -1278,18 +1761,97 @@ export const googleCallbackPartner = async (req, res) => {
 
       acceptedPolicy: user.acceptedPolicy,
       policyAcceptedAt: user.policyAcceptedAt,
+
+      // Subscription fields (added like regular signin)
+      subscriptionStatus: user.subscriptionStatus,
+      stripeCustomerId: user.stripeCustomerId,
+      stripeSubscriptionId: user.stripeSubscriptionId,
+      hasActiveSubscription: user.hasActiveSubscription,
+      isInTrial: user.isInTrial,
+      trialDaysRemaining: user.trialDaysRemaining,
+
+      // Current subscription details
+      currentSubscription: user.currentSubscription ? {
+        planName: user.currentSubscription.planName,
+        amount: user.currentSubscription.amount,
+        currency: user.currentSubscription.currency,
+        interval: user.currentSubscription.interval,
+        currentPeriodStart: user.currentSubscription.currentPeriodStart,
+        currentPeriodEnd: user.currentSubscription.currentPeriodEnd,
+        trialStart: user.currentSubscription.trialStart,
+        trialEnd: user.currentSubscription.trialEnd,
+        trialDays: user.currentSubscription.trialDays,
+        cancelAtPeriodEnd: user.currentSubscription.cancelAtPeriodEnd,
+        trialExtended: user.currentSubscription.trialExtended,
+        stripeSubscriptionId: user.stripeSubscriptionId
+      } : null,
+
+      // Plan information
+      planDisplay: user.planDisplay,
+      planPrice: user.planPrice,
+      stripePriceId: user.stripePriceId,
+
+      // Trial info
+      trialInfo: trialInfo,
+    };
+
+    // Prepare subscription data object (like regular signin)
+    const subscriptionData = {
+      status: subscriptionStatus,
+      isInTrial: isInTrial,
+      hasActiveSubscription: hasActiveSubscription,
+      trialDaysRemaining: trialDaysRemaining,
+      trialInfo: trialInfo,
+      requiresPlanSelection: requiresPlanSelection,
+
+      // Current subscription details
+      currentSubscription: user.currentSubscription ? {
+        planName: user.currentSubscription.planName,
+        amount: user.currentSubscription.amount,
+        currency: user.currentSubscription.currency,
+        interval: user.currentSubscription.interval,
+        currentPeriodStart: user.currentSubscription.currentPeriodStart,
+        currentPeriodEnd: user.currentSubscription.currentPeriodEnd,
+        trialStart: user.currentSubscription.trialStart,
+        trialEnd: user.currentSubscription.trialEnd,
+        trialDays: user.currentSubscription.trialDays,
+        cancelAtPeriodEnd: user.currentSubscription.cancelAtPeriodEnd,
+        trialExtended: user.currentSubscription.trialExtended,
+        stripeSubscriptionId: user.stripeSubscriptionId
+      } : null,
+
+      // Plan information
+      plan: user.plan,
+      planDisplay: user.planDisplay,
+      planPrice: user.planPrice,
+      stripePriceId: user.stripePriceId
     };
 
     return res.redirect(
-      `https://bidawrap1.netlify.app/google-success-partner?flow=signin&token=${token}&shopData=${encodeURIComponent(
+      `https://bidawrap.com/google-success-partner?flow=signin&token=${token}&shopData=${encodeURIComponent(
         JSON.stringify(shopData)
-      )}`
+      )}&subscriptionData=${encodeURIComponent(
+        JSON.stringify(subscriptionData)
+      )}&requiresPlanSelection=${requiresPlanSelection}`
     );
   } catch (error) {
     console.error("Google callback error:", error);
-    return res.redirect(`https://bidawrap1.netlify.app/google-failed`);
+    return res.redirect(`https://bidawrap.com/google-failed`);
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 export const submitVerificationRequest = async (req, res) => {

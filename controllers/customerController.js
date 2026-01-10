@@ -123,12 +123,10 @@ export const getCustomerBidStats = async (req, res) => {
 // };
 
 
-
 // 🟩 Controller to get all bids of a customer with offers + shop info
 export const getUserBidsWithOffers = async (req, res) => {
   try {
     const userId = req.customer._id;
-
 
     const bids = await Bid.find({ user_id: userId })
       .populate({
@@ -202,15 +200,22 @@ export const getUserBidsWithOffers = async (req, res) => {
         // PPF
         ppfCoverage: bid.ppfCoverage,
         addCeramicCoating: bid.addCeramicCoating,
+
+        // Detailing - ADD THESE NEW FIELDS
+        packageExterior: bid.packageExterior,
+        packageInterior: bid.packageInterior,
+        packageWheelsBrakes: bid.packageWheelsBrakes,
+        detailLevel: bid.detailLevel,
       },
 
-      // File Uploads
+      // File Uploads - ADD detailPhotos
       files: {
         vehicleImages: bid.vehicleImages || [],
         artworkFiles: bid.artworkFiles || [],
         exampleFiles: bid.exampleFiles || [],
         coatingPhotos: bid.coatingPhotos || [],
         ppfPhotos: bid.ppfPhotos || [],
+        detailPhotos: bid.detailPhotos || [], // ADD THIS LINE
       },
 
       // Location Info
@@ -283,9 +288,6 @@ export const getUserBidsWithOffers = async (req, res) => {
       createdAt: bid.createdAt,
       updatedAt: bid.updatedAt,
     }));
-
-
-
 
     res.status(200).json({
       success: true,
@@ -1010,6 +1012,8 @@ export const getShopProfile = async (req, res) => {
     res.status(500).json({ status: "error", message: "Server error" });
   }
 };
+
+
 
 export const submitReview = async (req, res) => {
   try {

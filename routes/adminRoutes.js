@@ -35,7 +35,10 @@ import {
   sendEmail_To_User,
   extendShopTrial,
   bulkExtendTrial,
-  getShopTrialInfo
+  getShopTrialInfo,
+  getAdminActivities,
+  getActivityTypes,
+  updateShopByAdmin
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -50,6 +53,8 @@ import {
 
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
 import { upload } from "../middlewares/upload.js";
+import { shopUpload } from "../middlewares/shopUpload.js";
+
 import { sendEmail } from "../utils/sendEmail.js";
 const router = express.Router();
 
@@ -59,7 +64,7 @@ const router = express.Router();
 
 // Auth
 router.post("/login", adminLogin);
-router.post("/verify-otp", verifyOtp);   
+router.post("/verify-otp", verifyOtp);
 router.post("/resend-otp", resendOtp);
 
 // Password Change Routes
@@ -80,6 +85,9 @@ router.use(authenticateAdmin);
 // Dashboard
 router.get("/dashboard/stats", getDashboardStats);
 router.get("/dashboard/overview", getDashboardOverview);
+// Activity routes (new)
+router.get("/activities", getAdminActivities);
+router.get("/activity-types", getActivityTypes);
 
 
 //shop registeration
@@ -105,7 +113,6 @@ router.patch("/shops/:shopId/block", toggleBlockShop);
 router.get("/shops/stats", getShopStats);
 router.get("/shops", getAllShops);
 router.get("/shops/map", getShopsForMap);
-// router.get("/shops/:shopId", getShopById);
 router.get("/shops/:shopId", getShopById);
 // Shop trial management routes
 router.post('/shops/:shopId/extend-trial', extendShopTrial);
@@ -114,6 +121,16 @@ router.post('/shops/bulk-extend-trial', bulkExtendTrial);
 
 
 router.put("/shops/:shopId/status", updateShopStatus);
+
+
+
+router.put("/shops/update", shopUpload.fields([
+  { name: "profilePic", maxCount: 1 },
+  { name: "insuranceCertificate", maxCount: 1 },
+  { name: "storeFrontPhoto", maxCount: 1 },
+  { name: "workSpacePhoto", maxCount: 1 },
+  { name: "certificateFiles", maxCount: 5 },
+]), updateShopByAdmin);
 
 
 //customer routes
@@ -171,7 +188,7 @@ router.post('/happy-stories', upload.single('image'), createStory);
 router.put('/happy-stories/:id', upload.single('image'), updateStory);
 router.delete('/happy-stories/:id', deleteStory);
 router.patch('/happy-stories/:id/deactivate', deactivateStory);
-router.patch('/happy-stories/reorder',  reorderStories);
+router.patch('/happy-stories/reorder', reorderStories);
 
 
 

@@ -659,7 +659,7 @@ export const googleCallback = async (req, res) => {
     const existingShop = await Shop.findOne({ email });
     if (existingShop) {
       return res.redirect(
-        `https://bidawrap1.netlify.app/google-status?status=shop_exists&message=${encodeURIComponent("This email is already registered as a shop. Please use a different email for customer registration.")}`
+        `https://bidawrap.com/google-status?status=shop_exists&message=${encodeURIComponent("This email is already registered as a shop. Please use a different email for customer registration.")}`
       );
     }
 
@@ -699,7 +699,7 @@ export const googleCallback = async (req, res) => {
     );
 
     // ✅ Include user._id in the redirect URL
-    const redirectUrl = `https://bidawrap1.netlify.app/google-success?` +
+    const redirectUrl = `https://bidawrap.com/google-success?` +
       `id=${user._id}&` +
       `token=${token}&` +
       `name=${encodeURIComponent(user.name)}&` +
@@ -712,7 +712,7 @@ export const googleCallback = async (req, res) => {
   } catch (error) {
     console.error("Google callback error:", error);
     return res.redirect(
-      `https://bidawrap1.netlify.app/google-failed`
+      `https://bidawrap.com/google-failed`
     );
   }
 };

@@ -11,6 +11,11 @@ import { sendEmail } from "../utils/sendEmail.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import sgMail from "@sendgrid/mail";
+import Stripe from "stripe";
+import validator from "validator";
+
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ===== IN-MEMORY OTP STORE =====
 // NOTE: For production, consider using Redis for scalability and persistence
@@ -23,7 +28,6 @@ const MAX_VERIFICATION_ATTEMPTS = 5;
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "1d";
 
 // ===== CLEANUP OLD OTPs =====
-// Prevent memory leaks by removing expired OTPs every minute
 setInterval(() => {
   const now = Date.now();
   Object.keys(otpStore).forEach((email) => {
@@ -46,41 +50,43 @@ function generateOtp(length = OTP_LENGTH) {
   return String(Math.floor(Math.random() * (max - min + 1)) + min);
 }
 
-/**
+/*
  * Hash OTP for secure storage
  * @param {string} otp - Plain text OTP
  * @returns {string} - Hashed OTP
  */
+
+
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
 }
 
-// ===== ADMIN INITIALIZATION =====
-// This ensures there's at least one admin in the database
-const initializeAdmin = async () => {
-  try {
-    // Check if any admin exists
-    const adminCount = await Admin.countDocuments();
+// // ===== ADMIN INITIALIZATION =====
+// // This ensures there's at least one admin in the database
+// const initializeAdmin = async () => {
+//   try {
+//     // Check if any admin exists
+//     const adminCount = await Admin.countDocuments();
 
-    if (adminCount <= 1) {
-      // Create initial admin from environment variables (for backward compatibility)
-      const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
-      const defaultAdminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+//     if (adminCount <= 1) {
+//       // Create initial admin from environment variables (for backward compatibility)
+//       const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
+//       const defaultAdminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
 
-      await Admin.create({
-        email: defaultAdminEmail,
-        password: defaultAdminPassword,
-        isActive: true
-      });
+//       await Admin.create({
+//         email: defaultAdminEmail,
+//         password: defaultAdminPassword,
+//         isActive: true
+//       });
 
-    }
-  } catch (error) {
-    console.error("Error initializing admin:", error);
-  }
-};
+//     }
+//   } catch (error) {
+//     console.error("Error initializing admin:", error);
+//   }
+// };
 
-// Initialize admin on startup
-initializeAdmin();
+// // Initialize admin on startup
+// initializeAdmin();
 
 // ===== AUTHENTICATION ENDPOINTS =====
 
@@ -857,6 +863,178 @@ export const toggleAdminStatus = async (req, res) => {
 
 
 
+// /**
+//  * GET /api/admin/dashboard/stats
+//  * Returns overall platform statistics
+//  */
+// export const getDashboardStats = async (req, res) => {
+//   try {
+//     // Run all queries in parallel for better performance
+//     const [totalShops, totalUsers, completedBids, activeBids] = await Promise.all([
+//       Shop.countDocuments({
+//         isEmailVerified: true,
+//         isVerified: true  // Only count admin-approved shops
+//       }),
+//       Customer.countDocuments({ isEmailVerified: true }),
+//       Bid.countDocuments({ status: "completed" }),
+//       Bid.countDocuments({ status: "active" }),
+//     ]);
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         totalShops,
+//         totalUsers,
+//         completedBids,
+//         activeBids,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error fetching dashboard stats:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch dashboard statistics",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// /**
+//  * GET /api/admin/dashboard/overview
+//  * Returns recent activities and top shops
+//  */export const getDashboardOverview = async (req, res) => {
+//   try {
+//     // ===== RECENT ACTIVITIES =====
+//     const recentActivities = await Event.find({
+//       type: { $in: ["bid-created", "offer-accepted", "bid-completed"] },
+//     })
+//       .sort({ createdAt: -1 })
+//       .limit(10)
+//       .populate("customerId", "name email")
+//       .populate("shopId", "businessName")
+//       .populate("bidId", "requestCategory")
+//       .lean();
+
+//     // Format activities for frontend
+//     const formattedActivities = recentActivities.map((activity) => {
+//       let description = activity.message || "Activity occurred";
+//       let user = "Unknown User";
+//       let shop = null;
+//       let activityStatus = "info";
+
+//       // Determine user name
+//       if (activity.customerId) {
+//         user = activity.customerId.name || activity.customerId.email || "Unknown User";
+//       } else if (activity.shopId) {
+//         user = activity.shopId.businessName || "Unknown Shop";
+//       }
+
+//       // Determine shop name if available
+//       if (activity.shopId) {
+//         shop = activity.shopId.businessName;
+//       }
+
+//       // Set status based on type
+//       switch (activity.type) {
+//         case "bid-created":
+//           activityStatus = "info";
+//           break;
+//         case "offer-accepted":
+//         case "bid-completed":
+//           activityStatus = "success";
+//           break;
+//         default:
+//           activityStatus = "info";
+//       }
+
+//       return {
+//         id: activity._id.toString(),
+//         type: activity.type,
+//         description,
+//         user,
+//         shop,
+//         timestamp: activity.createdAt,
+//         status: activityStatus,
+//       };
+//     });
+
+//     // ===== TOP SHOPS BY COMPLETED BIDS =====
+//     const topShops = await Shop.aggregate([
+//       {
+//         $match: {
+//           isEmailVerified: true,
+//           isVerified: true, // Only verified shops
+//           businessName: { $exists: true, $ne: "" }
+//         }
+//       },
+//       {
+//         $lookup: {
+//           from: "bids",
+//           localField: "_id",
+//           foreignField: "shopId",
+//           as: "bids",
+//         },
+//       },
+//       {
+//         $addFields: {
+//           completedBids: {
+//             $size: {
+//               $filter: {
+//                 input: "$bids",
+//                 as: "bid",
+//                 cond: { $eq: ["$$bid.status", "completed"] },
+//               },
+//             },
+//           },
+//         },
+//       },
+//       {
+//         $project: {
+//           businessName: 1,
+//           ownerName: 1, // ✅ Use ownerName directly from Shop schema
+//           completedBids: 1,
+//           plan: 1, // ✅ Use plan directly from Shop schema
+//         },
+//       },
+//       { $sort: { completedBids: -1 } },
+//       { $limit: 5 },
+//     ]);
+
+//     // Format shops for frontend
+//     const formattedShops = topShops.map((shop) => ({
+//       id: shop._id.toString(),
+//       name: shop.businessName,
+//       owner: shop.ownerName || "Unknown Owner", // ✅ Now using the correct field
+//       completedBids: shop.completedBids,
+//       subscription: {
+//         plan: shop.plan || "basic", // ✅ Using the correct field
+//       },
+//     }));
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         activities: formattedActivities,
+//         shops: formattedShops,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error fetching dashboard overview:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch dashboard overview",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
 /**
  * GET /api/admin/dashboard/stats
  * Returns overall platform statistics
@@ -896,62 +1074,9 @@ export const getDashboardStats = async (req, res) => {
 /**
  * GET /api/admin/dashboard/overview
  * Returns recent activities and top shops
- */export const getDashboardOverview = async (req, res) => {
+ */
+export const getDashboardOverview = async (req, res) => {
   try {
-    // ===== RECENT ACTIVITIES =====
-    const recentActivities = await Event.find({
-      type: { $in: ["bid-created", "offer-accepted", "bid-completed"] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .populate("customerId", "name email")
-      .populate("shopId", "businessName")
-      .populate("bidId", "requestCategory")
-      .lean();
-
-    // Format activities for frontend
-    const formattedActivities = recentActivities.map((activity) => {
-      let description = activity.message || "Activity occurred";
-      let user = "Unknown User";
-      let shop = null;
-      let activityStatus = "info";
-
-      // Determine user name
-      if (activity.customerId) {
-        user = activity.customerId.name || activity.customerId.email || "Unknown User";
-      } else if (activity.shopId) {
-        user = activity.shopId.businessName || "Unknown Shop";
-      }
-
-      // Determine shop name if available
-      if (activity.shopId) {
-        shop = activity.shopId.businessName;
-      }
-
-      // Set status based on type
-      switch (activity.type) {
-        case "bid-created":
-          activityStatus = "info";
-          break;
-        case "offer-accepted":
-        case "bid-completed":
-          activityStatus = "success";
-          break;
-        default:
-          activityStatus = "info";
-      }
-
-      return {
-        id: activity._id.toString(),
-        type: activity.type,
-        description,
-        user,
-        shop,
-        timestamp: activity.createdAt,
-        status: activityStatus,
-      };
-    });
-
     // ===== TOP SHOPS BY COMPLETED BIDS =====
     const topShops = await Shop.aggregate([
       {
@@ -985,9 +1110,9 @@ export const getDashboardStats = async (req, res) => {
       {
         $project: {
           businessName: 1,
-          ownerName: 1, // ✅ Use ownerName directly from Shop schema
+          ownerName: 1,
           completedBids: 1,
-          plan: 1, // ✅ Use plan directly from Shop schema
+          plan: 1,
         },
       },
       { $sort: { completedBids: -1 } },
@@ -998,18 +1123,18 @@ export const getDashboardStats = async (req, res) => {
     const formattedShops = topShops.map((shop) => ({
       id: shop._id.toString(),
       name: shop.businessName,
-      owner: shop.ownerName || "Unknown Owner", // ✅ Now using the correct field
+      owner: shop.ownerName || "Unknown Owner",
       completedBids: shop.completedBids,
       subscription: {
-        plan: shop.plan || "basic", // ✅ Using the correct field
+        plan: shop.plan || "basic",
       },
     }));
 
     return res.status(200).json({
       success: true,
       data: {
-        activities: formattedActivities,
         shops: formattedShops,
+        // Activities are now fetched separately via /api/admin/activities
       },
     });
   } catch (error) {
@@ -1030,6 +1155,198 @@ export const getDashboardStats = async (req, res) => {
 
 
 
+/**
+ * GET /api/admin/activities
+ * Returns paginated activities with filters
+ */
+export const getAdminActivities = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const skip = (page - 1) * limit;
+    
+    // Optional filters
+    const { type, startDate, endDate, search } = req.query;
+    
+    // Build query
+    const query = {};
+    
+    // Filter by activity type
+    if (type && type !== 'all') {
+      query.type = type;
+    }
+    
+    // Filter by date range
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.createdAt.$lte = new Date(endDate);
+      }
+    }
+    
+    // Search in message or user details
+    if (search) {
+      query.$or = [
+        { message: { $regex: search, $options: 'i' } },
+        { 'metadata.customerName': { $regex: search, $options: 'i' } },
+        { 'metadata.shopName': { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Get total count
+    const totalEvents = await Event.countDocuments(query);
+
+    // Fetch events with pagination
+    const events = await Event.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("customerId", "name email")
+      .populate("shopId", "businessName email")
+      .populate("bidId", "requestCategory amount")
+      .lean();
+
+    // Format activities for frontend
+    const formattedActivities = events.map((activity) => {
+      let description = activity.message || "Activity occurred";
+      let user = "Unknown User";
+      let shop = null;
+      let activityStatus = "info";
+      let metadata = activity.metadata || {};
+
+      // Get user information
+      if (activity.customerId) {
+        user = activity.customerId.name || activity.customerId.email || "Unknown User";
+      } else if (activity.shopId) {
+        user = activity.shopId.businessName || "Unknown Shop";
+        shop = activity.shopId.businessName;
+      } else if (activity.metadata?.customerName) {
+        user = activity.metadata.customerName;
+      } else if (activity.metadata?.shopName) {
+        user = activity.metadata.shopName;
+        shop = activity.metadata.shopName;
+      }
+
+      // Determine status based on type
+      switch (activity.type) {
+        case "bid-created":
+          activityStatus = "info";
+          break;
+        case "offer-accepted":
+        case "bid-accepted":
+        case "bid-completed":
+        case "payment-received":
+          activityStatus = "success";
+          break;
+        case "bid-canceled":
+        case "bid-rejected":
+        case "bid-expired":
+          activityStatus = "error";
+          break;
+        case "reminder":
+        case "deadline-approaching":
+          activityStatus = "warning";
+          break;
+        default:
+          activityStatus = "info";
+      }
+
+      // Extract bid/offer ID if available
+      if (activity.bidId) {
+        metadata.bidId = activity.bidId._id?.toString();
+      }
+
+      return {
+        id: activity._id.toString(),
+        type: activity.type,
+        description: description,
+        user: user,
+        shop: shop,
+        timestamp: activity.createdAt,
+        status: activityStatus,
+        metadata: metadata,
+      };
+    });
+
+    // Calculate total pages
+    const totalPages = Math.ceil(totalEvents / limit);
+
+    return res.status(200).json({
+      success: true,
+      page,
+      limit,
+      total: totalEvents,
+      totalPages,
+      hasMore: page < totalPages,
+      activities: formattedActivities,
+    });
+  } catch (error) {
+    console.error("Error fetching admin activities:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch activities",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/admin/activity-types
+ * Returns list of all available activity types for filtering
+ */
+export const getActivityTypes = async (req, res) => {
+  try {
+    const activityTypes = await Event.distinct("type");
+    
+    // Map types to readable labels
+    const typeMap = {
+      'bid-created': 'Bid Created',
+      'bid-accepted': 'Bid Accepted',
+      'bid-rejected': 'Bid Rejected',
+      'bid-canceled': 'Bid Canceled',
+      'bid-completed': 'Bid Completed',
+      'bid-expired': 'Bid Expired',
+      'bid-reposted': 'Bid Reposted',
+      'offer-received': 'Offer Received',
+      'offer-accepted': 'Offer Accepted',
+      'offer-rejected': 'Offer Rejected',
+      'offer-submitted': 'Offer Submitted',
+      'payment-received': 'Payment Received',
+      'shop-registered': 'Shop Registered',
+      'user-registered': 'User Registered',
+      'verification-update': 'Verification Update',
+      'customer-message': 'Customer Message',
+      'shop-message': 'Shop Message',
+      'rating-received': 'Rating Received',
+      'reminder': 'Reminder',
+      'deadline-approaching': 'Deadline Approaching',
+      'status-updated': 'Status Updated',
+    };
+
+    const formattedTypes = activityTypes.map(type => ({
+      value: type,
+      label: typeMap[type] || type.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    }));
+
+    // Add "All" option at the beginning
+    formattedTypes.unshift({ value: 'all', label: 'All Activities' });
+
+    return res.status(200).json({
+      success: true,
+      data: formattedTypes,
+    });
+  } catch (error) {
+    console.error("Error fetching activity types:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch activity types",
+      error: error.message,
+    });
+  }
+};
 
 
 
@@ -1098,104 +1415,6 @@ export const getUnverifiedShops = async (req, res) => {
 
 
 
-// // Accept/Verify a shop
-// export const acceptShop = async (req, res) => {
-//   try {
-//     const { shopId } = req.params;
-//     const { isAdminShop } = req.body;
-
-//     const shop = await Shop.findById(shopId);
-
-//     if (!shop) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Shop not found",
-//       });
-//     }
-
-//     if (shop.isVerified) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Shop is already verified",
-//       });
-//     }
-
-//     // If marked as admin shop, set premium plan and clear payment data
-//     if (isAdminShop === true) {
-//       shop.isAdminShop = true;
-//       shop.plan = "professional"; // Set to premium/professional plan
-
-//       // Clear payment information
-//       shop.paymentInfo = {
-//         last4: undefined,
-//         cardName: undefined,
-//         expiry: undefined,
-//         paymentToken: undefined,
-//       };
-
-//       // Clear subscription information
-//       shop.subscription = {
-//         customerId: undefined,
-//         subscriptionId: undefined,
-//         planAmount: 0,
-//         billingCycle: "monthly",
-//         nextBillingDate: undefined,
-//         status: "active", // Set to active since admin shop doesn't need payment
-//       };
-
-//       // Set trial end date far in the future or null (admin shops don't have trial limitations)
-//       shop.trialEndDate = new Date("2099-12-31");
-//     }
-
-//     // Use the model method to approve shop
-//     await shop.approveShop();
-//     // Send approval email
-//     await sendEmail(
-//       shop.email,
-//       "Your Shop Registration Has Been Approved!",
-//       `
-//     <h2>🎉 Congratulations, ${shop.businessName}!</h2>
-//     <p>Your shop registration request has been successfully reviewed and <strong>approved</strong>.</p>
-
-//     <p>You can now access all features available to your account.</p>
-
-//     ${shop.isAdminShop ? `
-//       <p>Your shop has been granted <strong>Admin Shop</strong> privileges with a Professional Plan, free of cost.</p>
-//     ` : ""}
-
-//     <p>If you have any questions, feel free to reply to this email.</p>
-
-//     <br/>
-//     <p>Best regards,<br/>Support Team</p>
-//   `
-//     );
-
-
-//     res.status(200).json({
-//       success: true,
-//       message: isAdminShop
-//         ? "Shop verified as Admin Shop and approved successfully"
-//         : "Shop verified and approved successfully",
-//       data: {
-//         shopId: shop._id,
-//         businessName: shop.businessName,
-//         isVerified: shop.isVerified,
-//         isAdminShop: shop.isAdminShop,
-//         plan: shop.plan,
-//         status: shop.status,
-//         verifiedAt: shop.verifiedAt,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error accepting shop:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to accept shop",
-//       error: error.message,
-//     });
-//   }
-// };
-
 
 
 // Generate random password
@@ -1209,6 +1428,11 @@ const generateRandomPassword = () => {
   }
   return password;
 };
+
+
+
+
+
 
 // Admin creates a shop directly
 export const createShopByAdmin = async (req, res) => {
@@ -1269,6 +1493,29 @@ export const createShopByAdmin = async (req, res) => {
     const randomPassword = generateRandomPassword();
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
+    // Generate random Stripe customer ID (for admin shops, we don't create real Stripe customers)
+    // Format: cus_randomstring
+    const generateStripeCustomerId = () => {
+      const randomString = Math.random().toString(36).substring(2, 15) + 
+                          Math.random().toString(36).substring(2, 15);
+      return `cus_${randomString}`;
+    };
+
+    // Generate random Stripe subscription ID
+    const generateStripeSubscriptionId = () => {
+      const randomString = Math.random().toString(36).substring(2, 15) + 
+                          Math.random().toString(36).substring(2, 15);
+      return `sub_${randomString}`;
+    };
+
+    // Set trial end date to far in the future (year 2099)
+    const perpetualTrialEndDate = new Date('2099-12-31T23:59:59.999Z');
+    const perpetualTrialStartDate = new Date();
+
+    // Set current period dates (also far in future)
+    const currentPeriodStart = new Date();
+    const currentPeriodEnd = new Date('2099-12-31T23:59:59.999Z');
+
     // Prepare shop data
     const shopData = {
       businessName,
@@ -1306,54 +1553,168 @@ export const createShopByAdmin = async (req, res) => {
       storeFrontPhoto: storeFrontPhoto || '',
       workSpacePhoto: workSpacePhoto || '',
       profilePic: profilePic || '',
-      plan,
+      
+      // Set plan to professional for admin-created shops
+      plan: 'professional',
+      
+      // Generate fake Stripe IDs for admin shops
+      stripeCustomerId: generateStripeCustomerId(),
+      stripeSubscriptionId: generateStripeSubscriptionId(),
+      
+      // Subscription status - always active for admin shops
+      subscriptionStatus: 'active',
+      
+      // Current subscription details with perpetual trial
+      currentSubscription: {
+        // Fake Stripe IDs
+        priceId: process.env.STRIPE_PROFESSIONAL_PRICE_ID || 'price_admin_professional',
+        productId: process.env.STRIPE_PROFESSIONAL_PRODUCT_ID || 'prod_admin_professional',
+        
+        // Plan details
+        planName: 'professional',
+        amount: 19900, // $199 in cents
+        currency: 'usd',
+        interval: 'month',
+        
+        // Period information - perpetual trial
+        currentPeriodStart: currentPeriodStart,
+        currentPeriodEnd: currentPeriodEnd,
+        trialStart: perpetualTrialStartDate,
+        trialEnd: perpetualTrialEndDate,
+        trialDays: 36500, // ~100 years in days
+        
+        // Subscription management - never cancels
+        cancelAtPeriodEnd: false,
+        
+        // Trial extension tracking
+        trialExtended: true,
+        trialExtensions: [{
+          extendedBy: req.admin?._id || null, // Admin who created the shop
+          previousEndDate: new Date(new Date().setDate(new Date().getDate() + 30)), // Original 30-day trial
+          newEndDate: perpetualTrialEndDate,
+          extendedDays: 36470, // 100 years minus 30 days
+          extendedAt: new Date(),
+          reason: 'Admin-created shop with perpetual access'
+        }]
+      },
+      
+      // Insurance Information
+      insuranceCarrier,
+      policyNumber,
+      policyExpiration: policyExpiration ? new Date(policyExpiration) : null,
+      insuranceCertificate: insuranceCertificate || '',
+      
+      // Social Media Links
+      socialMedia: {
+        instagram: instagramLink || '',
+        facebook: facebookLink || '',
+        linkedin: linkedinLink || ''
+      },
+      
+      additionalInfo: additionalInfo || '',
+      storeFrontPhoto: storeFrontPhoto || '',
+      workSpacePhoto: workSpacePhoto || '',
+      profilePic: profilePic || '',
+      
       // For admin-created shops, set them as automatically verified
       isEmailVerified: true,
       isVerified: true,
       verifiedAt: new Date(),
       status: 'active',
+      
       // Since admin is creating, they accept policies on behalf
       acceptedPolicy: true,
       policyAcceptedAt: new Date(),
-      // Set trial end date to far in the future (admin shops don't have trial limitations)
-      trialEndDate: new Date('2099-12-31'),
-      // No payment required for admin-created shops
-      subscription: {
-        status: 'active',
-        planAmount: plan === 'professional' ? 200 : 50,
-        billingCycle: 'monthly',
-        nextBillingDate: null // No billing for admin-created shops
-      },
-      isAdminShop: true
+      
+      // Mark as admin shop
+      isAdminShop: true,
+      
+      // Billing information (optional)
+      billingDetails: {
+        billingEmail: email,
+        companyName: businessName,
+        address: {
+          street: address,
+          city: '',
+          state: '',
+          postalCode: zipCode || '',
+          country: country
+        }
+      }
     };
 
     // Create the shop
     const shop = await Shop.create(shopData);
 
     // Send welcome email with login credentials
-    const emailSubject = `Welcome to Our Platform - Your Shop Account is Ready!`;
+    const emailSubject = `🎉 Welcome to Our Platform - Your Shop Account is Ready!`;
     const emailBody = `
-      <h2>🎉 Welcome, ${ownerName}!</h2>
-      <p>Your shop <strong>${businessName}</strong> has been created by our admin team and is now active on our platform.</p>
-      
-      <h3>Your Login Credentials:</h3>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Password:</strong> ${randomPassword}</p>
-      <p><strong>Important:</strong> Please change your password after your first login.</p>
-      
-      <h3>Shop Details:</h3>
-      <ul>
-        <li><strong>Plan:</strong> ${plan === 'professional' ? 'Professional Plan' : 'Basic Plan'}</li>
-        <li><strong>Status:</strong> Active and Verified</li>
-        <li><strong>Verification:</strong> No additional verification required</li>
-      </ul>
-      
-      <p>You can now log in to your dashboard and start using all available features.</p>
-      
-      <p>If you have any questions, feel free to reply to this email.</p>
-      
-      <br/>
-      <p>Best regards,<br/>Support Team</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #4F46E5; margin-bottom: 10px;">Welcome, ${ownerName}!</h1>
+          <p style="color: #666; font-size: 16px;">Your shop <strong>${businessName}</strong> has been created by our admin team.</p>
+        </div>
+        
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+          <h2 style="color: #374151; margin-top: 0;">Your Login Credentials</h2>
+          <p><strong>📧 Email:</strong> ${email}</p>
+          <p><strong>🔐 Temporary Password:</strong> ${randomPassword}</p>
+          <p style="color: #EF4444; font-weight: bold; background-color: #FEF2F2; padding: 10px; border-radius: 5px;">
+            ⚠️ Important: Please change your password after your first login.
+          </p>
+        </div>
+        
+        <div style="background-color: #e8f5e9; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+          <h2 style="color: #374151; margin-top: 0;">✨ Your Subscription Details</h2>
+          <div style="display: flex; align-items: center; margin-bottom: 15px;">
+            <div style="background-color: #4F46E5; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin-right: 10px;">
+              PROFESSIONAL PLAN
+            </div>
+            <div style="font-size: 24px; font-weight: bold; color: #059669;">
+              $0/month
+            </div>
+          </div>
+          <p><strong>✅ Status:</strong> Active (Admin-created account)</p>
+          <p><strong>⏰ Trial Period:</strong> Perpetual access</p>
+          <p><strong>📅 Next Billing Date:</strong> Never - This is a complimentary account</p>
+          
+          <h3 style="color: #374151; margin-top: 20px;">Premium Features Included:</h3>
+          <ul style="padding-left: 20px;">
+            <li>Unlimited active bids</li>
+            <li>Premium shop listing</li>
+            <li>Priority customer support</li>
+            <li>Advanced analytics dashboard</li>
+            <li>Featured in search results</li>
+          </ul>
+        </div>
+        
+        <div style="background-color: #e0f2fe; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+          <h2 style="color: #374151; margin-top: 0;">📋 Next Steps</h2>
+          <ol style="padding-left: 20px;">
+            <li>Log in to your dashboard using the credentials above</li>
+            <li>Change your password for security</li>
+            <li>Complete your shop profile (add logo, description, etc.)</li>
+            <li>Set up your service offerings</li>
+            <li>Start receiving and bidding on projects!</li>
+          </ol>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+          <p style="color: #666; margin-bottom: 10px;">
+            <a href="${process.env.FRONTEND_URL}/partner/login" style="display: inline-block; background-color: #4F46E5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              👉 Log in to Your Dashboard
+            </a>
+          </p>
+          <p style="color: #999; font-size: 14px;">
+            Need help? Contact our support team at support@yourplatform.com
+          </p>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; text-align: center; color: #999; font-size: 12px;">
+          <p>This is an automated message. Please do not reply to this email.</p>
+          <p>© ${new Date().getFullYear()} Your Platform Name. All rights reserved.</p>
+        </div>
+      </div>
     `;
 
     // Send email (wrap in try-catch to not fail the whole process if email fails)
@@ -1374,7 +1735,14 @@ export const createShopByAdmin = async (req, res) => {
       data: {
         shop: shopResponse,
         temporaryPassword: randomPassword, // Only returned in this response for admin reference
-        credentialsSent: true
+        credentialsSent: true,
+        subscriptionDetails: {
+          plan: 'professional',
+          status: 'active',
+          trialEndDate: perpetualTrialEndDate,
+          amount: '$0/month (Admin complimentary)',
+          nextBillingDate: 'Never'
+        }
       }
     });
 
@@ -1387,10 +1755,6 @@ export const createShopByAdmin = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 
 
@@ -1465,15 +1829,12 @@ export const acceptShop = async (req, res) => {
 
 
 
-
-// Reject a shop (hard delete)
 export const rejectShop = async (req, res) => {
   try {
     const { shopId } = req.params;
-    const { reason } = req.body; // Admin rejection reason
+    const { reason } = req.body;
 
     const shop = await Shop.findById(shopId);
-
     if (!shop) {
       return res.status(404).json({
         success: false,
@@ -1488,13 +1849,27 @@ export const rejectShop = async (req, res) => {
       });
     }
 
-    // Store details before deleting (needed for email)
-    const { email, businessName } = shop;
+    const {
+      email,
+      businessName,
+      stripeSubscriptionId,
+      stripeCustomerId,
+    } = shop;
 
-    // ❌ Delete shop completely
+    // ================= STRIPE CLEANUP =================
+    if (stripeSubscriptionId) {
+      await stripe.subscriptions.del(stripeSubscriptionId);
+    }
+
+    // Optional but recommended (ONLY if no reuse expected)
+    if (stripeCustomerId) {
+      await stripe.customers.del(stripeCustomerId);
+    }
+
+    // ================= DELETE SHOP =================
     await Shop.findByIdAndDelete(shopId);
 
-    // 📧 Send rejection email with admin reason
+    // ================= SEND EMAIL =================
     await sendEmail(
       email,
       "Your Shop Registration Was Rejected",
@@ -1503,41 +1878,32 @@ export const rejectShop = async (req, res) => {
 
         <p>Thank you for registering your shop with us.</p>
 
-        <p>After reviewing your application, we regret to inform you that your shop registration has been <strong>rejected</strong>.</p>
+        <p>Your registration has been <strong>rejected</strong>.</p>
 
-        ${reason
-        ? `<p><strong>Reason provided by admin:</strong> ${reason}</p>`
-        : `<p><strong>Reason:</strong> The provided information did not meet our requirements.</p>`
-      }
+        ${
+          reason
+            ? `<p><strong>Reason:</strong> ${reason}</p>`
+            : `<p><strong>Reason:</strong> Information did not meet requirements.</p>`
+        }
 
-        <p>You may correct the issues and <strong>register again</strong> using the same email.</p>
+        <p>You may correct the issues and register again using the same email.</p>
 
-        <p>If you believe this was a mistake, feel free to contact our support team.</p>
-
-        <br/>
         <p>Best regards,<br/>Support Team</p>
       `
     );
 
     return res.status(200).json({
       success: true,
-      message: "Shop rejected and deleted successfully",
-      data: {
-        shopId,
-        businessName,
-        reason: reason || "No reason provided",
-      },
+      message: "Shop rejected, Stripe subscription cancelled, and shop deleted",
     });
   } catch (error) {
-    console.error("Error rejecting shop:", error);
+    console.error("❌ Error rejecting shop:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to reject shop",
-      error: error.message,
     });
   }
 };
-
 
 
 
@@ -1735,151 +2101,6 @@ export const getCustomerById = async (req, res) => {
 
 
 
-
-
-
-// export const getShopStats = async (req, res) => {
-//   try {
-//     const totalShops = await Shop.countDocuments({ isVerified: true });
-//     const basicShops = await Shop.countDocuments({
-//       isVerified: true,
-//       plan: "basic"
-//     });
-//     const professionalShops = await Shop.countDocuments({
-//       isVerified: true,
-//       plan: "professional"
-//     });
-//     const pendingShops = await Shop.countDocuments({ isVerified: false });
-
-//     // Get total completed bids across all shops
-//     const totalCompletedBids = await Bid.countDocuments({
-//       status: "completed"
-//     });
-
-//     // Get average rating across all shops
-//     const shops = await Shop.find({ isVerified: true }).select("rating reviewCount");
-//     const avgRating = shops.length > 0
-//       ? shops.reduce((sum, shop) => sum + shop.rating, 0) / shops.length
-//       : 0;
-
-//     res.status(200).json({
-//       success: true,
-//       data: {
-//         total: totalShops,
-//         basic: basicShops,
-//         professional: professionalShops,
-//         pending: pendingShops,
-//         totalCompletedBids,
-//         averageRating: Math.round(avgRating * 10) / 10,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error fetching shop stats:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch shop statistics",
-//       error: error.message,
-//     });
-//   }
-// };
-
-// // Get all verified shops with pagination and bid statistics
-// export const getAllShops = async (req, res) => {
-//   try {
-//     const { page = 1, limit = 12, plan, verified = "true" } = req.query;
-
-//     // Build query
-//     const query = {};
-
-//     // Filter by verification status
-//     if (verified === "true") {
-//       query.isVerified = true;
-//       query.status = "active";
-//     } else if (verified === "false") {
-//       query.isVerified = false;
-//     }
-
-//     // Filter by plan type
-//     if (plan && (plan === "basic" || plan === "professional")) {
-//       query.plan = plan;
-//     }
-
-//     // Fetch shops with pagination
-//     const shops = await Shop.find(query)
-//       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
-//       .sort({ createdAt: -1 })
-//       .limit(limit * 1)
-//       .skip((page - 1) * limit)
-//       .lean();
-
-//     // Get bid statistics and reviews for each shop
-//     const shopsWithStats = await Promise.all(
-//       shops.map(async (shop) => {
-//         // Count total bids received
-//         const totalBids = await Bid.countDocuments({
-//           currentShopId: shop._id
-//         });
-
-//         // Count completed bids
-//         const completedBids = await Bid.countDocuments({
-//           currentShopId: shop._id,
-//           status: "completed",
-//         });
-
-//         // Count active bids
-//         const activeBids = await Bid.countDocuments({
-//           currentShopId: shop._id,
-//           status: "active",
-//         });
-
-//         // Count in-progress bids
-//         const inProgressBids = await Bid.countDocuments({
-//           currentShopId: shop._id,
-//           status: "in_progress",
-//         });
-
-//         // Get review count and rating (already in shop model)
-//         const reviewCount = shop.reviewCount || 0;
-//         const rating = shop.rating || 0;
-
-//         return {
-//           ...shop,
-//           statistics: {
-//             totalBids,
-//             completedBids,
-//             activeBids,
-//             inProgressBids,
-//             reviewCount,
-//             rating,
-//             successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
-//           },
-//         };
-//       })
-//     );
-
-//     const count = await Shop.countDocuments(query);
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Shops fetched successfully",
-//       data: shopsWithStats,
-//       pagination: {
-//         totalPages: Math.ceil(count / limit),
-//         currentPage: parseInt(page),
-//         totalShops: count,
-//         limit: parseInt(limit),
-//         hasMore: page * limit < count,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error fetching shops:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch shops",
-//       error: error.message,
-//     });
-//   }
-// };
 
 
 
@@ -2116,67 +2337,11 @@ export const getShopsForMap = async (req, res) => {
   }
 };
 
-// // Get single shop details with full information
-// export const getShopById = async (req, res) => {
-//   try {
-//     const { shopId } = req.params;
 
-//     const shop = await Shop.findById(shopId)
-//       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
-//       .lean();
 
-//     if (!shop) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Shop not found",
-//       });
-//     }
 
-//     // Get all bids for this shop
-//     const bids = await Bid.find({ currentShopId: shopId })
-//       .populate("user_id", "name email phone")
-//       .sort({ createdAt: -1 })
-//       .lean();
 
-//     // Get all reviews for this shop
-//     const reviews = await Review.find({ shop: shopId })
-//       .populate("customer", "name avatar")
-//       .populate("bid", "vehicleMake vehicleModel")
-//       .sort({ createdAt: -1 })
-//       .lean();
 
-//     // Calculate statistics
-//     const totalBids = bids.length;
-//     const completedBids = bids.filter(bid => bid.status === "completed").length;
-//     const activeBids = bids.filter(bid => bid.status === "active").length;
-//     const inProgressBids = bids.filter(bid => bid.status === "in_progress").length;
-
-//     res.status(200).json({
-//       success: true,
-//       data: {
-//         shop,
-//         statistics: {
-//           totalBids,
-//           completedBids,
-//           activeBids,
-//           inProgressBids,
-//           reviewCount: shop.reviewCount || 0,
-//           rating: shop.rating || 0,
-//           successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
-//         },
-//         recentBids: bids.slice(0, 10), // Last 10 bids
-//         reviews: reviews.slice(0, 10), // Last 10 reviews
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error fetching shop details:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch shop details",
-//       error: error.message,
-//     });
-//   }
-// };
 
 
 // Get single shop details by ID
@@ -2192,8 +2357,10 @@ export const getShopById = async (req, res) => {
       });
     }
 
-    // Find shop by ID
-    const shop = await Shop.findById(shopId).select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry");
+    // Find shop by ID and populate relevant fields
+    const shop = await Shop.findById(shopId)
+      .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry")
+      .lean({ virtuals: true }); // Add virtuals to get isInTrial, etc.
 
     if (!shop) {
       return res.status(404).json({
@@ -2209,15 +2376,12 @@ export const getShopById = async (req, res) => {
         $group: {
           _id: null,
           totalBids: { $sum: 1 },
-          // Check for bids that are in progress (assigned to this shop)
           inProgressBids: {
             $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] },
           },
-          // Check for completed bids
           completedBids: {
             $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
           },
-          // Check for active bids that this shop might be bidding on
           activeBids: {
             $sum: {
               $cond: [{
@@ -2232,28 +2396,6 @@ export const getShopById = async (req, res) => {
       },
     ]);
 
-    // If you want to include all bids that this shop has made offers on,
-    // you might need to look at the Offer model instead
-    // Here's an alternative approach if you want to count bids where shop has made offers:
-    // const shopOffersStats = await Offer.aggregate([
-    //   { $match: { shopId: new mongoose.Types.ObjectId(shopId) } },
-    //   {
-    //     $lookup: {
-    //       from: "bids",
-    //       localField: "bidId",
-    //       foreignField: "_id",
-    //       as: "bid"
-    //     }
-    //   },
-    //   { $unwind: "$bid" },
-    //   {
-    //     $group: {
-    //       _id: "$bid.status",
-    //       count: { $sum: 1 }
-    //     }
-    //   }
-    // ]);
-
     // Extract statistics
     const statsResult = statistics[0] || {
       totalBids: 0,
@@ -2262,13 +2404,75 @@ export const getShopById = async (req, res) => {
       activeBids: 0
     };
 
-    // Calculate success rate if there are any bids
+    // Calculate success rate
     const successRate = statsResult.totalBids > 0
       ? (statsResult.completedBids / statsResult.totalBids) * 100
       : 0;
 
+    // Extract subscription information from currentSubscription
+    const currentSub = shop.currentSubscription || {};
+    
+    // Determine if shop is in trial based on currentSubscription
+    const now = new Date();
+    const trialEnd = currentSub.trialEnd ? new Date(currentSub.trialEnd) : null;
+    const isInTrial = currentSub.trialEnd && 
+                      !isNaN(trialEnd.getTime()) && 
+                      trialEnd > now;
+    
+    // Calculate trial days remaining
+    let trialDaysRemaining = 0;
+    if (isInTrial && trialEnd) {
+      const diffTime = trialEnd.getTime() - now.getTime();
+      trialDaysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+
+    // Determine subscription status from currentSubscription
+    // If we have trialEnd in future, status should be "trialing"
+    // Otherwise use the subscriptionStatus from root or determine from dates
+    let subscriptionStatus = shop.subscriptionStatus || "inactive";
+    if (isInTrial) {
+      subscriptionStatus = "trialing";
+    } else if (currentSub.currentPeriodEnd) {
+      const periodEnd = new Date(currentSub.currentPeriodEnd);
+      if (!isNaN(periodEnd.getTime()) && periodEnd > now) {
+        subscriptionStatus = "active";
+      } else if (currentSub.cancelAtPeriodEnd) {
+        subscriptionStatus = "cancelled";
+      }
+    }
+
+    // Transform data to match frontend expectations
     const shopData = {
-      ...shop.toObject(),
+      // Basic Information
+      ...shop,
+      
+      // CRITICAL: Ensure subscriptionStatus is correct for frontend
+      subscriptionStatus: subscriptionStatus,
+      
+      // CRITICAL: Ensure currentSubscription exists and has all needed fields
+      currentSubscription: {
+        ...currentSub,
+        // Ensure trialEnd is included (it should be)
+        trialEnd: currentSub.trialEnd || null,
+        trialStart: currentSub.trialStart || null,
+        trialDays: currentSub.trialDays || 30,
+        amount: currentSub.amount || 0,
+        interval: currentSub.interval || "month",
+        planName: currentSub.planName || shop.plan || "basic",
+        currentPeriodStart: currentSub.currentPeriodStart || null,
+        currentPeriodEnd: currentSub.currentPeriodEnd || null,
+        cancelAtPeriodEnd: currentSub.cancelAtPeriodEnd || false,
+        trialExtended: currentSub.trialExtended || false,
+        trialExtensions: currentSub.trialExtensions || []
+      },
+      
+      // Plan Information
+      planStartDate: currentSub.currentPeriodStart || shop.createdAt,
+      trialEndDate: currentSub.trialEnd || null,
+      plan: shop.plan,
+      status: shop.status,
+      
+      // Statistics
       statistics: {
         totalBids: statsResult.totalBids,
         completedBids: statsResult.completedBids,
@@ -2278,7 +2482,22 @@ export const getShopById = async (req, res) => {
         rating: shop.rating || 0,
         reviewCount: shop.reviewCount || 0,
       },
+      
+      // Additional fields that frontend might expect
+      isBlocked: shop.isBlocked || false,
+      blockedAt: shop.blockedAt,
+      blockedReason: shop.blockedReason,
+      
+      // Virtual properties (calculated above)
+      isInTrial: isInTrial,
+      trialDaysRemaining: trialDaysRemaining,
+      hasActiveSubscription: isInTrial || subscriptionStatus === "active"
     };
+
+    // Remove any nested subscription object if it exists to avoid confusion
+    if (shopData.subscription) {
+      delete shopData.subscription;
+    }
 
     return res.status(200).json({
       success: true,
@@ -2294,6 +2513,9 @@ export const getShopById = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 
@@ -3205,70 +3427,109 @@ function calculateCompletionTime(bid) {
 
 
 
-// Block/Unblock shop controller
+
 export const toggleBlockShop = async (req, res) => {
   try {
     const { shopId } = req.params;
     const { blocked, reason } = req.body;
 
-    const shop = await Shop.findById(shopId);
+    if (typeof blocked !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: '"blocked" must be true or false',
+      });
+    }
 
+    const shop = await Shop.findById(shopId);
     if (!shop) {
       return res.status(404).json({
         success: false,
-        message: 'Shop not found'
+        message: "Shop not found",
       });
     }
 
-    if (blocked === true) {
-      // Block the shop
-      shop.isBlocked = true;
-      shop.status = "blocked";
-      shop.blockedAt = new Date();
-      shop.blockedReason = reason || "";
-
-      await shop.save();
-
-      // Optional: Cancel all active bids for this shop
-      // await Bid.updateMany(
-      //   { currentShopId: shopId, status: { $in: ["active", "in_progress"] } },
-      //   { 
-      //     status: "cancelled", 
-      //     cancellationReason: "Shop blocked by admin",
-      //     cancelledAt: new Date() 
-      //   }
-      // );
-
-      res.status(200).json({
-        success: true,
-        message: 'Shop blocked successfully',
-        data: shop
-      });
-    } else if (blocked === false) {
-      // Unblock the shop
-      shop.isBlocked = false;
-      shop.status = "active";
-      shop.lastUnblockedAt = new Date();
-
-      await shop.save();
-
-      res.status(200).json({
-        success: true,
-        message: 'Shop unblocked successfully',
-        data: shop
-      });
-    } else {
+    if (!shop.stripeSubscriptionId) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid request. "blocked" field is required (true/false)'
+        message: "Shop does not have a Stripe subscription",
+      });
+    }
+
+    const subscriptionId = shop.stripeSubscriptionId;
+
+    // ================= BLOCK SHOP =================
+    if (blocked === true) {
+      if (shop.isBlocked) {
+        return res.status(400).json({
+          success: false,
+          message: "Shop is already blocked",
+        });
+      }
+
+      // Pause billing in Stripe (no future charges)
+      await stripe.subscriptions.update(subscriptionId, {
+        pause_collection: {
+          behavior: "void", // cleaner than mark_uncollectible
+        },
+      });
+
+      // Update local shop state
+      await shop.blockShop(req.admin?._id, reason);
+      shop.subscriptionStatus = "paused";
+      await shop.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Shop blocked successfully. Subscription paused and future charges stopped.",
+      });
+    }
+
+    // ================= UNBLOCK SHOP =================
+    if (blocked === false) {
+      if (!shop.isBlocked) {
+        return res.status(400).json({
+          success: false,
+          message: "Shop is not blocked",
+        });
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+      // Resume billing if paused
+      if (subscription.pause_collection) {
+        await stripe.subscriptions.update(subscriptionId, {
+          pause_collection: null,
+        });
+
+        const currentPeriodEnd =
+          subscription.current_period_end * 1000;
+
+        // If billing period ended while blocked → start fresh
+        if (Date.now() > currentPeriodEnd) {
+          await stripe.subscriptions.update(subscriptionId, {
+            billing_cycle_anchor: "now",
+            proration_behavior: "none",
+          });
+        }
+      }
+
+      // Update local shop state
+      await shop.unblockShop();
+      shop.subscriptionStatus = "active";
+      await shop.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Shop unblocked successfully. Subscription resumed from unblock date.",
       });
     }
   } catch (error) {
-    console.error('Error updating shop block status:', error);
+    console.error("❌ Error toggling shop block:", error);
     res.status(500).json({
       success: false,
-      message: 'Error updating shop status',
-      error: error.message
+      message: "Failed to update shop block status",
     });
   }
 };
@@ -3283,8 +3544,6 @@ export const toggleBlockShop = async (req, res) => {
 
 
 
-
-import validator from "validator";
 
 // Initialize SendGrid
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -3354,111 +3613,87 @@ export const sendEmail_To_User = async (req, res) => {
 
 
 
-/**
- * Extend shop's free trial
- * POST /api/admin/shops/:shopId/extend-trial
- *//**
-* Extend shop's free trial
-* POST /api/admin/shops/:shopId/extend-trial
-*/
+
 export const extendShopTrial = async (req, res) => {
   try {
     const { shopId } = req.params;
-    const { months } = req.body;
+    const days = Number(req.body.days);
 
-    // Validate input
-    if (!months || typeof months !== 'number' || months < 1 || months > 24) {
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid extension duration. Must be a number between 1-24 months'
+        message: "Days must be between 1 and 365"
       });
     }
 
-    // Find the shop
     const shop = await Shop.findById(shopId);
-    if (!shop) {
+    if (!shop || !shop.stripeSubscriptionId) {
       return res.status(404).json({
         success: false,
-        message: 'Shop not found'
+        message: "Shop or Stripe subscription not found"
       });
     }
 
-    // Check if shop is blocked
-    if (shop.isBlocked) {
+    const trialEnd = shop.currentSubscription?.trialEnd;
+    if (!trialEnd || Date.now() >= new Date(trialEnd).getTime()) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot extend trial for a blocked shop'
+        message: "Trial has already ended"
       });
     }
 
-    // Calculate current and new end dates
-    const currentEndDate = shop.trialEndDate || new Date();
-    const newEndDate = new Date(currentEndDate);
-    newEndDate.setMonth(newEndDate.getMonth() + months);
+    const previousTrialEnd = new Date(trialEnd);
+    const newTrialEnd = new Date(previousTrialEnd.getTime() + days * 86400 * 1000);
 
-    // Store previous data for logging
-    const previousData = {
-      trialEndDate: shop.trialEndDate,
-      subscriptionStatus: shop.subscription?.status,
-      subscriptionEndDate: shop.subscription?.nextBillingDate
-    };
-
-    // Update shop's trial end date
-    shop.trialEndDate = newEndDate;
-
-    // Update plan end date if it exists and is earlier than new trial end
-    if (shop.planEndDate && newEndDate > shop.planEndDate) {
-      shop.planEndDate = newEndDate;
-    }
-
-    // Update subscription information
-    if (shop.subscription) {
-      shop.subscription.status = 'trialing';
-      shop.subscription.nextBillingDate = newEndDate;
-
-      // If shop is on paid plan, keep it as trialing
-      if (shop.subscription.status === 'active') {
-        shop.subscription.status = 'trialing';
-      }
-    }
-
-    // Save the updated shop
-    await shop.save();
-
-    // Create trial extension log (without adminId)
-    const trialExtensionLog = {
-      shopId: shop._id,
-      extensionMonths: months,
-      previousEndDate: currentEndDate,
-      newEndDate: newEndDate,
-      previousData: previousData,
-      extendedAt: new Date()
-    };
-
-    // Optional: Send notification to shop owner
-    // await sendTrialExtensionNotification(shop.email, shop.businessName, months, newEndDate);
-
-    res.json({
-      success: true,
-      message: `Free trial extended by ${months} month${months !== 1 ? 's' : ''}`,
-      data: {
-        shopId: shop._id,
-        shopName: shop.businessName,
-        extensionMonths: months,
-        previousEndDate: currentEndDate,
-        newTrialEndDate: newEndDate
-      }
+    // 1️⃣ Update Stripe
+    await stripe.subscriptions.update(shop.stripeSubscriptionId, {
+      trial_end: Math.floor(newTrialEnd.getTime() / 1000),
+      proration_behavior: "none"
     });
 
-  } catch (error) {
-    console.error('Error extending shop trial:', error);
+    // 2️⃣ Fetch updated subscription
+    const updatedSubscription = await stripe.subscriptions.retrieve(shop.stripeSubscriptionId);
+
+    // 3️⃣ Sync Stripe fields
+    await shop.updateSubscriptionFromStripe(updatedSubscription);
+
+    // 4️⃣ Ensure currentSubscription exists before modifying
+    if (!shop.currentSubscription) shop.currentSubscription = {};
+
+    shop.currentSubscription.trialExtended = true;
+    shop.currentSubscription.trialDays = (shop.currentSubscription.trialDays || 0) + days;
+    shop.currentSubscription.trialEnd = newTrialEnd;
+    shop.currentSubscription.trialExtensions = shop.currentSubscription.trialExtensions || [];
+    shop.currentSubscription.trialExtensions.push({
+      extendedBy: req.admin?._id || null,
+      previousEndDate: previousTrialEnd,
+      newEndDate: newTrialEnd,
+      extendedDays: days,
+      reason: "Admin extension"
+    });
+
+    await shop.save();
+
+    console.log(`Admin ${req.admin?._id} extended trial for shop ${shopId} by ${days} days`);
+
+    return res.json({
+      success: true,
+      message: `Free trial extended by ${days} days`,
+      newTrialEnd
+    });
+
+  } catch (err) {
+    console.error("❌ Trial extension failed:", err);
     res.status(500).json({
       success: false,
-      message: 'Failed to extend free trial',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Failed to extend trial",
+      error: err.message
     });
   }
 };
+
+
+
 
 /**
  * Get shop's trial information
@@ -3614,6 +3849,380 @@ export const bulkExtendTrial = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to process bulk trial extension'
+    });
+  }
+};
+
+
+
+
+
+
+export const updateShopByAdmin = async (req, res) => {
+  try {
+    console.log("📋 Update request body keys:", Object.keys(req.body));
+    console.log("📋 Update request files:", req.files ? Object.keys(req.files) : 'No files');
+    
+    // Get ID from body._id OR body.shopId (frontend sends shopId)
+    const id = req.body._id || req.body.shopId;
+    
+    if (!id) {
+      console.error("❌ No shop ID provided");
+      return res.status(400).json({ 
+        success: false,
+        message: "Shop ID is required" 
+      });
+    }
+
+    console.log(`🛠️ Updating shop: ${id}`);
+
+    const shop = await Shop.findById(id);
+    if (!shop) {
+      console.error(`❌ Shop not found: ${id}`);
+      return res.status(404).json({ message: "Shop not found" });
+    }
+
+    // Check if rating is being manually updated by admin
+    const isRatingManuallyUpdated = req.body.rating !== undefined && req.body.rating !== shop.rating;
+    const isReviewCountManuallyUpdated = req.body.reviewCount !== undefined && req.body.reviewCount !== shop.reviewCount;
+    
+    // If admin is trying to manually set both rating and reviewCount, validate them
+    if (isRatingManuallyUpdated || isReviewCountManuallyUpdated) {
+      const newRating = parseFloat(req.body.rating);
+      const newReviewCount = parseInt(req.body.reviewCount, 10);
+      
+      // Validate that rating is between 0 and 5
+      if (newRating < 0 || newRating > 5) {
+        return res.status(400).json({
+          success: false,
+          message: "Rating must be between 0 and 5"
+        });
+      }
+      
+      // Validate that reviewCount is not negative
+      if (newReviewCount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Review count cannot be negative"
+        });
+      }
+      
+      console.log(`📊 Admin is manually updating shop rating/review count:`);
+      console.log(`   Old rating: ${shop.rating}, New rating: ${newRating}`);
+      console.log(`   Old reviewCount: ${shop.reviewCount}, New reviewCount: ${newReviewCount}`);
+      
+      // IMPORTANT: When admin manually updates rating and reviewCount,
+      // we should recalculate the average rating based on the new values
+      // This ensures consistency with the submitReview logic
+      
+      // The admin can either:
+      // 1. Set both rating and reviewCount manually (for correcting data)
+      // 2. Or the system will calculate rating based on existing reviews
+      
+      // For manual override, we trust admin's input
+      // But we should validate that if reviewCount is 0, rating should be 0
+      if (newReviewCount === 0 && newRating !== 0) {
+        console.warn(`⚠️ Warning: Setting rating to 0 because reviewCount is 0`);
+        req.body.rating = 0;
+      }
+      
+      // Alternatively, if you want to prevent manual rating updates and only allow through reviews:
+      // return res.status(400).json({
+      //   success: false,
+      //   message: "Rating can only be updated through customer reviews. Use the review system instead."
+      // });
+    }
+
+    // 🔍 DEBUG: Log received files in detail
+    if (req.files) {
+      Object.keys(req.files).forEach(fieldName => {
+        console.log(`📁 ${fieldName}:`, req.files[fieldName].map(f => ({
+          originalname: f.originalname,
+          size: f.size,
+          mimetype: f.mimetype,
+          path: f.path
+        })));
+      });
+    }
+
+    // Helper function to parse values from FormData
+    const parseField = (field) => {
+      if (field === undefined || field === null || field === 'undefined' || field === 'null') {
+        return undefined;
+      }
+      
+      if (typeof field === 'string' && field.trim() === '') {
+        return undefined;
+      }
+      
+      if (typeof field === 'string') {
+        try {
+          return JSON.parse(field);
+        } catch (e) {
+          // If it's not valid JSON, return the string
+          return field;
+        }
+      }
+      
+      return field;
+    };
+
+    // Helper to convert string or array to proper array
+    const toArray = (value) => {
+      if (value === undefined || value === null) return undefined;
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          // Try to parse as JSON first
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) return parsed;
+          return [value];
+        } catch {
+          // If not JSON, try splitting by comma
+          return value.split(',').map(item => item.trim()).filter(item => item);
+        }
+      }
+      return [value];
+    };
+
+    // Helper to parse boolean values
+    const parseBoolean = (value) => {
+      if (value === undefined || value === null) return undefined;
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        if (value.toLowerCase() === 'true') return true;
+        if (value.toLowerCase() === 'false') return false;
+        if (value === '1') return true;
+        if (value === '0') return false;
+      }
+      if (typeof value === 'number') return Boolean(value);
+      return undefined;
+    };
+
+    // Helper to parse date values
+    const parseDate = (value) => {
+      if (!value) return undefined;
+      try {
+        const date = new Date(value);
+        return isNaN(date.getTime()) ? undefined : date;
+      } catch {
+        return undefined;
+      }
+    };
+
+    // Handle file uploads - only update if new file is uploaded
+    const updates = {};
+
+    // Single file fields
+    const singleFileFields = [
+      'profilePic',
+      'storeFrontPhoto', 
+      'workSpacePhoto',
+      'insuranceCertificate'
+    ];
+
+    singleFileFields.forEach(field => {
+      if (req.files && req.files[field] && req.files[field][0]) {
+        updates[field] = req.files[field][0].path;
+        console.log(`✅ Updated ${field}: ${updates[field]}`);
+      }
+    });
+
+    // Handle multiple certificate files
+    if (req.files && req.files.certificateFiles) {
+      const newCertificateFiles = req.files.certificateFiles.map(f => f.path);
+      const existingFiles = shop.certificateFiles || [];
+      // Combine existing and new files, limit to 5
+      updates.certificateFiles = [...existingFiles, ...newCertificateFiles].slice(0, 5);
+      console.log(`✅ Updated certificateFiles: ${updates.certificateFiles.length} files`);
+    }
+
+    // Parse and add text fields
+    const textFields = [
+      'businessName', 'legalEntityName', 'ownerName', 'email',
+      'countryCode', 'phone', 'ownerPhone', 'website',
+      'address', 'country', 'zipCode',
+      'vinylFilms', 'certificates', 'yearsExperience',
+      'insuranceCarrier', 'policyNumber',
+      'additionalInfo', 'plan', 'status',
+      'blockedReason'
+    ];
+
+    textFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    // Parse numeric fields
+    if (req.body.latitude !== undefined) {
+      updates.latitude = parseFloat(req.body.latitude);
+    }
+    if (req.body.longitude !== undefined) {
+      updates.longitude = parseFloat(req.body.longitude);
+    }
+    
+    // Handle rating update - IMPORTANT: Only update if admin provides new values
+    // The rating calculation from submitReview happens automatically when reviews are submitted
+    // Here we allow admin to manually set/override the rating
+    if (req.body.rating !== undefined) {
+      const newRating = parseFloat(req.body.rating);
+      
+      // If admin is setting rating, we should also ensure reviewCount is properly set
+      // If reviewCount is not being updated, we should use the existing reviewCount
+      const reviewCountToUse = req.body.reviewCount !== undefined 
+        ? parseInt(req.body.reviewCount, 10) 
+        : shop.reviewCount;
+      
+      // Validate consistency: if reviewCount is 0, rating should be 0
+      if (reviewCountToUse === 0 && newRating !== 0) {
+        console.warn(`⚠️ Setting rating to 0 because reviewCount is ${reviewCountToUse}`);
+        updates.rating = 0;
+      } else {
+        updates.rating = newRating;
+      }
+      
+      console.log(`📊 Setting rating to ${updates.rating} with reviewCount ${reviewCountToUse}`);
+    }
+    
+    if (req.body.reviewCount !== undefined) {
+      updates.reviewCount = parseInt(req.body.reviewCount, 10);
+      
+      // If reviewCount is set to 0, ensure rating is also 0
+      if (updates.reviewCount === 0 && (!req.body.rating || req.body.rating !== 0)) {
+        console.warn(`⚠️ Setting rating to 0 because reviewCount is being set to 0`);
+        updates.rating = 0;
+      }
+    }
+
+    // Parse date fields
+    if (req.body.policyExpiration !== undefined) {
+      updates.policyExpiration = parseDate(req.body.policyExpiration);
+    }
+    if (req.body.startDate !== undefined) {
+      updates.startDate = parseDate(req.body.startDate);
+    }
+    if (req.body.planStartDate !== undefined) {
+      updates.planStartDate = parseDate(req.body.planStartDate);
+    }
+    if (req.body.trialEndDate !== undefined) {
+      updates.trialEndDate = parseDate(req.body.trialEndDate);
+    }
+    if (req.body.policyAcceptedAt !== undefined) {
+      updates.policyAcceptedAt = parseDate(req.body.policyAcceptedAt);
+    }
+
+    // Parse array fields
+    if (req.body.services !== undefined) {
+      updates.services = toArray(req.body.services);
+      console.log(`✅ Parsed services:`, updates.services);
+    }
+
+    if (req.body.acceptedPayments !== undefined) {
+      updates.acceptedPayments = toArray(req.body.acceptedPayments);
+      console.log(`✅ Parsed acceptedPayments:`, updates.acceptedPayments);
+    }
+
+    // Parse object fields
+    if (req.body.businessHours !== undefined) {
+      const parsedHours = parseField(req.body.businessHours);
+      if (parsedHours && typeof parsedHours === 'object') {
+        updates.businessHours = parsedHours;
+      }
+    }
+
+    // Parse social media
+    if (req.body.socialMedia !== undefined) {
+      const parsedSocial = parseField(req.body.socialMedia);
+      if (parsedSocial && typeof parsedSocial === 'object') {
+        updates.socialMedia = {
+          instagram: parsedSocial.instagram || shop.socialMedia?.instagram || "",
+          facebook: parsedSocial.facebook || shop.socialMedia?.facebook || "",
+          linkedin: parsedSocial.linkedin || shop.socialMedia?.linkedin || "",
+        };
+      }
+    }
+
+    // Parse boolean fields
+    if (req.body.financingOffered !== undefined) {
+      updates.financingOffered = parseBoolean(req.body.financingOffered);
+    }
+    if (req.body.isVerified !== undefined) {
+      updates.isVerified = parseBoolean(req.body.isVerified);
+    }
+    if (req.body.isBlocked !== undefined) {
+      updates.isBlocked = parseBoolean(req.body.isBlocked);
+    }
+    if (req.body.isEmailVerified !== undefined) {
+      updates.isEmailVerified = parseBoolean(req.body.isEmailVerified);
+    }
+    if (req.body.acceptedPolicy !== undefined) {
+      updates.acceptedPolicy = parseBoolean(req.body.acceptedPolicy);
+    }
+
+    // Log what we're updating
+    console.log("📝 Final updates to apply:");
+    Object.keys(updates).forEach(key => {
+      console.log(`  ${key}:`, updates[key]);
+    });
+
+    // Filter out undefined values
+    const filteredUpdates = {};
+    Object.keys(updates).forEach(key => {
+      if (updates[key] !== undefined) {
+        filteredUpdates[key] = updates[key];
+      }
+    });
+
+    console.log("🔄 Applying filtered updates:", filteredUpdates);
+
+    // Apply updates
+    const updatedShop = await Shop.findByIdAndUpdate(
+      id,
+      { $set: filteredUpdates },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedShop) {
+      console.error(`❌ Failed to update shop: ${id}`);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to update shop in database"
+      });
+    }
+
+    console.log("✅ Shop updated successfully:", updatedShop._id);
+    console.log(`📊 Final shop rating: ${updatedShop.rating}, reviewCount: ${updatedShop.reviewCount}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Shop updated successfully by admin",
+      data: updatedShop,
+    });
+
+  } catch (error) {
+    console.error("❌ Admin update shop error:", error);
+    
+    // Handle validation errors specifically
+    if (error.name === 'ValidationError') {
+      const errors = {};
+      Object.keys(error.errors).forEach(key => {
+        errors[key] = error.errors[key].message;
+      });
+      
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: errors,
+        error: error.message
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update shop",
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

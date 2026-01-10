@@ -24,7 +24,10 @@ import {
   changePlan,
   getBidActivities,
   getBidHistorySummary,
-  getBidHistory
+  getBidHistory,
+  getPlanChangeConsequences,
+  getSubscriptionDetails,
+  reactivateSubscription
 } from "../controllers/shopController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
@@ -93,6 +96,8 @@ router.post(
   authenticateShop,
   acceptCounterOffer
 );
+
+
 router.post(
   "/counter-offers/:counterId/reject",
   authenticateShop,
@@ -103,6 +108,20 @@ router.post(
 //plans
 router.get("/plan", authenticateShop, getPlanDetails);
 router.put("/plan/change", authenticateShop, changePlan);
+router.get('/consequences', authenticateShop, getPlanChangeConsequences);
+router.post("/subscription/cancel", authenticateShop, cancelSubscription);
+router.get(
+  "/subscription/details",
+  authenticateShop,
+  getSubscriptionDetails
+);
+router.post(
+  "/subscription/reactivate",
+  authenticateShop,
+  reactivateSubscription
+);
+
+
 
 
 

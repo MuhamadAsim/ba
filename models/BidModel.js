@@ -50,6 +50,13 @@ const bidSchema = new mongoose.Schema(
     addCeramicCoating: { type: String, trim: true },
     ppfPhotos: [{ type: String }],
 
+    // Detailing fields
+    packageExterior: { type: Boolean, default: false },
+    packageInterior: { type: Boolean, default: false },
+    packageWheelsBrakes: { type: Boolean, default: false },
+    detailLevel: { type: String, trim: true },
+    detailPhotos: [{ type: String }],
+
     // Contact Info
     firstName: { type: String, trim: true },
     lastName: { type: String, trim: true },

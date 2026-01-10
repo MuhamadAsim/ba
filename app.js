@@ -15,12 +15,18 @@ import chatRoutes from "./routes/chatRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import videoRoutes from "./routes/videoRoutes.js";
 import adminChatRoutes from "./routes/adminSupportRoutes.js";
+import stripewebhookRoutes from "./routes/stripeWebhookRoutes.js";
+import blogRoutes from "./routes/blogRoutes.js";
+
 
 
 import { errorHandler } from "./middlewares/errorHandlerMiddleware.js";
 
 // Create Express app
 const app = express();
+
+//webhook
+app.use("/api/webhook", stripewebhookRoutes);
 
 // ✅ MIDDLEWARE (BEFORE ROUTES)
 app.use(cors());
@@ -45,6 +51,9 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/video", videoRoutes);
 app.use("/api/support", adminChatRoutes);
+app.use("/api/blogs", blogRoutes);
+
+
 
 
 // Health check
