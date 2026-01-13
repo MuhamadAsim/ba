@@ -942,11 +942,366 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
+// // ---------------------- COMPLETE REGISTRATION ----------------------
+// export const completeRegistration = async (req, res) => {
+//   console.log(req.body);
+//   try {
+
+//     const {
+//       businessName,
+//       legalEntityName,
+//       ownerName,
+//       email,
+//       countryCode,
+//       zipCode,
+//       latitude,
+//       longitude,
+//       phone,
+//       ownerPhone,
+//       website,
+//       address,
+//       country,
+//       services,
+//       vinylFilms,
+//       certificates,
+//       startDate,
+//       insuranceCarrier,
+//       policyNumber,
+//       policyExpiration,
+//       instagramLink,
+//       facebookLink,
+//       linkedinLink,
+//       additionalInfo,
+//       plan,
+//       paymentData,
+
+//       // New fields from frontend
+//       financingOffered,
+//       acceptedPayments,
+//       yearsExperience,
+//       businessHours,
+//       websiteInput,
+//       instagramInput,
+//       facebookInput,
+//       linkedinInput,
+//       acceptPolicy,
+//     } = req.body;
+
+//     // Find shop by email
+//     const shop = await Shop.findOne({ email });
+//     if (!shop) {
+//       return res.status(404).json({
+//         status: "error",
+//         message: "Shop not found",
+//       });
+//     }
+
+//     // Require email verification before proceeding
+//     if (!shop.isEmailVerified) {
+//       return res.status(403).json({
+//         status: "error",
+//         message: "Email not verified",
+//       });
+//     }
+
+//     // Handle uploaded files (if any)
+//     const uploadedFiles = req.files || {};
+//     const insuranceCertificate =
+//       uploadedFiles.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
+//     const storeFrontPhoto =
+//       uploadedFiles.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
+//     const workSpacePhoto =
+//       uploadedFiles.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
+
+//     // Multiple certificates (if any)
+//     const certificateFiles = uploadedFiles.certificateFiles
+//       ? uploadedFiles.certificateFiles.map((f) => f.path)
+//       : shop.certificateFiles || [];
+
+//     // Parse JSON fields safely
+//     let parsedServices = [];
+//     if (Array.isArray(services)) parsedServices = services;
+//     else if (typeof services === "string") {
+//       try {
+//         parsedServices = JSON.parse(services);
+//       } catch (e) {
+//         parsedServices = [];
+//       }
+//     }
+
+//     let parsedPayment = {};
+//     if (typeof paymentData === "string") {
+//       try {
+//         parsedPayment = JSON.parse(paymentData);
+//       } catch (e) {
+//         parsedPayment = {};
+//       }
+//     } else if (typeof paymentData === "object" && paymentData !== null) {
+//       parsedPayment = paymentData;
+//     }
+
+//     // Validate Stripe payment method ID
+//     if (!parsedPayment.stripePaymentMethodId) {
+//       return res.status(400).json({
+//         status: "error",
+//         message: "Payment method ID is required",
+//       });
+//     }
+
+//     let parsedAcceptedPayments = [];
+//     if (typeof acceptedPayments === "string") {
+//       try {
+//         parsedAcceptedPayments = JSON.parse(acceptedPayments);
+//       } catch (e) {
+//         parsedAcceptedPayments = [];
+//       }
+//     } else if (Array.isArray(acceptedPayments)) {
+//       parsedAcceptedPayments = acceptedPayments;
+//     }
+
+//     let parsedBusinessHours = {};
+//     if (typeof businessHours === "string") {
+//       try {
+//         parsedBusinessHours = JSON.parse(businessHours);
+//       } catch (e) {
+//         parsedBusinessHours = {};
+//       }
+//     } else if (typeof businessHours === "object" && businessHours !== null) {
+//       parsedBusinessHours = businessHours;
+//     }
+
+//     // ✅ Parse financingOffered correctly (FormData sends it as string)
+//     let parsedFinancingOffered = false;
+//     if (financingOffered !== undefined) {
+//       if (typeof financingOffered === 'string') {
+//         parsedFinancingOffered = financingOffered.toLowerCase() === 'true';
+//       } else if (typeof financingOffered === 'boolean') {
+//         parsedFinancingOffered = financingOffered;
+//       }
+//     }
+
+//     // Parse location coordinates
+//     const parsedLatitude = latitude ? parseFloat(latitude) : null;
+//     const parsedLongitude = longitude ? parseFloat(longitude) : null;
+
+//     // Update shop fields
+//     shop.businessName = businessName || shop.businessName;
+//     shop.legalEntityName = legalEntityName || shop.legalEntityName;
+//     shop.ownerName = ownerName || shop.ownerName;
+//     shop.countryCode = countryCode || shop.countryCode;
+//     shop.phone = phone || shop.phone;
+
+//     // ✅ FIX: Capital 'O' to match model schema
+//     shop.ownerPhone = ownerPhone || shop.ownerPhone;
+
+//     // Use websiteInput if provided, otherwise use website
+//     shop.website = websiteInput || website || shop.website;
+
+//     shop.address = address || shop.address;
+//     shop.zipCode = zipCode || shop.zipCode;
+//     shop.country = country || shop.country;
+
+//     // ✅ FIX: Use parsed financingOffered value
+//     shop.financingOffered = parsedFinancingOffered;
+//     shop.acceptedPayments = parsedAcceptedPayments.length ? parsedAcceptedPayments : shop.acceptedPayments || [];
+//     shop.yearsExperience = yearsExperience || shop.yearsExperience;
+
+//     // Business hours
+//     if (Object.keys(parsedBusinessHours).length) {
+//       shop.businessHours = parsedBusinessHours;
+//     } else if (!shop.businessHours) {
+//       // Set default empty business hours if none exist
+//       shop.businessHours = {
+//         monday: { open: "", close: "", closed: false },
+//         tuesday: { open: "", close: "", closed: false },
+//         wednesday: { open: "", close: "", closed: false },
+//         thursday: { open: "", close: "", closed: false },
+//         friday: { open: "", close: "", closed: false },
+//         saturday: { open: "", close: "", closed: true }, // Default closed on weekends
+//         sunday: { open: "", close: "", closed: true },
+//       };
+//     }
+
+//     // Location coordinates
+//     if (parsedLatitude !== null && parsedLongitude !== null) {
+//       shop.location = {
+//         type: "Point",
+//         coordinates: [parsedLongitude, parsedLatitude], // [lng, lat]
+//       };
+//       shop.latitude = parsedLatitude;
+//       shop.longitude = parsedLongitude;
+//     }
+
+//     shop.services = parsedServices.length ? parsedServices : shop.services;
+//     shop.vinylFilms = vinylFilms || shop.vinylFilms;
+//     shop.certificates = certificates || shop.certificates;
+//     shop.startDate = startDate || shop.startDate;
+//     shop.insuranceCarrier = insuranceCarrier || shop.insuranceCarrier;
+//     shop.policyNumber = policyNumber || shop.policyNumber;
+//     shop.policyExpiration = policyExpiration || shop.policyExpiration;
+//     shop.insuranceCertificate = insuranceCertificate || shop.insuranceCertificate;
+
+//     // Social media - use input fields if provided, otherwise use direct links
+//     shop.socialMedia = {
+//       instagram: instagramInput || instagramLink || shop.socialMedia?.instagram || "",
+//       facebook: facebookInput || facebookLink || shop.socialMedia?.facebook || "",
+//       linkedin: linkedinInput || linkedinLink || shop.socialMedia?.linkedin || "",
+//     };
+
+//     shop.additionalInfo = additionalInfo || shop.additionalInfo;
+//     shop.storeFrontPhoto = storeFrontPhoto || shop.storeFrontPhoto;
+//     shop.workSpacePhoto = workSpacePhoto || shop.workSpacePhoto;
+//     shop.certificateFiles = certificateFiles.length ? certificateFiles : shop.certificateFiles || [];
+//     shop.plan = plan || shop.plan;
+
+//     // Save payment method info (for reference, not used for billing directly)
+//     shop.paymentInfo = {
+//       stripePaymentMethodId: parsedPayment.stripePaymentMethodId,
+//       plan: parsedPayment.plan || plan,
+//       stripePriceId: parsedPayment.stripePriceId,
+//       lastUpdated: new Date()
+//     };
+
+//     shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
+//     shop.policyAcceptedAt = new Date();
+
+//     // Update shop status to pending verification
+//     shop.status = "pending";
+//     shop.isVerified = false;
+//     shop.registrationExpiresAt = null;
+
+
+//     // ✅ STRIPE INTEGRATION
+//     // =======================
+//     try {
+//       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+//       // 1️⃣ Create or retrieve Stripe customer
+//       let stripeCustomerId = shop.stripeCustomerId;
+//       if (!stripeCustomerId) {
+//         const customer = await stripe.customers.create({
+//           email: shop.email,
+//           name: shop.businessName,
+//           phone: shop.phone,
+//           metadata: {
+//             shopId: shop._id.toString(),
+//             businessName: shop.businessName
+//           }
+//         });
+//         stripeCustomerId = customer.id;
+//         shop.stripeCustomerId = stripeCustomerId;
+//       }
+
+//       // 2️⃣ Attach payment method
+//       await stripe.paymentMethods.attach(parsedPayment.stripePaymentMethodId, {
+//         customer: stripeCustomerId,
+//       });
+
+//       // 3️⃣ Set default payment method
+//       await stripe.customers.update(stripeCustomerId, {
+//         invoice_settings: {
+//           default_payment_method: parsedPayment.stripePaymentMethodId,
+//         },
+//       });
+
+//       // 4️⃣ Determine price ID
+//       const planDetails = Shop.getPlanDetails(plan || "basic");
+//       const stripePriceId = parsedPayment.stripePriceId || planDetails?.stripePriceId;
+//       if (!stripePriceId) throw new Error(`No Stripe price ID found for plan: ${plan}`);
+
+//       // 5️⃣ Create subscription with guaranteed 30-day trial, no immediate charge
+//       const now = Math.floor(Date.now() / 1000);
+//       const trialDays = 30;
+//       const subscription = await stripe.subscriptions.create({
+//         customer: stripeCustomerId,
+//         items: [{ price: stripePriceId }],
+//         trial_end: now + trialDays * 24 * 60 * 60, // 30-day trial
+//         payment_behavior: "default_incomplete",    // prevents immediate charge
+//         expand: ["latest_invoice.payment_intent"],
+//         metadata: {
+//           shopId: shop._id.toString(),
+//           plan: plan
+//         }
+//       });
+
+//       // 6️⃣ Update shop with subscription info
+//       shop.stripeSubscriptionId = subscription.id;
+//       shop.subscriptionStatus = subscription.status; // usually "trialing"
+
+//       const price = subscription.items.data[0]?.price;
+//       const safeStripeDate = (timestamp) => timestamp ? new Date(timestamp * 1000) : null;
+
+//       shop.currentSubscription = {
+//         priceId: price?.id || null,
+//         productId: price?.product || null,
+//         planName: plan || "basic",
+//         amount: price?.unit_amount || 0,
+//         currency: price?.currency || "usd",
+//         interval: price?.recurring?.interval || "month",
+
+//         currentPeriodStart: safeStripeDate(subscription.current_period_start),
+//         currentPeriodEnd: safeStripeDate(subscription.current_period_end),
+//         trialStart: safeStripeDate(subscription.trial_start),
+//         trialEnd: safeStripeDate(subscription.trial_end),
+
+//         trialDays: trialDays,
+//         cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
+//         trialExtended: false,
+//         trialExtensions: [],
+//         daysRemaining: trialDays,
+//         isTrial: true
+//       };
+
+//       console.log(`✅ Stripe subscription created: ${subscription.id} for shop: ${shop._id}`);
+
+//     } catch (stripeError) {
+//       console.error("❌ Stripe integration error:", stripeError);
+
+//       // Keep registration going even if Stripe fails
+//       shop.stripeCustomerId = shop.stripeCustomerId || null;
+//       shop.stripeSubscriptionId = null;
+//       shop.subscriptionStatus = "inactive";
+//       shop.currentSubscription = null;
+//     }
+
+
+//     // Save the shop with all updates
+//     await shop.save();
+
+//     // IMPORTANT: This endpoint intentionally does NOT return a JWT or shop data.
+//     // It only acknowledges submission and instructs the user to wait for verification.
+//     return res.status(202).json({
+//       status: "pending_verification",
+//       message:
+//         "Your registration has been submitted successfully. Verification will take up to 48 hours. You will be notified when verification is complete.",
+//       stripeInfo: {
+//         hasSubscription: !!shop.stripeSubscriptionId,
+//         trialEnd: shop.currentSubscription?.trialEnd,
+//         trialDaysRemaining: shop.trialDaysRemaining
+//       }
+//     });
+//   } catch (error) {
+//     console.error("Registration error:", error);
+//     return res.status(500).json({
+//       status: "error",
+//       message: "Failed to complete registration",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
 // ---------------------- COMPLETE REGISTRATION ----------------------
 export const completeRegistration = async (req, res) => {
   console.log(req.body);
-  try {
 
+  try {
     const {
       businessName,
       legalEntityName,
@@ -975,7 +1330,6 @@ export const completeRegistration = async (req, res) => {
       plan,
       paymentData,
 
-      // New fields from frontend
       financingOffered,
       acceptedPayments,
       yearsExperience,
@@ -987,24 +1341,17 @@ export const completeRegistration = async (req, res) => {
       acceptPolicy,
     } = req.body;
 
-    // Find shop by email
+    // 1️⃣ Find shop
     const shop = await Shop.findOne({ email });
     if (!shop) {
-      return res.status(404).json({
-        status: "error",
-        message: "Shop not found",
-      });
+      return res.status(404).json({ status: "error", message: "Shop not found" });
     }
 
-    // Require email verification before proceeding
     if (!shop.isEmailVerified) {
-      return res.status(403).json({
-        status: "error",
-        message: "Email not verified",
-      });
+      return res.status(403).json({ status: "error", message: "Email not verified" });
     }
 
-    // Handle uploaded files (if any)
+    // 2️⃣ Files
     const uploadedFiles = req.files || {};
     const insuranceCertificate =
       uploadedFiles.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
@@ -1013,34 +1360,24 @@ export const completeRegistration = async (req, res) => {
     const workSpacePhoto =
       uploadedFiles.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
 
-    // Multiple certificates (if any)
     const certificateFiles = uploadedFiles.certificateFiles
-      ? uploadedFiles.certificateFiles.map((f) => f.path)
+      ? uploadedFiles.certificateFiles.map(f => f.path)
       : shop.certificateFiles || [];
 
-    // Parse JSON fields safely
-    let parsedServices = [];
-    if (Array.isArray(services)) parsedServices = services;
-    else if (typeof services === "string") {
+    // 3️⃣ Parse JSON fields
+    const safeParse = (val, fallback) => {
       try {
-        parsedServices = JSON.parse(services);
-      } catch (e) {
-        parsedServices = [];
+        return typeof val === "string" ? JSON.parse(val) : val ?? fallback;
+      } catch {
+        return fallback;
       }
-    }
+    };
 
-    let parsedPayment = {};
-    if (typeof paymentData === "string") {
-      try {
-        parsedPayment = JSON.parse(paymentData);
-      } catch (e) {
-        parsedPayment = {};
-      }
-    } else if (typeof paymentData === "object" && paymentData !== null) {
-      parsedPayment = paymentData;
-    }
+    const parsedServices = safeParse(services, []);
+    const parsedAcceptedPayments = safeParse(acceptedPayments, []);
+    const parsedBusinessHours = safeParse(businessHours, {});
+    const parsedPayment = safeParse(paymentData, {});
 
-    // Validate Stripe payment method ID
     if (!parsedPayment.stripePaymentMethodId) {
       return res.status(400).json({
         status: "error",
@@ -1048,88 +1385,41 @@ export const completeRegistration = async (req, res) => {
       });
     }
 
-    let parsedAcceptedPayments = [];
-    if (typeof acceptedPayments === "string") {
-      try {
-        parsedAcceptedPayments = JSON.parse(acceptedPayments);
-      } catch (e) {
-        parsedAcceptedPayments = [];
-      }
-    } else if (Array.isArray(acceptedPayments)) {
-      parsedAcceptedPayments = acceptedPayments;
-    }
+    const parsedFinancingOffered =
+      typeof financingOffered === "string"
+        ? financingOffered.toLowerCase() === "true"
+        : !!financingOffered;
 
-    let parsedBusinessHours = {};
-    if (typeof businessHours === "string") {
-      try {
-        parsedBusinessHours = JSON.parse(businessHours);
-      } catch (e) {
-        parsedBusinessHours = {};
-      }
-    } else if (typeof businessHours === "object" && businessHours !== null) {
-      parsedBusinessHours = businessHours;
-    }
-
-    // ✅ Parse financingOffered correctly (FormData sends it as string)
-    let parsedFinancingOffered = false;
-    if (financingOffered !== undefined) {
-      if (typeof financingOffered === 'string') {
-        parsedFinancingOffered = financingOffered.toLowerCase() === 'true';
-      } else if (typeof financingOffered === 'boolean') {
-        parsedFinancingOffered = financingOffered;
-      }
-    }
-
-    // Parse location coordinates
-    const parsedLatitude = latitude ? parseFloat(latitude) : null;
-    const parsedLongitude = longitude ? parseFloat(longitude) : null;
-
-    // Update shop fields
+    // 4️⃣ Update shop fields
     shop.businessName = businessName || shop.businessName;
     shop.legalEntityName = legalEntityName || shop.legalEntityName;
     shop.ownerName = ownerName || shop.ownerName;
     shop.countryCode = countryCode || shop.countryCode;
     shop.phone = phone || shop.phone;
-
-    // ✅ FIX: Capital 'O' to match model schema
     shop.ownerPhone = ownerPhone || shop.ownerPhone;
-
-    // Use websiteInput if provided, otherwise use website
     shop.website = websiteInput || website || shop.website;
-
     shop.address = address || shop.address;
     shop.zipCode = zipCode || shop.zipCode;
     shop.country = country || shop.country;
 
-    // ✅ FIX: Use parsed financingOffered value
     shop.financingOffered = parsedFinancingOffered;
-    shop.acceptedPayments = parsedAcceptedPayments.length ? parsedAcceptedPayments : shop.acceptedPayments || [];
+    shop.acceptedPayments = parsedAcceptedPayments.length
+      ? parsedAcceptedPayments
+      : shop.acceptedPayments;
+
     shop.yearsExperience = yearsExperience || shop.yearsExperience;
 
-    // Business hours
     if (Object.keys(parsedBusinessHours).length) {
       shop.businessHours = parsedBusinessHours;
-    } else if (!shop.businessHours) {
-      // Set default empty business hours if none exist
-      shop.businessHours = {
-        monday: { open: "", close: "", closed: false },
-        tuesday: { open: "", close: "", closed: false },
-        wednesday: { open: "", close: "", closed: false },
-        thursday: { open: "", close: "", closed: false },
-        friday: { open: "", close: "", closed: false },
-        saturday: { open: "", close: "", closed: true }, // Default closed on weekends
-        sunday: { open: "", close: "", closed: true },
-      };
     }
 
-    // Location coordinates
-    if (parsedLatitude !== null && parsedLongitude !== null) {
+    if (latitude && longitude) {
       shop.location = {
         type: "Point",
-        coordinates: [parsedLongitude, parsedLatitude], // [lng, lat]
+        coordinates: [parseFloat(longitude), parseFloat(latitude)],
       };
-      shop.latitude = parsedLatitude;
-      shop.longitude = parsedLongitude;
+      shop.latitude = parseFloat(latitude);
+      shop.longitude = parseFloat(longitude);
     }
 
     shop.services = parsedServices.length ? parsedServices : shop.services;
@@ -1139,9 +1429,8 @@ export const completeRegistration = async (req, res) => {
     shop.insuranceCarrier = insuranceCarrier || shop.insuranceCarrier;
     shop.policyNumber = policyNumber || shop.policyNumber;
     shop.policyExpiration = policyExpiration || shop.policyExpiration;
-    shop.insuranceCertificate = insuranceCertificate || shop.insuranceCertificate;
+    shop.insuranceCertificate = insuranceCertificate;
 
-    // Social media - use input fields if provided, otherwise use direct links
     shop.socialMedia = {
       instagram: instagramInput || instagramLink || shop.socialMedia?.instagram || "",
       facebook: facebookInput || facebookLink || shop.socialMedia?.facebook || "",
@@ -1149,136 +1438,119 @@ export const completeRegistration = async (req, res) => {
     };
 
     shop.additionalInfo = additionalInfo || shop.additionalInfo;
-    shop.storeFrontPhoto = storeFrontPhoto || shop.storeFrontPhoto;
-    shop.workSpacePhoto = workSpacePhoto || shop.workSpacePhoto;
-    shop.certificateFiles = certificateFiles.length ? certificateFiles : shop.certificateFiles || [];
+    shop.storeFrontPhoto = storeFrontPhoto;
+    shop.workSpacePhoto = workSpacePhoto;
+    shop.certificateFiles = certificateFiles;
     shop.plan = plan || shop.plan;
 
-    // Save payment method info (for reference, not used for billing directly)
     shop.paymentInfo = {
       stripePaymentMethodId: parsedPayment.stripePaymentMethodId,
-      plan: parsedPayment.plan || plan,
+      plan: plan,
       stripePriceId: parsedPayment.stripePriceId,
-      lastUpdated: new Date()
+      lastUpdated: new Date(),
     };
 
     shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
     shop.policyAcceptedAt = new Date();
-
-    // Update shop status to pending verification
     shop.status = "pending";
     shop.isVerified = false;
     shop.registrationExpiresAt = null;
 
-
-    // ✅ STRIPE INTEGRATION
-    // =======================
+    // =========================
+    // 💳 STRIPE INTEGRATION
+    // =========================
     try {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-      // 1️⃣ Create or retrieve Stripe customer
-      let stripeCustomerId = shop.stripeCustomerId;
-      if (!stripeCustomerId) {
+      // Trial duration from ENV (minutes)
+      const trialMinutes = parseInt(process.env.STRIPE_TEST_TRIAL_MINUTES || "60", 10);
+      const trialSeconds = trialMinutes * 60;
+      const now = Math.floor(Date.now() / 1000);
+
+      // Customer
+      if (!shop.stripeCustomerId) {
         const customer = await stripe.customers.create({
           email: shop.email,
           name: shop.businessName,
           phone: shop.phone,
-          metadata: {
-            shopId: shop._id.toString(),
-            businessName: shop.businessName
-          }
+          metadata: { shopId: shop._id.toString() },
         });
-        stripeCustomerId = customer.id;
-        shop.stripeCustomerId = stripeCustomerId;
+        shop.stripeCustomerId = customer.id;
       }
 
-      // 2️⃣ Attach payment method
+      // Attach payment method
       await stripe.paymentMethods.attach(parsedPayment.stripePaymentMethodId, {
-        customer: stripeCustomerId,
+        customer: shop.stripeCustomerId,
       });
 
-      // 3️⃣ Set default payment method
-      await stripe.customers.update(stripeCustomerId, {
+      await stripe.customers.update(shop.stripeCustomerId, {
         invoice_settings: {
           default_payment_method: parsedPayment.stripePaymentMethodId,
         },
       });
 
-      // 4️⃣ Determine price ID
       const planDetails = Shop.getPlanDetails(plan || "basic");
       const stripePriceId = parsedPayment.stripePriceId || planDetails?.stripePriceId;
-      if (!stripePriceId) throw new Error(`No Stripe price ID found for plan: ${plan}`);
+      if (!stripePriceId) throw new Error("Stripe price ID missing");
 
-      // 5️⃣ Create subscription with guaranteed 30-day trial, no immediate charge
-      const now = Math.floor(Date.now() / 1000);
-      const trialDays = 30;
       const subscription = await stripe.subscriptions.create({
-        customer: stripeCustomerId,
+        customer: shop.stripeCustomerId,
         items: [{ price: stripePriceId }],
-        trial_end: now + trialDays * 24 * 60 * 60, // 30-day trial
-        payment_behavior: "default_incomplete",    // prevents immediate charge
+        trial_end: now + trialSeconds,
+        payment_behavior: "default_incomplete",
         expand: ["latest_invoice.payment_intent"],
         metadata: {
           shopId: shop._id.toString(),
-          plan: plan
-        }
+          plan: plan || "basic",
+        },
       });
 
-      // 6️⃣ Update shop with subscription info
-      shop.stripeSubscriptionId = subscription.id;
-      shop.subscriptionStatus = subscription.status; // usually "trialing"
+      const toDate = (ts) => (ts ? new Date(ts * 1000) : null);
+      const trialEndDate = toDate(subscription.trial_end);
 
-      const price = subscription.items.data[0]?.price;
-      const safeStripeDate = (timestamp) => timestamp ? new Date(timestamp * 1000) : null;
+      shop.stripeSubscriptionId = subscription.id;
+      shop.subscriptionStatus = subscription.status;
 
       shop.currentSubscription = {
-        priceId: price?.id || null,
-        productId: price?.product || null,
+        priceId: subscription.items.data[0]?.price?.id || null,
+        productId: subscription.items.data[0]?.price?.product || null,
         planName: plan || "basic",
-        amount: price?.unit_amount || 0,
-        currency: price?.currency || "usd",
-        interval: price?.recurring?.interval || "month",
+        amount: subscription.items.data[0]?.price?.unit_amount || 0,
+        currency: subscription.items.data[0]?.price?.currency || "usd",
+        interval: subscription.items.data[0]?.price?.recurring?.interval || "month",
 
-        currentPeriodStart: safeStripeDate(subscription.current_period_start),
-        currentPeriodEnd: safeStripeDate(subscription.current_period_end),
-        trialStart: safeStripeDate(subscription.trial_start),
-        trialEnd: safeStripeDate(subscription.trial_end),
+        currentPeriodStart: toDate(subscription.current_period_start),
+        currentPeriodEnd: toDate(subscription.current_period_end),
+        trialStart: toDate(subscription.trial_start),
+        trialEnd: trialEndDate,
 
-        trialDays: trialDays,
+        trialMinutes,
+        isTrial: true,
         cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
-        trialExtended: false,
-        trialExtensions: [],
-        daysRemaining: trialDays,
-        isTrial: true
+        daysRemaining: Math.max(
+          0,
+          Math.ceil((trialEndDate - new Date()) / (1000 * 60 * 60 * 24))
+        ),
       };
 
-      console.log(`✅ Stripe subscription created: ${subscription.id} for shop: ${shop._id}`);
-
+      console.log("✅ Stripe subscription created:", subscription.id);
     } catch (stripeError) {
-      console.error("❌ Stripe integration error:", stripeError);
-
-      // Keep registration going even if Stripe fails
-      shop.stripeCustomerId = shop.stripeCustomerId || null;
-      shop.stripeSubscriptionId = null;
+      console.error("❌ Stripe error:", stripeError);
       shop.subscriptionStatus = "inactive";
       shop.currentSubscription = null;
     }
 
-
-    // Save the shop with all updates
     await shop.save();
 
-    // IMPORTANT: This endpoint intentionally does NOT return a JWT or shop data.
-    // It only acknowledges submission and instructs the user to wait for verification.
     return res.status(202).json({
       status: "pending_verification",
       message:
-        "Your registration has been submitted successfully. Verification will take up to 48 hours. You will be notified when verification is complete.",
+        "Registration submitted. Verification will take up to 48 hours.",
       stripeInfo: {
         hasSubscription: !!shop.stripeSubscriptionId,
         trialEnd: shop.currentSubscription?.trialEnd,
-        trialDaysRemaining: shop.trialDaysRemaining
-      }
+        trialMinutes: shop.currentSubscription?.trialMinutes,
+      },
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -1289,6 +1561,13 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
 
 
 
