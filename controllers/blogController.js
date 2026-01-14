@@ -90,12 +90,69 @@ export const createBlog = async (req, res) => {
   }
 };
 
-// @desc    Get all blog posts
-// @route   GET /api/blogs
-// @access  Public
+// // @desc    Get all blog posts
+// // @route   GET /api/blogs
+// // @access  Public
+// export const getAllBlogs = async (req, res) => {
+//   try {
+//     const { status, tag, limit, page } = req.query;
+
+//     // Build query
+//     const query = {};
+    
+//     // Filter by status (default to published for public access)
+//     if (status) {
+//       query.status = status;
+//     } else {
+//       // If not admin, only show published blogs
+//       if (!req.user || req.user.role !== "admin") {
+//         query.status = "published";
+//       }
+//     }
+
+//     // Filter by tag
+//     if (tag) {
+//       query.tags = { $in: [tag] };
+//     }
+
+//     // Pagination
+//     const pageNum = parseInt(page) || 1;
+//     const limitNum = parseInt(limit) || 10;
+//     const skip = (pageNum - 1) * limitNum;
+
+//     const blogs = await Blog.find(query)
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limitNum);
+
+//     const total = await Blog.countDocuments(query);
+
+//     return res.status(200).json({
+//       status: "success",
+//       data: blogs,
+//       pagination: {
+//         total,
+//         page: pageNum,
+//         pages: Math.ceil(total / limitNum),
+//       },
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching blogs:", error);
+//     return res.status(500).json({
+//       status: "error",
+//       message: "Server error while fetching blogs",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
+
 export const getAllBlogs = async (req, res) => {
   try {
-    const { status, tag, limit, page } = req.query;
+    const { status, tag, limit = 10, page = 1, search } = req.query;
 
     // Build query
     const query = {};
@@ -115,36 +172,67 @@ export const getAllBlogs = async (req, res) => {
       query.tags = { $in: [tag] };
     }
 
+    // Search functionality
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { content: { $regex: search, $options: "i" } },
+        { author: { $regex: search, $options: "i" } },
+        { tags: { $regex: search, $options: "i" } }
+      ];
+    }
+
     // Pagination
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 10;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Get total count
+    const total = await Blog.countDocuments(query);
+
+    // Get blogs with pagination
     const blogs = await Blog.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum)
+      .lean();
 
-    const total = await Blog.countDocuments(query);
+    // Add isLiked field for authenticated users
+    const blogsWithLikeStatus = blogs.map(blog => {
+      const blogObj = { ...blog };
+      
+      if (req.user) {
+        // Check if current user has liked this blog
+        // Convert likedBy to string for comparison
+        const likedByStrings = blog.likedBy ? blog.likedBy.map(id => id.toString()) : [];
+        blogObj.isLiked = likedByStrings.includes(req.user._id.toString());
+      } else {
+        blogObj.isLiked = false;
+      }
+      
+      return blogObj;
+    });
 
     return res.status(200).json({
-      status: "success",
-      data: blogs,
+      success: true,
+      data: blogsWithLikeStatus,
       pagination: {
         total,
         page: pageNum,
+        limit: limitNum,
         pages: Math.ceil(total / limitNum),
       },
     });
   } catch (error) {
     console.error("❌ Error fetching blogs:", error);
     return res.status(500).json({
-      status: "error",
+      success: false,
       message: "Server error while fetching blogs",
       error: error.message,
     });
   }
 };
+
 
 // @desc    Get single blog post by ID
 // @route   GET /api/blogs/:id
@@ -153,26 +241,33 @@ export const getBlogById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const blog = await Blog.findById(id);
+    const blog = await Blog.findById(id).lean();
 
     if (!blog) {
       return res.status(404).json({
-        status: "error",
+        success: false,
         message: "Blog post not found",
       });
     }
 
-    // Increment views
-    await blog.save();
+    // Add isLiked field for authenticated users
+    let blogWithLikeStatus = { ...blog };
+    
+    if (req.user) {
+      const likedByStrings = blog.likedBy ? blog.likedBy.map(id => id.toString()) : [];
+      blogWithLikeStatus.isLiked = likedByStrings.includes(req.user._id.toString());
+    } else {
+      blogWithLikeStatus.isLiked = false;
+    }
 
     return res.status(200).json({
-      status: "success",
-      data: blog,
+      success: true,
+      data: blogWithLikeStatus,
     });
   } catch (error) {
     console.error("❌ Error fetching blog:", error);
     return res.status(500).json({
-      status: "error",
+      success: false,
       message: "Server error while fetching blog post",
       error: error.message,
     });
@@ -256,49 +351,94 @@ export const deleteBlog = async (req, res) => {
 // @desc    Like/Unlike a blog post
 // @route   POST /api/blogs/:id/like
 // @access  Protected
+// @desc    Increment blog view count
+// @route   POST /api/blogs/:id/view
+// @access  Public
+export const incrementViewCount = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const blog = await Blog.findByIdAndUpdate(
+      id,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).lean();
+
+    if (!blog) {
+      return res.status(404).json({
+        success: false,
+        message: "Blog post not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "View count incremented",
+      data: {
+        views: blog.views,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error incrementing view count:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while incrementing view count",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Like/Unlike a blog post
+// @route   POST /api/blogs/:id/like
+// @access  Private
 export const likeBlog = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
+    const userModel = req.user.model || "Customer"; // Assuming your user model has a 'model' field
 
     const blog = await Blog.findById(id);
 
     if (!blog) {
       return res.status(404).json({
-        status: "error",
+        success: false,
         message: "Blog post not found",
       });
     }
 
     // Check if user already liked the blog
-    const alreadyLiked = blog.likedBy.includes(userId);
+    const userIndex = blog.likedBy.findIndex(
+      (likeId) => likeId.toString() === userId.toString()
+    );
 
-    if (alreadyLiked) {
+    let isLiked;
+    
+    if (userIndex > -1) {
       // Unlike: Remove user from likedBy array
-      blog.likedBy = blog.likedBy.filter(
-        (id) => id.toString() !== userId.toString()
-      );
+      blog.likedBy.splice(userIndex, 1);
       blog.likes = Math.max(0, blog.likes - 1);
+      isLiked = false;
     } else {
       // Like: Add user to likedBy array
       blog.likedBy.push(userId);
       blog.likes += 1;
+      isLiked = true;
     }
 
     await blog.save();
 
     return res.status(200).json({
-      status: "success",
-      message: alreadyLiked ? "Blog unliked" : "Blog liked",
+      success: true,
+      message: isLiked ? "Blog liked successfully" : "Blog unliked successfully",
       data: {
         likes: blog.likes,
-        isLiked: !alreadyLiked,
+        isLiked,
       },
     });
   } catch (error) {
     console.error("❌ Error liking blog:", error);
     return res.status(500).json({
-      status: "error",
+      success: false,
       message: "Server error while liking blog post",
       error: error.message,
     });

@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import VerificationRequest from "../models/updateProfileModel.js";
 import Stripe from 'stripe';
+import mongoose from 'mongoose'
 
 
 dotenv.config();
@@ -1570,6 +1571,122 @@ export const completeRegistration = async (req, res) => {
 
 
 
+
+
+// // ================== CONFIG ==================
+// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// // 🔴 PUT SHOP ID HERE (24 hex chars — this is CORRECT)
+// const SHOP_ID = "69668426f040cba4b3111616";
+
+// // ================== DB CONNECT ==================
+// const connectDB = async () => {
+//   try {
+//     await mongoose.connect(process.env.MONGO_URI);
+//     console.log("✅ MongoDB connected");
+//   } catch (err) {
+//     console.error("❌ MongoDB connection failed", err);
+//     process.exit(1);
+//   }
+// };
+
+// // ================== MAIN LOGIC ==================
+// export const extendTrialForSpecificShop = async () => {
+//   const shop = await Shop.findById(SHOP_ID);
+
+//   if (!shop) {
+//     throw new Error("❌ Shop not found");
+//   }
+
+//   if (!shop.stripeCustomerId) {
+//     throw new Error("❌ Shop has no Stripe customer");
+//   }
+
+//   console.log(`🔁 Extending trial for shop: ${shop.businessName}`);
+
+//   // 1️⃣ Cancel existing subscription (if exists)
+//   if (shop.stripeSubscriptionId) {
+//     try {
+//       await stripe.subscriptions.cancel(shop.stripeSubscriptionId);
+//       console.log("✅ Old subscription cancelled");
+//     } catch (err) {
+//       console.warn("⚠️ Subscription already cancelled or missing");
+//     }
+//   }
+
+//   // 2️⃣ Create NEW subscription with 30-day trial
+//   const TRIAL_DAYS = 30;
+//   const trialEnd =
+//     Math.floor(Date.now() / 1000) + TRIAL_DAYS * 24 * 60 * 60;
+
+//   const planDetails = Shop.getPlanDetails(shop.plan || "basic");
+
+//   if (!planDetails?.stripePriceId) {
+//     throw new Error("❌ Stripe price ID missing");
+//   }
+
+//   const subscription = await stripe.subscriptions.create({
+//     customer: shop.stripeCustomerId,
+//     items: [{ price: planDetails.stripePriceId }],
+//     trial_end: trialEnd,
+//     payment_behavior: "default_incomplete",
+//     metadata: {
+//       shopId: shop._id.toString(),
+//       plan: shop.plan || "basic",
+//       manualTrialExtension: "true",
+//     },
+//   });
+
+//   const toDate = (ts) => (ts ? new Date(ts * 1000) : null);
+
+//   // 3️⃣ Update database
+//   shop.stripeSubscriptionId = subscription.id;
+//   shop.subscriptionStatus = subscription.status;
+
+//   shop.currentSubscription = {
+//     priceId: subscription.items.data[0]?.price?.id || null,
+//     productId: subscription.items.data[0]?.price?.product || null,
+//     planName: shop.plan || "basic",
+//     amount: subscription.items.data[0]?.price?.unit_amount || 0,
+//     currency: subscription.items.data[0]?.price?.currency || "usd",
+//     interval:
+//       subscription.items.data[0]?.price?.recurring?.interval || "month",
+
+//     currentPeriodStart: toDate(subscription.current_period_start),
+//     currentPeriodEnd: toDate(subscription.current_period_end),
+//     trialStart: toDate(subscription.trial_start),
+//     trialEnd: toDate(subscription.trial_end),
+
+//     trialMinutes: TRIAL_DAYS * 24 * 60,
+//     isTrial: true,
+//     cancelAtPeriodEnd: false,
+//     daysRemaining: TRIAL_DAYS,
+//   };
+
+//   await shop.save();
+
+//   console.log("🎉 Trial successfully extended to 30 days");
+
+//   return {
+//     success: true,
+//     shopId: shop._id.toString(),
+//     trialEnd: shop.currentSubscription.trialEnd,
+//   };
+// };
+
+// // ================== RUN SCRIPT ==================
+// (async () => {
+//   try {
+//     await connectDB();
+//     await extendTrialForSpecificShop();
+//   } catch (err) {
+//     console.error("❌ Script failed:", err.message);
+//   } finally {
+//     await mongoose.disconnect();
+//     console.log("🔌 MongoDB disconnected");
+//     process.exit(0);
+//   }
+// })();
 
 
 

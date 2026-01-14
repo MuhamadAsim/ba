@@ -96,7 +96,204 @@ function hashOtp(otp) {
  * - Validates credentials against Admin model
  * - Generates and stores OTP
  * - Sends OTP via email
- */
+//  */
+// export const adminLogin = async (req, res) => {
+//   try {
+//     const { email, password } = req.body || {};
+
+//     // Validate input
+//     if (!email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and password are required",
+//       });
+//     }
+
+//     // Find admin by email
+//     const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+
+//     // Check if admin exists and is active
+//     if (!admin) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid credentials",
+//       });
+//     }
+
+//     if (!admin.isActive) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Admin account is disabled",
+//       });
+//     }
+
+//     // Validate credentials
+//     const isPasswordValid = await admin.comparePassword(password);
+//     if (!isPasswordValid) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid credentials",
+//       });
+//     }
+
+//     // Generate OTP
+//     const otp = generateOtp();
+//     const hashedOtp = hashOtp(otp);
+//     const expiresAt = Date.now() + OTP_EXPIRY_MS;
+
+//     // Store OTP with metadata
+//     otpStore[email] = {
+//       otp: hashedOtp,
+//       expiresAt,
+//       attempts: 0,
+//       createdAt: Date.now(),
+//       adminId: admin._id, // Store admin ID for verification
+//       purpose: "login", // Track OTP purpose
+//     };
+
+//     // Update last login time
+//     admin.lastLogin = new Date();
+//     await admin.save();
+
+//     // Send OTP email
+//     const subject = "Your Admin Login OTP Code";
+//     const html = `
+//       <div style="font-family: Arial, sans-serif; padding: 20px;">
+//         <h2>Admin Login Verification</h2>
+//         <p>Your OTP code for login is:</p>
+//         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
+//         <p>This code will expire in <strong>${Math.floor(
+//       OTP_EXPIRY_MS / 60000
+//     )} minute(s)</strong>.</p>
+//         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
+//       </div>
+//     `;
+
+//     // Call sendEmail with correct parameters (to, subject, html)
+//     await sendEmail(email, subject, html);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "OTP sent to your email",
+//     });
+//   } catch (error) {
+//     console.error("adminLogin error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to send OTP. Please try again.",
+//     });
+//   }
+// };
+
+// /**
+//  * POST /api/admin/verify-otp
+//  * Body: { email, otp }
+//  * - Validates OTP, expiry, and attempts
+//  * - Returns JWT token on success
+//  */
+// export const verifyOtp = async (req, res) => {
+//   try {
+//     const { email, otp } = req.body || {};
+
+//     // Validate input
+//     if (!email || !otp) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email and OTP are required",
+//       });
+//     }
+
+//     // Check if OTP exists
+//     const record = otpStore[email];
+//     if (!record) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "No OTP found. Please request a new one.",
+//       });
+//     }
+
+//     // Check if OTP expired
+//     if (Date.now() > record.expiresAt) {
+//       delete otpStore[email];
+//       return res.status(400).json({
+//         success: false,
+//         message: "OTP has expired. Please request a new one.",
+//       });
+//     }
+
+//     // Check verification attempts
+//     if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
+//       delete otpStore[email];
+//       return res.status(429).json({
+//         success: false,
+//         message: "Too many failed attempts. Please request a new OTP.",
+//       });
+//     }
+
+//     // Verify OTP
+//     const hashedInputOtp = hashOtp(String(otp).trim());
+//     if (record.otp !== hashedInputOtp) {
+//       otpStore[email].attempts = record.attempts + 1;
+//       const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[email].attempts;
+//       return res.status(400).json({
+//         success: false,
+//         message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
+//       });
+//     }
+
+//     // Get admin data from database
+//     const admin = await Admin.findById(record.adminId);
+//     if (!admin) {
+//       delete otpStore[email];
+//       return res.status(404).json({
+//         success: false,
+//         message: "Admin account not found",
+//       });
+//     }
+
+//     // Success: Remove OTP and generate JWT
+//     delete otpStore[email];
+
+//     const token = jwt.sign(
+//       {
+//         email,
+//         role: "admin",
+//         adminId: admin._id,
+//         isActive: admin.isActive
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: JWT_EXPIRY }
+//     );
+
+//     const adminInfo = {
+//       id: admin._id,
+//       email,
+//       role: "admin",
+//       isActive: admin.isActive,
+//       lastLogin: admin.lastLogin,
+//       createdAt: admin.createdAt,
+//     };
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Login successful",
+//       token,
+//       admin: adminInfo,
+//     });
+//   } catch (error) {
+//     console.error("verifyOtp error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Verification failed. Please try again.",
+//     });
+//   }
+// };
+
+
+
+
+
+
 export const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -109,8 +306,10 @@ export const adminLogin = async (req, res) => {
       });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Find admin by email
-    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+    const admin = await Admin.findOne({ email: normalizedEmail });
 
     // Check if admin exists and is active
     if (!admin) {
@@ -123,7 +322,7 @@ export const adminLogin = async (req, res) => {
     if (!admin.isActive) {
       return res.status(403).json({
         success: false,
-        message: "Admin account is disabled",
+        message: "Your account has been disabled. Please contact a super admin.",
       });
     }
 
@@ -142,13 +341,14 @@ export const adminLogin = async (req, res) => {
     const expiresAt = Date.now() + OTP_EXPIRY_MS;
 
     // Store OTP with metadata
-    otpStore[email] = {
+    otpStore[normalizedEmail] = {
       otp: hashedOtp,
       expiresAt,
       attempts: 0,
       createdAt: Date.now(),
       adminId: admin._id, // Store admin ID for verification
       purpose: "login", // Track OTP purpose
+      role: admin.role, // Store role for token generation
     };
 
     // Update last login time
@@ -163,18 +363,18 @@ export const adminLogin = async (req, res) => {
         <p>Your OTP code for login is:</p>
         <h1 style="color: #4CAF50; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         <p>This code will expire in <strong>${Math.floor(
-      OTP_EXPIRY_MS / 60000
-    )} minute(s)</strong>.</p>
+          OTP_EXPIRY_MS / 60000
+        )} minute(s)</strong>.</p>
         <p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
       </div>
     `;
 
-    // Call sendEmail with correct parameters (to, subject, html)
-    await sendEmail(email, subject, html);
+    await sendEmail(normalizedEmail, subject, html);
 
     return res.status(200).json({
       success: true,
       message: "OTP sent to your email",
+      expiresIn: OTP_EXPIRY_MS / 1000, // Return in seconds for frontend
     });
   } catch (error) {
     console.error("adminLogin error:", error);
@@ -185,12 +385,11 @@ export const adminLogin = async (req, res) => {
   }
 };
 
-/**
- * POST /api/admin/verify-otp
- * Body: { email, otp }
- * - Validates OTP, expiry, and attempts
- * - Returns JWT token on success
- */
+
+
+
+
+
 export const verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body || {};
@@ -203,8 +402,10 @@ export const verifyOtp = async (req, res) => {
       });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Check if OTP exists
-    const record = otpStore[email];
+    const record = otpStore[normalizedEmail];
     if (!record) {
       return res.status(400).json({
         success: false,
@@ -214,7 +415,7 @@ export const verifyOtp = async (req, res) => {
 
     // Check if OTP expired
     if (Date.now() > record.expiresAt) {
-      delete otpStore[email];
+      delete otpStore[normalizedEmail];
       return res.status(400).json({
         success: false,
         message: "OTP has expired. Please request a new one.",
@@ -223,7 +424,7 @@ export const verifyOtp = async (req, res) => {
 
     // Check verification attempts
     if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
-      delete otpStore[email];
+      delete otpStore[normalizedEmail];
       return res.status(429).json({
         success: false,
         message: "Too many failed attempts. Please request a new OTP.",
@@ -233,8 +434,8 @@ export const verifyOtp = async (req, res) => {
     // Verify OTP
     const hashedInputOtp = hashOtp(String(otp).trim());
     if (record.otp !== hashedInputOtp) {
-      otpStore[email].attempts = record.attempts + 1;
-      const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[email].attempts;
+      otpStore[normalizedEmail].attempts = record.attempts + 1;
+      const remainingAttempts = MAX_VERIFICATION_ATTEMPTS - otpStore[normalizedEmail].attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`,
@@ -244,35 +445,50 @@ export const verifyOtp = async (req, res) => {
     // Get admin data from database
     const admin = await Admin.findById(record.adminId);
     if (!admin) {
-      delete otpStore[email];
+      delete otpStore[normalizedEmail];
       return res.status(404).json({
         success: false,
         message: "Admin account not found",
       });
     }
 
-    // Success: Remove OTP and generate JWT
-    delete otpStore[email];
+    // Check if admin is still active
+    if (!admin.isActive) {
+      delete otpStore[normalizedEmail];
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been disabled. Please contact a super admin.",
+      });
+    }
 
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Generate JWT token with admin data
     const token = jwt.sign(
       {
-        email,
-        role: "admin",
-        adminId: admin._id,
+        id: admin._id,
+        email: admin.email,
+        role: admin.role, // Use actual role from database
         isActive: admin.isActive
       },
       process.env.JWT_SECRET,
       { expiresIn: JWT_EXPIRY }
     );
 
+    // Prepare admin info for response
     const adminInfo = {
       id: admin._id,
-      email,
-      role: "admin",
+      email: admin.email,
+      role: admin.role, // Include actual role
       isActive: admin.isActive,
       lastLogin: admin.lastLogin,
       createdAt: admin.createdAt,
     };
+
+    // Clean up OTP store
+    delete otpStore[normalizedEmail];
 
     return res.status(200).json({
       success: true,
@@ -288,6 +504,23 @@ export const verifyOtp = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /**
  * POST /api/admin/resend-otp

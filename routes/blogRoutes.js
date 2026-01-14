@@ -10,11 +10,11 @@ import {
   deleteBlog,
   likeBlog,
   uploadBlogImage,
+  incrementViewCount
 } from "../controllers/blogController.js";
 
 const router = express.Router();
 
-// SPECIFIC ROUTES FIRST (to avoid /:id conflicts)
 
 // Image upload endpoint - Admin only
 router.post("/blog-image", upload.single("image"), authenticateAdmin, uploadBlogImage);
@@ -32,5 +32,7 @@ router.get("/:id", getBlogById);
 
 // Protected routes (authenticated users/shops can like)
 router.post("/:id/like", authMiddleware, likeBlog);
+router.post("/:id/view", incrementViewCount); // ADD THIS ROUTE
+
 
 export default router;

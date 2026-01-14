@@ -16,6 +16,26 @@ const adminSchema = new mongoose.Schema(
       required: true,
     },
 
+    // 🔐 ROLE SYSTEM
+    role: {
+      type: String,
+      enum: ["super_admin", "admin"],
+      default: "admin",
+      index: true,
+    },
+
+    // 🎯 FINE-GRAINED PERMISSIONS
+    permissions: {
+      type: [String],
+      default: [],
+    },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+
     isActive: {
       type: Boolean,
       default: true,
