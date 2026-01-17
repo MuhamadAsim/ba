@@ -29,6 +29,14 @@ import {
   getSubscriptionDetails,
   reactivateSubscription
 } from "../controllers/shopController.js";
+import {
+  createChildAccount,
+  deleteChildAccount,
+  toggleChildAccountStatus,
+  getChildAccount,
+  getChildAccounts,
+  updateChildAccount
+} from "../controllers/shopUserController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
 const router = express.Router();
@@ -39,7 +47,7 @@ router.post("/verify-otp", verifyOtp);
 router.post("/signin", signin);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
-router.post("/change-password",authenticateShop,changePassword)
+router.post("/change-password", authenticateShop, changePassword)
 
 //Registration
 router.post(
@@ -122,6 +130,13 @@ router.post(
 );
 
 
+// Sub-accounts management 
+router.post("/sub-accounts", authenticateShop, createChildAccount);
+router.get("/sub-accounts", authenticateShop, getChildAccounts);
+router.get("/sub-accounts/:userId", authenticateShop, getChildAccount);
+router.put("/sub-accounts/:userId", authenticateShop, updateChildAccount);
+router.delete("/sub-accounts/:userId", authenticateShop, deleteChildAccount);
+router.put("/sub-accounts/:userId/toggle-status", authenticateShop, toggleChildAccountStatus);
 
 
 

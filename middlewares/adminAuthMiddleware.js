@@ -8,7 +8,6 @@ dotenv.config();
 
 
 const ADMIN_BLOCKED_PATHS = [
-  "/api/admin/create-shop",
 ];
 
 export async function authenticateAdmin(req, res, next) {

@@ -38,7 +38,8 @@ import {
   getShopTrialInfo,
   getAdminActivities,
   getActivityTypes,
-  updateShopByAdmin
+  updateShopByAdmin,
+  getShops
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -49,7 +50,7 @@ import {
   deactivateStory,
   reorderStories
 } from '../controllers/happyStoryController.js';
-
+import { getAllAdmins, createAdmin, updateAdmin, toggleAdminStatus } from "../controllers/adminAccountController.js";
 
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
 import { upload } from "../middlewares/upload.js";
@@ -58,11 +59,7 @@ import { shopUpload } from "../middlewares/shopUpload.js";
 import { sendEmail } from "../utils/sendEmail.js";
 const router = express.Router();
 
-
-
-
-
-// Auth
+// Auth (no authentication required)
 router.post("/login", adminLogin);
 router.post("/verify-otp", verifyOtp);
 router.post("/resend-otp", resendOtp);
@@ -72,25 +69,24 @@ router.post("/request-password-change", requestPasswordChange);
 router.post("/verify-password-change-otp", verifyPasswordChangeOtp);
 router.put("/change-password", authenticateAdmin, changePassword);
 
-//happstories
+// Happy stories (public)
 router.get('/happy-stories', getAllStories);
 router.get('/happy-stories/:id', getStoryById);
 
-
-
-//Authenticate
+// ⚠️ ALL ROUTES BELOW REQUIRE AUTHENTICATION
 router.use(authenticateAdmin);
-
 
 // Dashboard
 router.get("/dashboard/stats", getDashboardStats);
 router.get("/dashboard/overview", getDashboardOverview);
-// Activity routes (new)
+
+// Activity routes
 router.get("/activities", getAdminActivities);
 router.get("/activity-types", getActivityTypes);
 
+router.get("/shops-list", getShops);
 
-//shop registeration
+// Shop registration
 router.post(
   '/shops/create',
   upload.fields([
@@ -103,26 +99,22 @@ router.post(
   createShopByAdmin
 );
 router.get("/shops/unverified", getUnverifiedShops);
-router.put("/shops/:shopId/accept", acceptShop);//
+router.put("/shops/:shopId/accept", acceptShop);
 router.put("/shops/:shopId/reject", rejectShop);
 router.patch("/shops/:shopId/block", toggleBlockShop);
 
-
-
-//shop page
+// Shop page
 router.get("/shops/stats", getShopStats);
 router.get("/shops", getAllShops);
 router.get("/shops/map", getShopsForMap);
 router.get("/shops/:shopId", getShopById);
+
 // Shop trial management routes
 router.post('/shops/:shopId/extend-trial', extendShopTrial);
 router.get('/shops/:shopId/trial-info', getShopTrialInfo);
 router.post('/shops/bulk-extend-trial', bulkExtendTrial);
 
-
 router.put("/shops/:shopId/status", updateShopStatus);
-
-
 
 router.put("/shops/update", shopUpload.fields([
   { name: "profilePic", maxCount: 1 },
@@ -132,46 +124,14 @@ router.put("/shops/update", shopUpload.fields([
   { name: "certificateFiles", maxCount: 5 },
 ]), updateShopByAdmin);
 
-
-//customer routes
+// Customer routes
 router.get("/customers/stats", getCustomerStats);
 router.get("/customers", getAllCustomers);
 router.get("/customers/:id/details", getCustomerById);
 
-
-//update requests
-router.get(
-  "/pending",
-  getPendingVerificationRequests
-);
-
-// Get all verification requests (with optional filters)
-router.get(
-  "/verification/all",
-  getAllVerificationRequests
-);
-
-// Get single verification request details
-router.get(
-  "/:requestId",
-  getVerificationRequestDetails
-);
-
-// Approve verification request
-router.post(
-  "/:requestId/approve",
-  approveVerificationRequest
-);
-
-// Reject verification request
-router.post(
-  "/:requestId/reject",
-  rejectVerificationRequest
-);
-
-
-
-
+// Verification requests - SPECIFIC ROUTES FIRST
+router.get("/pending", getPendingVerificationRequests);
+router.get("/verification/all", getAllVerificationRequests);
 
 // Bid management routes
 router.get("/bids/active", getActiveBids);
@@ -181,19 +141,26 @@ router.get("/bids/all", getAllBids);
 router.get("/bids/stats", getBidStats);
 router.get("/bids/:bidId", getBidDetails);
 
-
-
-//stories
+// Happy stories (admin)
 router.post('/happy-stories', upload.single('image'), createStory);
 router.put('/happy-stories/:id', upload.single('image'), updateStory);
 router.delete('/happy-stories/:id', deleteStory);
 router.patch('/happy-stories/:id/deactivate', deactivateStory);
 router.patch('/happy-stories/reorder', reorderStories);
 
-
-
-//send email
+// Send email
 router.post("/send-email", sendEmail_To_User);
 
+// 🔐 ADMIN ACCOUNT MANAGEMENT (Super Admin only)
+router.get("/get-admins", getAllAdmins);
+router.post("/create-admins", createAdmin);
+router.put("/update-admins/:id", updateAdmin);
+router.put("/admins/:id/toggle-status", toggleAdminStatus);
+
+// ⚠️ IMPORTANT: CATCH-ALL ROUTES MUST BE AT THE END
+// Verification request actions (with :requestId parameter)
+router.get("/:requestId", getVerificationRequestDetails);
+router.post("/:requestId/approve", approveVerificationRequest);
+router.post("/:requestId/reject", rejectVerificationRequest);
 
 export default router;

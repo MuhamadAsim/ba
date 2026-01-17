@@ -193,7 +193,7 @@ const shopSchema = new mongoose.Schema(
     // Subscription Status (Synced from Stripe)
     subscriptionStatus: {
       type: String,
-      enum: ["inactive", "active", "trialing", "trial_canceled", "cancelled", "cancel_scheduled", "canceled", "past_due", "unpaid"],
+      enum: ["inactive", "active", "trialing", "trial_canceled", "cancelled", "cancel_scheduled", "canceled", "past_due", "unpaid", "paused",],
       default: "inactive",
     },
 
@@ -252,6 +252,14 @@ const shopSchema = new mongoose.Schema(
         reason: String          // Optional reason for extension
       }]
     },
+
+
+    // ================= CHILD ACCOUNT LIMIT =================
+    maxChildAccounts: {
+      type: Number,
+      default: 2, // max allowed child users
+    },
+
 
     // Insurance Information
     insuranceCarrier: {
