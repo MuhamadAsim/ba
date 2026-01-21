@@ -18,7 +18,16 @@ export const authenticateShop = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized: Invalid token" });
     }
 
-    // We assume you encoded the shop ID as "shopId" in the JWT payload
+    // 🔍 DEBUG: Log what's in the token
+    console.log("🔑 JWT Decoded Payload:", {
+      userId: decoded.userId,
+      shopId: decoded.shopId,
+      role: decoded.role,
+      userType: decoded.userType,
+      email: decoded.email
+    });
+
+    // Find the shop
     const shop = await Shop.findById(decoded.shopId);
     if (!shop) {
       return res.status(401).json({ message: "Unauthorized: Shop not found" });
@@ -27,10 +36,26 @@ export const authenticateShop = async (req, res, next) => {
     // Attach shop info to request object
     req.shop = shop;
     req.shopId = shop._id;
+    
+    // ✅ CRITICAL: Attach user info from JWT to req.user
+    req.user = {
+      _id: decoded.userId,
+      email: decoded.email,
+      role: decoded.role || decoded.userType, // Use both fields
+      userType: decoded.userType,
+      shopId: decoded.shopId,
+      status: decoded.status,
+      isBlocked: decoded.isBlocked,
+      hasActiveSubscription: decoded.hasActiveSubscription,
+      subscriptionStatus: decoded.subscriptionStatus
+    };
+
+    // 🔍 DEBUG: Confirm what was attached
+    console.log("📋 Attached req.user:", req.user);
 
     next();
   } catch (error) {
-    console.error("Shop authentication middleware error:", error);
+    console.error("❌ Shop authentication middleware error:", error);
     res.status(500).json({ message: "Server error during shop authentication" });
   }
 };

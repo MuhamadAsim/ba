@@ -1308,9 +1308,292 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-// ---------------------- COMPLETE REGISTRATION ----------------------
+// // ---------------------- COMPLETE REGISTRATION ----------------------
+// export const completeRegistration = async (req, res) => {
+//   console.log(req.body);
+
+//   try {
+//     const {
+//       businessName,
+//       legalEntityName,
+//       ownerName,
+//       email,
+//       countryCode,
+//       zipCode,
+//       latitude,
+//       longitude,
+//       phone,
+//       ownerPhone,
+//       website,
+//       address,
+//       country,
+//       services,
+//       vinylFilms,
+//       certificates,
+//       startDate,
+//       insuranceCarrier,
+//       policyNumber,
+//       policyExpiration,
+//       instagramLink,
+//       facebookLink,
+//       linkedinLink,
+//       additionalInfo,
+//       plan,
+//       paymentData,
+
+//       financingOffered,
+//       acceptedPayments,
+//       yearsExperience,
+//       businessHours,
+//       websiteInput,
+//       instagramInput,
+//       facebookInput,
+//       linkedinInput,
+//       acceptPolicy,
+//     } = req.body;
+
+//     // 1️⃣ Find shop
+//     const shop = await Shop.findOne({ email });
+//     if (!shop) {
+//       return res.status(404).json({ status: "error", message: "Shop not found" });
+//     }
+
+//     if (!shop.isEmailVerified) {
+//       return res.status(403).json({ status: "error", message: "Email not verified" });
+//     }
+
+//     // 2️⃣ Files
+//     const uploadedFiles = req.files || {};
+//     const insuranceCertificate =
+//       uploadedFiles.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
+//     const storeFrontPhoto =
+//       uploadedFiles.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
+//     const workSpacePhoto =
+//       uploadedFiles.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
+
+//     const certificateFiles = uploadedFiles.certificateFiles
+//       ? uploadedFiles.certificateFiles.map(f => f.path)
+//       : shop.certificateFiles || [];
+
+//     // 3️⃣ Parse JSON fields
+//     const safeParse = (val, fallback) => {
+//       try {
+//         return typeof val === "string" ? JSON.parse(val) : val ?? fallback;
+//       } catch {
+//         return fallback;
+//       }
+//     };
+
+//     const parsedServices = safeParse(services, []);
+//     const parsedAcceptedPayments = safeParse(acceptedPayments, []);
+//     const parsedBusinessHours = safeParse(businessHours, {});
+//     const parsedPayment = safeParse(paymentData, {});
+
+//     if (!parsedPayment.stripePaymentMethodId) {
+//       return res.status(400).json({
+//         status: "error",
+//         message: "Payment method ID is required",
+//       });
+//     }
+
+//     const parsedFinancingOffered =
+//       typeof financingOffered === "string"
+//         ? financingOffered.toLowerCase() === "true"
+//         : !!financingOffered;
+
+//     // 4️⃣ Update shop fields
+//     shop.businessName = businessName || shop.businessName;
+//     shop.legalEntityName = legalEntityName || shop.legalEntityName;
+//     shop.ownerName = ownerName || shop.ownerName;
+//     shop.countryCode = countryCode || shop.countryCode;
+//     shop.phone = phone || shop.phone;
+//     shop.ownerPhone = ownerPhone || shop.ownerPhone;
+//     shop.website = websiteInput || website || shop.website;
+//     shop.address = address || shop.address;
+//     shop.zipCode = zipCode || shop.zipCode;
+//     shop.country = country || shop.country;
+
+//     shop.financingOffered = parsedFinancingOffered;
+//     shop.acceptedPayments = parsedAcceptedPayments.length
+//       ? parsedAcceptedPayments
+//       : shop.acceptedPayments;
+
+//     shop.yearsExperience = yearsExperience || shop.yearsExperience;
+
+//     if (Object.keys(parsedBusinessHours).length) {
+//       shop.businessHours = parsedBusinessHours;
+//     }
+
+//     if (latitude && longitude) {
+//       shop.location = {
+//         type: "Point",
+//         coordinates: [parseFloat(longitude), parseFloat(latitude)],
+//       };
+//       shop.latitude = parseFloat(latitude);
+//       shop.longitude = parseFloat(longitude);
+//     }
+
+//     shop.services = parsedServices.length ? parsedServices : shop.services;
+//     shop.vinylFilms = vinylFilms || shop.vinylFilms;
+//     shop.certificates = certificates || shop.certificates;
+//     shop.startDate = startDate || shop.startDate;
+//     shop.insuranceCarrier = insuranceCarrier || shop.insuranceCarrier;
+//     shop.policyNumber = policyNumber || shop.policyNumber;
+//     shop.policyExpiration = policyExpiration || shop.policyExpiration;
+//     shop.insuranceCertificate = insuranceCertificate;
+
+//     shop.socialMedia = {
+//       instagram: instagramInput || instagramLink || shop.socialMedia?.instagram || "",
+//       facebook: facebookInput || facebookLink || shop.socialMedia?.facebook || "",
+//       linkedin: linkedinInput || linkedinLink || shop.socialMedia?.linkedin || "",
+//     };
+
+//     shop.additionalInfo = additionalInfo || shop.additionalInfo;
+//     shop.storeFrontPhoto = storeFrontPhoto;
+//     shop.workSpacePhoto = workSpacePhoto;
+//     shop.certificateFiles = certificateFiles;
+//     shop.plan = plan || shop.plan;
+
+//     shop.paymentInfo = {
+//       stripePaymentMethodId: parsedPayment.stripePaymentMethodId,
+//       plan: plan,
+//       stripePriceId: parsedPayment.stripePriceId,
+//       lastUpdated: new Date(),
+//     };
+
+//     shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
+//     shop.policyAcceptedAt = new Date();
+//     shop.status = "pending";
+//     shop.isVerified = false;
+//     shop.registrationExpiresAt = null;
+
+//     // =========================
+//     // 💳 STRIPE INTEGRATION
+//     // =========================
+//     try {
+//       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+//       // Trial duration from ENV (minutes)
+//       const trialMinutes = parseInt(process.env.STRIPE_TEST_TRIAL_MINUTES || "60", 10);
+//       const trialSeconds = trialMinutes * 60;
+//       const now = Math.floor(Date.now() / 1000);
+
+//       // Customer
+//       if (!shop.stripeCustomerId) {
+//         const customer = await stripe.customers.create({
+//           email: shop.email,
+//           name: shop.businessName,
+//           phone: shop.phone,
+//           metadata: { shopId: shop._id.toString() },
+//         });
+//         shop.stripeCustomerId = customer.id;
+//       }
+
+//       // Attach payment method
+//       await stripe.paymentMethods.attach(parsedPayment.stripePaymentMethodId, {
+//         customer: shop.stripeCustomerId,
+//       });
+
+//       await stripe.customers.update(shop.stripeCustomerId, {
+//         invoice_settings: {
+//           default_payment_method: parsedPayment.stripePaymentMethodId,
+//         },
+//       });
+
+//       const planDetails = Shop.getPlanDetails(plan || "basic");
+//       const stripePriceId = parsedPayment.stripePriceId || planDetails?.stripePriceId;
+//       if (!stripePriceId) throw new Error("Stripe price ID missing");
+
+//       const subscription = await stripe.subscriptions.create({
+//         customer: shop.stripeCustomerId,
+//         items: [{ price: stripePriceId }],
+//         trial_end: now + trialSeconds,
+//         payment_behavior: "default_incomplete",
+//         expand: ["latest_invoice.payment_intent"],
+//         metadata: {
+//           shopId: shop._id.toString(),
+//           plan: plan || "basic",
+//         },
+//       });
+
+//       const toDate = (ts) => (ts ? new Date(ts * 1000) : null);
+//       const trialEndDate = toDate(subscription.trial_end);
+
+//       shop.stripeSubscriptionId = subscription.id;
+//       shop.subscriptionStatus = subscription.status;
+
+//       shop.currentSubscription = {
+//         priceId: subscription.items.data[0]?.price?.id || null,
+//         productId: subscription.items.data[0]?.price?.product || null,
+//         planName: plan || "basic",
+//         amount: subscription.items.data[0]?.price?.unit_amount || 0,
+//         currency: subscription.items.data[0]?.price?.currency || "usd",
+//         interval: subscription.items.data[0]?.price?.recurring?.interval || "month",
+
+//         currentPeriodStart: toDate(subscription.current_period_start),
+//         currentPeriodEnd: toDate(subscription.current_period_end),
+//         trialStart: toDate(subscription.trial_start),
+//         trialEnd: trialEndDate,
+
+//         trialMinutes,
+//         isTrial: true,
+//         cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
+//         daysRemaining: Math.max(
+//           0,
+//           Math.ceil((trialEndDate - new Date()) / (1000 * 60 * 60 * 24))
+//         ),
+//       };
+
+//       console.log("✅ Stripe subscription created:", subscription.id);
+//     } catch (stripeError) {
+//       console.error("❌ Stripe error:", stripeError);
+//       shop.subscriptionStatus = "inactive";
+//       shop.currentSubscription = null;
+//     }
+
+//     await shop.save();
+
+//     return res.status(202).json({
+//       status: "pending_verification",
+//       message:
+//         "Registration submitted. Verification will take up to 48 hours.",
+//       stripeInfo: {
+//         hasSubscription: !!shop.stripeSubscriptionId,
+//         trialEnd: shop.currentSubscription?.trialEnd,
+//         trialMinutes: shop.currentSubscription?.trialMinutes,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Registration error:", error);
+//     return res.status(500).json({
+//       status: "error",
+//       message: "Failed to complete registration",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ---------------------- COMPLETE REGISTRATION (FORCE TRIALING) ----------------------
 export const completeRegistration = async (req, res) => {
-  console.log(req.body);
+  console.log("🔍 Complete registration body:", req.body);
 
   try {
     const {
@@ -1350,6 +1633,7 @@ export const completeRegistration = async (req, res) => {
       facebookInput,
       linkedinInput,
       acceptPolicy,
+      isMockPayment,
     } = req.body;
 
     // 1️⃣ Find shop
@@ -1375,7 +1659,7 @@ export const completeRegistration = async (req, res) => {
       ? uploadedFiles.certificateFiles.map(f => f.path)
       : shop.certificateFiles || [];
 
-    // 3️⃣ Parse JSON fields
+    // 3️⃣ Helpers
     const safeParse = (val, fallback) => {
       try {
         return typeof val === "string" ? JSON.parse(val) : val ?? fallback;
@@ -1389,19 +1673,16 @@ export const completeRegistration = async (req, res) => {
     const parsedBusinessHours = safeParse(businessHours, {});
     const parsedPayment = safeParse(paymentData, {});
 
-    if (!parsedPayment.stripePaymentMethodId) {
-      return res.status(400).json({
-        status: "error",
-        message: "Payment method ID is required",
-      });
-    }
+    const isMock =
+      isMockPayment === true ||
+      parsedPayment?.isMockPayment === true;
 
     const parsedFinancingOffered =
       typeof financingOffered === "string"
         ? financingOffered.toLowerCase() === "true"
         : !!financingOffered;
 
-    // 4️⃣ Update shop fields
+    // 4️⃣ Update shop info
     shop.businessName = businessName || shop.businessName;
     shop.legalEntityName = legalEntityName || shop.legalEntityName;
     shop.ownerName = ownerName || shop.ownerName;
@@ -1452,119 +1733,71 @@ export const completeRegistration = async (req, res) => {
     shop.storeFrontPhoto = storeFrontPhoto;
     shop.workSpacePhoto = workSpacePhoto;
     shop.certificateFiles = certificateFiles;
-    shop.plan = plan || shop.plan;
+    shop.plan = plan || "professional";
 
+    // 5️⃣ Payment info
     shop.paymentInfo = {
-      stripePaymentMethodId: parsedPayment.stripePaymentMethodId,
-      plan: plan,
-      stripePriceId: parsedPayment.stripePriceId,
+      stripePaymentMethodId: parsedPayment.stripePaymentMethodId || "mock_pm",
+      stripePriceId: parsedPayment.stripePriceId || "mock_price",
+      plan: shop.plan,
+      isMockPayment: isMock,
       lastUpdated: new Date(),
     };
 
-    shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
-    shop.policyAcceptedAt = new Date();
+    // 6️⃣ ADMIN FLOW (UNCHANGED)
     shop.status = "pending";
     shop.isVerified = false;
     shop.registrationExpiresAt = null;
+    shop.acceptedPolicy = acceptPolicy || shop.acceptedPolicy;
+    shop.policyAcceptedAt = new Date();
 
-    // =========================
-    // 💳 STRIPE INTEGRATION
-    // =========================
-    try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    // 🔥🔥🔥 THIS IS THE FIX 🔥🔥🔥
+    // REGISTRATION === TRIALING. NO CONDITIONS.
+    shop.subscriptionStatus = "trialing";
 
-      // Trial duration from ENV (minutes)
-      const trialMinutes = parseInt(process.env.STRIPE_TEST_TRIAL_MINUTES || "60", 10);
-      const trialSeconds = trialMinutes * 60;
-      const now = Math.floor(Date.now() / 1000);
+    // 7️⃣ Trial data (mock or not — frontend needs this)
+    const trialStart = new Date();
+    const trialEnd = new Date();
+    trialEnd.setFullYear(trialEnd.getFullYear() + 1);
 
-      // Customer
-      if (!shop.stripeCustomerId) {
-        const customer = await stripe.customers.create({
-          email: shop.email,
-          name: shop.businessName,
-          phone: shop.phone,
-          metadata: { shopId: shop._id.toString() },
-        });
-        shop.stripeCustomerId = customer.id;
-      }
+    shop.stripeCustomerId =
+      shop.stripeCustomerId || `mock_customer_${Date.now()}_${shop._id}`;
+    shop.stripeSubscriptionId =
+      shop.stripeSubscriptionId || `mock_subscription_${Date.now()}_${shop._id}`;
 
-      // Attach payment method
-      await stripe.paymentMethods.attach(parsedPayment.stripePaymentMethodId, {
-        customer: shop.stripeCustomerId,
-      });
+    shop.currentSubscription = {
+      priceId: shop.paymentInfo.stripePriceId,
+      productId: "mock_product",
+      planName: shop.plan,
+      amount: 0,
+      currency: "usd",
+      interval: "month",
 
-      await stripe.customers.update(shop.stripeCustomerId, {
-        invoice_settings: {
-          default_payment_method: parsedPayment.stripePaymentMethodId,
-        },
-      });
+      currentPeriodStart: trialStart,
+      currentPeriodEnd: trialEnd,
+      trialStart,
+      trialEnd,
 
-      const planDetails = Shop.getPlanDetails(plan || "basic");
-      const stripePriceId = parsedPayment.stripePriceId || planDetails?.stripePriceId;
-      if (!stripePriceId) throw new Error("Stripe price ID missing");
-
-      const subscription = await stripe.subscriptions.create({
-        customer: shop.stripeCustomerId,
-        items: [{ price: stripePriceId }],
-        trial_end: now + trialSeconds,
-        payment_behavior: "default_incomplete",
-        expand: ["latest_invoice.payment_intent"],
-        metadata: {
-          shopId: shop._id.toString(),
-          plan: plan || "basic",
-        },
-      });
-
-      const toDate = (ts) => (ts ? new Date(ts * 1000) : null);
-      const trialEndDate = toDate(subscription.trial_end);
-
-      shop.stripeSubscriptionId = subscription.id;
-      shop.subscriptionStatus = subscription.status;
-
-      shop.currentSubscription = {
-        priceId: subscription.items.data[0]?.price?.id || null,
-        productId: subscription.items.data[0]?.price?.product || null,
-        planName: plan || "basic",
-        amount: subscription.items.data[0]?.price?.unit_amount || 0,
-        currency: subscription.items.data[0]?.price?.currency || "usd",
-        interval: subscription.items.data[0]?.price?.recurring?.interval || "month",
-
-        currentPeriodStart: toDate(subscription.current_period_start),
-        currentPeriodEnd: toDate(subscription.current_period_end),
-        trialStart: toDate(subscription.trial_start),
-        trialEnd: trialEndDate,
-
-        trialMinutes,
-        isTrial: true,
-        cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
-        daysRemaining: Math.max(
-          0,
-          Math.ceil((trialEndDate - new Date()) / (1000 * 60 * 60 * 24))
-        ),
-      };
-
-      console.log("✅ Stripe subscription created:", subscription.id);
-    } catch (stripeError) {
-      console.error("❌ Stripe error:", stripeError);
-      shop.subscriptionStatus = "inactive";
-      shop.currentSubscription = null;
-    }
+      trialMinutes: 525600,
+      isTrial: true,
+      isMock: isMock,
+      cancelAtPeriodEnd: false,
+      daysRemaining: 365,
+    };
 
     await shop.save();
 
-    return res.status(202).json({
+    return res.status(200).json({
       status: "pending_verification",
-      message:
-        "Registration submitted. Verification will take up to 48 hours.",
+      message: "Registration submitted successfully.",
       stripeInfo: {
-        hasSubscription: !!shop.stripeSubscriptionId,
-        trialEnd: shop.currentSubscription?.trialEnd,
-        trialMinutes: shop.currentSubscription?.trialMinutes,
+        subscriptionStatus: shop.subscriptionStatus,
+        trialEnd: shop.currentSubscription.trialEnd,
+        daysRemaining: shop.currentSubscription.daysRemaining,
       },
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    console.error("❌ Registration error:", error);
     return res.status(500).json({
       status: "error",
       message: "Failed to complete registration",
@@ -1572,8 +1805,6 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
-
-
 
 
 
