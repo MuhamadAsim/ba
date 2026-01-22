@@ -19,7 +19,6 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-
 // ---------------------- Notify Shops For Bid ----------------------
 export const notifyShopsForBid = async (newBid, customer) => {
   try {
@@ -31,8 +30,6 @@ export const notifyShopsForBid = async (newBid, customer) => {
       country: newBid.country,
       zipCode: newBid.zipCode,
     };
-
-
 
     // Validate bid has location
     if (!bidLocation.latitude || !bidLocation.longitude) {
@@ -52,7 +49,6 @@ export const notifyShopsForBid = async (newBid, customer) => {
     if (!shops.length) {
       return;
     }
-
 
     // ---------------------- 3️⃣ FILTER BY RADIUS (≤15 miles) USING BID LOCATION ----------------------
     const nearbyShops = shops.filter((shop) => {
@@ -74,11 +70,8 @@ export const notifyShopsForBid = async (newBid, customer) => {
       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
       const isWithinRadius = distance <= MAX_RADIUS_MILES;
 
-  
-
       return isWithinRadius;
     });
-
 
     if (!nearbyShops.length) {
       return;
@@ -99,19 +92,41 @@ export const notifyShopsForBid = async (newBid, customer) => {
 
     const customerInitials = getInitials(customerName);
     
+    // Add website link
+    const websiteLink = "https://bidawrap.com/partner/dashboard/bids";
+    
     // Use initials in subject instead of full name
     const subject = `${customerInitials} posted a bid`;
 
     const buildEmailHTML = () => {
       return `
-      <h2>${customerInitials} posted a new bid</h2>
-      <p><strong>Category:</strong> ${newBid.requestCategory}</p>
-      <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
-      <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
-      <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
-      <p><strong>Coordinates:</strong> ${bidLocation.latitude?.toFixed(6)}, ${bidLocation.longitude?.toFixed(6)}</p>
-      <hr/>
-      <p>You received this because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
+          ${customerInitials} posted a new bid
+        </h2>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <p><strong>Category:</strong> ${newBid.requestCategory}</p>
+          <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
+          <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
+          <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
+          <p><strong>Coordinates:</strong> ${bidLocation.latitude?.toFixed(6)}, ${bidLocation.longitude?.toFixed(6)}</p>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${websiteLink}" 
+             style="background-color: #007bff; color: white; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold; 
+                    display: inline-block; font-size: 16px;">
+            View Bid & Submit Offer
+          </a>
+        </div>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+          <p>You received this notification because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
+          <p>Or copy and paste this link: ${websiteLink}</p>
+        </div>
+      </div>
     `;
     };
 
@@ -120,7 +135,9 @@ ${customerInitials} posted a new bid!
 Category: ${newBid.requestCategory}
 Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
 Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Check dashboard'}
-Login to view.
+
+View and submit an offer here:
+${websiteLink}
     `;
 
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -174,14 +191,12 @@ Login to view.
             }
 
             try {
-              
               const message = await twilioClient.messages.create({
                 body: smsText,
                 from: process.env.TWILIO_PHONE_NUMBER,
                 to: fullPhone,
               });
 
-              
             } catch (twilioError) {
               console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
                 errorCode: twilioError.code,
@@ -234,8 +249,6 @@ Login to view.
     const fulfilled = results.filter(r => r.status === 'fulfilled').length;
     const rejected = results.filter(r => r.status === 'rejected').length;
     
- 
-
     // Log any rejected promises
     results.forEach((result, index) => {
       if (result.status === 'rejected') {

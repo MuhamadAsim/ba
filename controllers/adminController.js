@@ -2091,7 +2091,6 @@ export const rejectShop = async (req, res) => {
     if (stripeSubscriptionId) {
       try {
         await stripe.subscriptions.cancel(stripeSubscriptionId);
-        console.log("✅ Stripe subscription cancelled");
       } catch (err) {
         console.warn(
           "⚠️ Subscription already cancelled or not found:",
@@ -2104,7 +2103,6 @@ export const rejectShop = async (req, res) => {
     if (stripeCustomerId) {
       try {
         await stripe.customers.del(stripeCustomerId);
-        console.log("✅ Stripe customer deleted");
       } catch (err) {
         console.warn(
           "⚠️ Stripe customer already deleted or missing:",
@@ -2341,17 +2339,36 @@ export const getCustomerStats = async (req, res) => {
   }
 };
 
+
+
 // Get all customers with pagination and bid statistics
 export const getAllCustomers = async (req, res) => {
   try {
-    const { page = 1, limit = 12, verified } = req.query;
+    const { page = 1, limit = 12, verified, search, status } = req.query;
 
-    // Build query based on verification filter
+    // Build query
     const query = {};
+    
+    // Verification filter
     if (verified === "true") {
       query.isEmailVerified = true;
     } else if (verified === "false") {
       query.isEmailVerified = false;
+    }
+    
+    // Status filter (for blocked/unblocked)
+    if (status === 'blocked') {
+      query.isBlocked = true;
+    } else if (status === 'unblocked') {
+      query.isBlocked = false;
+    }
+    
+    // Search filter (by name or email)
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
     }
 
     // Fetch customers with pagination
@@ -2387,6 +2404,11 @@ export const getAllCustomers = async (req, res) => {
           activeBids,
           successRate: totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0,
           status: customer.isEmailVerified ? "active" : "pending",
+          // Ensure isBlocked is included (default to false if not present)
+          isBlocked: customer.isBlocked || false,
+          // Include blockedAt and blockedReason if available
+          blockedAt: customer.blockedAt || null,
+          blockedReason: customer.blockedReason || ""
         };
       })
     );
@@ -2420,15 +2442,10 @@ export const getAllCustomers = async (req, res) => {
 
 
 
-
-
-
-
 // Get single customer details for admin view
 export const getCustomerById = async (req, res) => {
   try {
     const { id } = req.params;
-
 
     // ✅ Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -2471,7 +2488,7 @@ export const getCustomerById = async (req, res) => {
     const successRate =
       totalBids > 0 ? Math.round((completedBids / totalBids) * 100) : 0;
 
-    // Combine response
+    // Combine response with blocked fields
     const customerData = {
       ...customer,
       totalBids,
@@ -2480,6 +2497,12 @@ export const getCustomerById = async (req, res) => {
       inProgressBids,
       successRate,
       status: customer.isEmailVerified ? "active" : "pending",
+      // Ensure blocked fields are included
+      isBlocked: customer.isBlocked || false,
+      blockedAt: customer.blockedAt || null,
+      blockedReason: customer.blockedReason || "",
+      // Add account status based on block status
+      accountStatus: customer.isBlocked ? "blocked" : (customer.isAuthenticated ? "active" : "inactive"),
     };
 
     return res.status(200).json({
@@ -2494,8 +2517,6 @@ export const getCustomerById = async (req, res) => {
     });
   }
 };
-
-
 
 
 
@@ -3370,6 +3391,9 @@ export const getInProgressBids = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * Get all completed bids with full details
  */
@@ -3428,6 +3452,11 @@ export const getCompletedBids = async (req, res) => {
     });
   }
 };
+
+
+
+
+
 
 /**
  * Get all bids (all statuses) with pagination and filters
@@ -3511,6 +3540,9 @@ export const getAllBids = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 
@@ -4075,7 +4107,6 @@ export const extendShopTrial = async (req, res) => {
 
     await shop.save();
 
-    console.log(`Admin ${req.admin?._id} extended trial for shop ${shopId} by ${days} days`);
 
     return res.json({
       success: true,
@@ -4261,9 +4292,7 @@ export const bulkExtendTrial = async (req, res) => {
 
 export const updateShopByAdmin = async (req, res) => {
   try {
-    console.log("📋 Update request body keys:", Object.keys(req.body));
-    console.log("📋 Update request files:", req.files ? Object.keys(req.files) : 'No files');
-
+ 
     // Get ID from body._id OR body.shopId (frontend sends shopId)
     const id = req.body._id || req.body.shopId;
 
@@ -4275,7 +4304,6 @@ export const updateShopByAdmin = async (req, res) => {
       });
     }
 
-    console.log(`🛠️ Updating shop: ${id}`);
 
     const shop = await Shop.findById(id);
     if (!shop) {
@@ -4308,9 +4336,6 @@ export const updateShopByAdmin = async (req, res) => {
         });
       }
 
-      console.log(`📊 Admin is manually updating shop rating/review count:`);
-      console.log(`   Old rating: ${shop.rating}, New rating: ${newRating}`);
-      console.log(`   Old reviewCount: ${shop.reviewCount}, New reviewCount: ${newReviewCount}`);
 
       // IMPORTANT: When admin manually updates rating and reviewCount,
       // we should recalculate the average rating based on the new values
@@ -4425,7 +4450,6 @@ export const updateShopByAdmin = async (req, res) => {
     singleFileFields.forEach(field => {
       if (req.files && req.files[field] && req.files[field][0]) {
         updates[field] = req.files[field][0].path;
-        console.log(`✅ Updated ${field}: ${updates[field]}`);
       }
     });
 
@@ -4435,7 +4459,6 @@ export const updateShopByAdmin = async (req, res) => {
       const existingFiles = shop.certificateFiles || [];
       // Combine existing and new files, limit to 5
       updates.certificateFiles = [...existingFiles, ...newCertificateFiles].slice(0, 5);
-      console.log(`✅ Updated certificateFiles: ${updates.certificateFiles.length} files`);
     }
 
     // Parse and add text fields
@@ -4483,7 +4506,6 @@ export const updateShopByAdmin = async (req, res) => {
         updates.rating = newRating;
       }
 
-      console.log(`📊 Setting rating to ${updates.rating} with reviewCount ${reviewCountToUse}`);
     }
 
     if (req.body.reviewCount !== undefined) {
@@ -4516,12 +4538,10 @@ export const updateShopByAdmin = async (req, res) => {
     // Parse array fields
     if (req.body.services !== undefined) {
       updates.services = toArray(req.body.services);
-      console.log(`✅ Parsed services:`, updates.services);
     }
 
     if (req.body.acceptedPayments !== undefined) {
       updates.acceptedPayments = toArray(req.body.acceptedPayments);
-      console.log(`✅ Parsed acceptedPayments:`, updates.acceptedPayments);
     }
 
     // Parse object fields
@@ -4562,7 +4582,6 @@ export const updateShopByAdmin = async (req, res) => {
     }
 
     // Log what we're updating
-    console.log("📝 Final updates to apply:");
     Object.keys(updates).forEach(key => {
       console.log(`  ${key}:`, updates[key]);
     });
@@ -4575,7 +4594,6 @@ export const updateShopByAdmin = async (req, res) => {
       }
     });
 
-    console.log("🔄 Applying filtered updates:", filteredUpdates);
 
     // Apply updates
     const updatedShop = await Shop.findByIdAndUpdate(
@@ -4591,9 +4609,6 @@ export const updateShopByAdmin = async (req, res) => {
         message: "Failed to update shop in database"
       });
     }
-
-    console.log("✅ Shop updated successfully:", updatedShop._id);
-    console.log(`📊 Final shop rating: ${updatedShop.rating}, reviewCount: ${updatedShop.reviewCount}`);
 
     res.status(200).json({
       success: true,
@@ -4624,6 +4639,177 @@ export const updateShopByAdmin = async (req, res) => {
       message: "Failed to update shop",
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+/**
+ * @desc    Block or unblock a customer
+ * @route   POST /api/admin/customers/:id/block
+ * @access  Private/Admin
+ */
+export const blockCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, reason } = req.body;
+
+    // Validate action
+    if (!action || !['block', 'unblock'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Action is required and must be either 'block' or 'unblock'"
+      });
+    }
+
+    // Find customer
+    const customer = await Customer.findById(id);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    // Prepare update data
+    const updateData = {
+      isBlocked: action === 'block' ? true : false,
+      blockedAt: action === 'block' ? new Date() : null,
+      blockedReason: action === 'block' ? (reason || "Blocked by administrator") : "",
+      updatedAt: new Date()
+    };
+
+    // Update customer
+    const updatedCustomer = await Customer.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry');
+
+    // Log the action
+    console.log(`Customer ${action}ed:`, {
+      customerId: id,
+      customerEmail: customer.email,
+      action,
+      reason,
+      timestamp: new Date().toISOString()
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Customer ${action === 'block' ? 'blocked' : 'unblocked'} successfully`,
+      data: {
+        _id: updatedCustomer._id,
+        name: updatedCustomer.name,
+        email: updatedCustomer.email,
+        isBlocked: updatedCustomer.isBlocked,
+        blockedAt: updatedCustomer.blockedAt,
+        blockedReason: updatedCustomer.blockedReason
+      }
+    });
+
+  } catch (error) {
+    console.error(`❌ Error ${req.body.action || 'block/unblock'}ing customer:`, error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while processing request",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get blocked customers list
+ * @route   GET /api/admin/customers/blocked
+ * @access  Private/Admin
+ */
+export const getBlockedCustomers = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Get blocked customers
+    const blockedCustomers = await Customer.find({ isBlocked: true })
+      .select('-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry')
+      .sort({ blockedAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Get total count
+    const totalBlocked = await Customer.countDocuments({ isBlocked: true });
+    const totalCustomers = await Customer.countDocuments();
+
+    res.status(200).json({
+      success: true,
+      data: blockedCustomers,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalBlocked / limit),
+        totalBlocked,
+        totalCustomers,
+        hasMore: skip + blockedCustomers.length < totalBlocked
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching blocked customers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching blocked customers",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Check if customer is blocked
+ * @route   GET /api/admin/customers/:id/block-status
+ * @access  Private/Admin
+ */
+export const getCustomerBlockStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const customer = await Customer.findById(id)
+      .select('_id name email isBlocked blockedAt blockedReason');
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        _id: customer._id,
+        name: customer.name,
+        email: customer.email,
+        isBlocked: customer.isBlocked,
+        blockedAt: customer.blockedAt,
+        blockedReason: customer.blockedReason
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching customer block status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching block status",
+      error: error.message
     });
   }
 };

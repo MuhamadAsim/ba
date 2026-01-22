@@ -17,24 +17,51 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     const customer = await Customer.findById(customerId).select("name email");
     const customerName = customer?.name || "Customer";
 
+    // Add website link
+    const websiteLink = "https://bidawrap.com/partner/dashboard/bids";
+
     // Build HTML Email
     const html = `
-      <h2>${subject}</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #28a745; padding-bottom: 10px;">
+          ${subject}
+        </h2>
 
-      <h3>Details</h3>
-      <p><strong>Message:</strong> ${message}</p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="color: #28a745; margin-top: 0;">🎉 Congratulations!</h3>
+          <p style="font-size: 16px;"><strong>Message:</strong> ${message}</p>
 
-      ${offer ? `<p><strong>Offer Price:</strong> $${offer.price}</p>` : ""}
+          ${offer ? `<p style="font-size: 18px; font-weight: bold; color: #28a745;">
+            <strong>Accepted Offer Price:</strong> $${offer.price}
+          </p>` : ""}
 
-      ${bid ? `
-        <h3>Bid Information</h3>
-        <p><strong>Category:</strong> ${bid.requestCategory}</p>
-        <p><strong>Description:</strong> ${bid.serviceDescription}</p>
-        <p><strong>Vehicle:</strong> ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel} ${bid.vehicleTrim}</p>
-      ` : ""}
+          ${bid ? `
+            <div style="margin-top: 20px; padding: 15px; background-color: #e9f7ef; border-left: 4px solid #28a745;">
+              <h4 style="margin-top: 0;">Bid Information</h4>
+              <p><strong>Category:</strong> ${bid.requestCategory}</p>
+              <p><strong>Description:</strong> ${bid.serviceDescription}</p>
+              <p><strong>Vehicle:</strong> ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel} ${bid.vehicleTrim || ''}</p>
+            </div>
+          ` : ""}
+        </div>
 
-      <hr/>
-      <p>This notification is sent to <strong>${shop.businessName}</strong>.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${websiteLink}" 
+             style="background-color: #28a745; color: white; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold; 
+                    display: inline-block; font-size: 16px;">
+            View Bid in Dashboard
+          </a>
+          <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            Manage this accepted bid on your partner dashboard
+          </p>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+          <p>This notification was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
+          <p>Or copy and paste this link: ${websiteLink}</p>
+        </div>
+      </div>
     `;
 
     // ---------------------- SENDGRID EMAIL ----------------------
@@ -43,13 +70,17 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     // ---------------------- TWILIO SMS ----------------------
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
+    // Create SMS text with the website link
     const smsText = `
 ${subject}
 
 ${message}
 
-${offer ? `Offer: $${offer.price}` : ""}
-${bid ? `Category: ${bid.requestCategory}` : ""}
+${offer ? `Accepted Offer: $${offer.price}` : ""}
+${bid ? `Bid Category: ${bid.requestCategory}` : ""}
+
+View and manage this bid:
+${websiteLink}
     `;
 
     if (shop.phone) {
@@ -88,15 +119,12 @@ ${bid ? `Category: ${bid.requestCategory}` : ""}
       }
 
       try {
-        
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
 
-    
-        
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
           errorCode: twilioError.code,

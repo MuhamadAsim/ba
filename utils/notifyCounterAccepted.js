@@ -1,4 +1,3 @@
-// utils/notifyCounterAccepted.js
 import Shop from "../models/shopModel.js";
 import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
@@ -35,20 +34,47 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
       return;
     }
 
+    // Add customer dashboard link
+    const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
+
     const subject = `${shop.businessName} accepted your counter offer!`;
 
     const html = `
-      <h2>Your Counter Offer Was Accepted 🎉</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #28a745; padding-bottom: 10px;">
+          Your Counter Offer Was Accepted 🎉
+        </h2>
 
-      <p><strong>Shop:</strong> ${shop.businessName} (${shop.ownerName})</p>
-      <p><strong>Accepted Price:</strong> $${counterOffer.counterPrice}</p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="color: #28a745; margin-top: 0;">Accepted Offer Details</h3>
+          <p><strong>Shop:</strong> ${shop.businessName} (${shop.ownerName || ''})</p>
+          <p style="font-size: 18px; font-weight: bold; color: #28a745;">
+            <strong>Accepted Price:</strong> $${counterOffer.counterPrice}
+          </p>
 
-      <h3>Bid Information</h3>
-      <p><strong>Category:</strong> ${bid.requestCategory}</p>
-      <p><strong>Description:</strong> ${bid.serviceDescription}</p>
+          <div style="margin-top: 20px; padding: 15px; background-color: #e9f7ef; border-left: 4px solid #28a745;">
+            <h4 style="margin-top: 0;">Your Bid Information</h4>
+            <p><strong>Category:</strong> ${bid.requestCategory}</p>
+            <p><strong>Description:</strong> ${bid.serviceDescription}</p>
+          </div>
+        </div>
 
-      <hr />
-      <p>Your bid is now marked as <strong>In Progress</strong>.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${customerDashboardLink}" 
+             style="background-color: #28a745; color: white; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold; 
+                    display: inline-block; font-size: 16px;">
+            View Accepted Bid
+          </a>
+          <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            Your bid is now marked as <strong>In Progress</strong>.
+          </p>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+          <p>Or copy and paste this link: ${customerDashboardLink}</p>
+        </div>
+      </div>
     `;
 
     // -----------------------------
@@ -102,25 +128,23 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
         return;
       }
 
+      // SMS text with dashboard link
       const smsText = `
-Great news!
-${shop.businessName} accepted your counter offer.
+Great news! ${shop.businessName} accepted your counter offer.
 
 Accepted Price: $${counterOffer.counterPrice}
 
-Your bid is now in progress.
+Your bid is now in progress. View details:
+${customerDashboardLink}
       `;
 
       try {
-        
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
 
-    
-        
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
           errorCode: twilioError.code,

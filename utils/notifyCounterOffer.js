@@ -1,4 +1,3 @@
-// utils/notifyCounterOffer.js
 import Shop from "../models/shopModel.js";
 import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
@@ -21,25 +20,52 @@ export const notifyCounterOffer = async (offer, counterData) => {
     const customer = await Customer.findById(customerId).select("name email");
     const customerName = customer?.name || "Customer";
 
+    // Add website link for shop
+    const shopDashboardLink = "https://bidawrap.com/partner/dashboard/bids";
+
     // Prepare email subject
     const subject = `${customerName} submitted a counter offer`;
 
-    // Build HTML
+    // Build HTML with dashboard link
     const html = `
-      <h2>${customerName} just sent a counter offer</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #ffc107; padding-bottom: 10px;">
+          ${customerName} submitted a counter offer
+        </h2>
 
-      <h3>Counter Offer Details</h3>
-      <p><strong>Original Offer Price:</strong> $${offer.price}</p>
-      <p><strong>Counter Price:</strong> $${counterData.counterPrice}</p>
-      <p><strong>Message:</strong> ${counterData.message || "No message provided"}</p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="color: #ffc107; margin-top: 0;">Counter Offer Details</h3>
+          <p><strong>Original Offer Price:</strong> $${offer.price}</p>
+          <p style="font-size: 18px; font-weight: bold; color: #ffc107;">
+            <strong>Counter Price:</strong> $${counterData.counterPrice}
+          </p>
+          <p><strong>Customer Message:</strong> ${counterData.message || "No message provided"}</p>
 
-      <h3>Bid Information</h3>
-      <p><strong>Category:</strong> ${offer.bidId.requestCategory}</p>
-      <p><strong>Description:</strong> ${offer.bidId.serviceDescription}</p>
-      <p><strong>Vehicle:</strong> ${offer.bidId.vehicleYear} ${offer.bidId.vehicleMake} ${offer.bidId.vehicleModel} ${offer.bidId.vehicleTrim}</p>
+          <div style="margin-top: 20px; padding: 15px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
+            <h4 style="margin-top: 0;">Bid Information</h4>
+            <p><strong>Category:</strong> ${offer.bidId.requestCategory}</p>
+            <p><strong>Description:</strong> ${offer.bidId.serviceDescription}</p>
+            <p><strong>Vehicle:</strong> ${offer.bidId.vehicleYear} ${offer.bidId.vehicleMake} ${offer.bidId.vehicleModel} ${offer.bidId.vehicleTrim || ''}</p>
+          </div>
+        </div>
 
-      <hr/>
-      <p>This counter-offer is sent to <strong>${shop.businessName}</strong>.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${shopDashboardLink}" 
+             style="background-color: #ffc107; color: #333; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold; 
+                    display: inline-block; font-size: 16px;">
+            View & Respond to Counter Offer
+          </a>
+          <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            Login to your partner dashboard to review and respond
+          </p>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+          <p>This counter-offer was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
+          <p>Or copy and paste this link: ${shopDashboardLink}</p>
+        </div>
+      </div>
     `;
 
     // ---------------------- EMAIL ----------------------
@@ -72,8 +98,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
         countryCode: countryCode,
         countryCodeNumber: countryCodeNumber,
         fullPhone: fullPhone,
-        shopPlan: shop.plan,
-        smsTextLength: smsText ? smsText.length : 0
+        shopPlan: shop.plan
       });
 
       // Validate phone number format (E.164 format for Twilio)
@@ -83,18 +108,19 @@ export const notifyCounterOffer = async (offer, counterData) => {
         return;
       }
 
+      // SMS text with dashboard link
       const smsText = `
 ${customerName} submitted a counter offer!
 
-Original Offer: $${offer.price}
-Counter Price: $${counterData.counterPrice}
-${counterData.message ? `Message: ${counterData.message}` : ''}
+Original: $${offer.price}
+Counter: $${counterData.counterPrice}
+${counterData.message ? `Message: ${counterData.message.substring(0, 50)}...` : ''}
 
-Check your dashboard for details.
+View and respond here:
+${shopDashboardLink}
       `;
 
       try {
-        
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,

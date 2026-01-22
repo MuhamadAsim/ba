@@ -39,7 +39,9 @@ import {
   getAdminActivities,
   getActivityTypes,
   updateShopByAdmin,
-  getShops
+  getShops,
+  blockCustomer,
+
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -48,7 +50,9 @@ import {
   updateStory,
   deleteStory,
   deactivateStory,
-  reorderStories
+  reorderStories,
+  getStoriesOnly,
+  getBillboardsOnly
 } from '../controllers/happyStoryController.js';
 import { getAllAdmins, createAdmin, updateAdmin, toggleAdminStatus } from "../controllers/adminAccountController.js";
 
@@ -72,6 +76,8 @@ router.put("/change-password", authenticateAdmin, changePassword);
 // Happy stories (public)
 router.get('/happy-stories', getAllStories);
 router.get('/happy-stories/:id', getStoryById);
+router.get('/happy-stories/type/stories', getStoriesOnly); // Get only stories
+router.get('/happy-stories/type/billboards', getBillboardsOnly); // Get only billboards
 
 // ⚠️ ALL ROUTES BELOW REQUIRE AUTHENTICATION
 router.use(authenticateAdmin);
@@ -83,7 +89,6 @@ router.get("/dashboard/overview", getDashboardOverview);
 // Activity routes
 router.get("/activities", getAdminActivities);
 router.get("/activity-types", getActivityTypes);
-
 router.get("/shops-list", getShops);
 
 // Shop registration
@@ -124,10 +129,13 @@ router.put("/shops/update", shopUpload.fields([
   { name: "certificateFiles", maxCount: 5 },
 ]), updateShopByAdmin);
 
+
 // Customer routes
 router.get("/customers/stats", getCustomerStats);
 router.get("/customers", getAllCustomers);
 router.get("/customers/:id/details", getCustomerById);
+router.post("/customers/:id/block", blockCustomer);
+
 
 // Verification requests - SPECIFIC ROUTES FIRST
 router.get("/pending", getPendingVerificationRequests);
@@ -157,7 +165,6 @@ router.post("/create-admins", createAdmin);
 router.put("/update-admins/:id", updateAdmin);
 router.put("/admins/:id/toggle-status", toggleAdminStatus);
 
-// ⚠️ IMPORTANT: CATCH-ALL ROUTES MUST BE AT THE END
 // Verification request actions (with :requestId parameter)
 router.get("/:requestId", getVerificationRequestDetails);
 router.post("/:requestId/approve", approveVerificationRequest);

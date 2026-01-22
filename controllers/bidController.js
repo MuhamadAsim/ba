@@ -102,6 +102,14 @@ export const createBid = async (req, res) => {
 
       if (existingUser) {
         user = existingUser;
+        
+        // Check if the existing user is blocked
+        if (user.isBlocked) {
+          return res.status(403).json({
+            success: false,
+            message: "Your account has been blocked. Please contact support for assistance."
+          });
+        }
       } else {
         // Validate email for new customer creation
         if (!email) {
@@ -121,6 +129,7 @@ export const createBid = async (req, res) => {
           zip: zipCode || "",
           phone: phone || "",
           isAuthenticated: true,
+          isBlocked: false, // New users are not blocked by default
         });
 
         await user.save();
@@ -136,6 +145,14 @@ export const createBid = async (req, res) => {
         // Send welcome email asynchronously (don't wait for it)
         sendEmail(email, "Your New Account Details", emailContent).catch(err => {
           console.error("Failed to send welcome email:", err);
+        });
+      }
+    } else {
+      // For logged-in users, check if they're blocked
+      if (user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: "Your account has been blocked. Please contact support for assistance."
         });
       }
     }
@@ -216,6 +233,8 @@ export const createBid = async (req, res) => {
       detailPhotos,
       
       user_id: user._id,
+      // Add a reference to the user's block status for tracking
+      userBlockedAtSubmission: user.isBlocked,
     });
 
     await newBid.save();
@@ -229,27 +248,40 @@ export const createBid = async (req, res) => {
       bidId: newBid._id,
       type: "bid-created",
       title: "New Bid Created",
-      message: `A new bid has been submitted.`
+      message: `A new bid has been submitted.`,
+      metadata: {
+        userBlocked: user.isBlocked
+      }
     }).catch(err => {
       console.error("Failed to save event:", err);
     });
 
-    // ------------------------------------
-    // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY (DON'T WAIT!)
-    // ------------------------------------
-    // Start shop notifications in the background
-    // User doesn't need to wait for this to complete
-    notifyShopsForBid(newBid, user).catch(error => {
-      console.error("Shop notification failed (non-critical):", error);
-      // Don't throw - this is background work
-    });
+    // Only notify shops if the user is not blocked
+    if (!user.isBlocked) {
+      // ------------------------------------
+      // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY (DON'T WAIT!)
+      // ------------------------------------
+      // Start shop notifications in the background
+      // User doesn't need to wait for this to complete
+      notifyShopsForBid(newBid, user).catch(error => {
+        console.error("Shop notification failed (non-critical):", error);
+        // Don't throw - this is background work
+      });
+    } else {
+      console.warn(`Bid ${newBid._id} created by blocked user ${user._id}. Shops will not be notified.`);
+    }
 
     // 🎯 IMMEDIATE RESPONSE TO USER
     return res.status(201).json({
       success: true,
-      message: "✅ Bid submitted successfully",
+      message: user.isBlocked 
+        ? "✅ Bid submitted successfully but account is blocked. Please contact support to restore access." 
+        : "✅ Bid submitted successfully",
       data: newBid,
-      note: `Local shops are being notified. You'll receive bids within 24-48 hours.`
+      note: user.isBlocked 
+        ? "Your account is currently blocked. Please contact support to restore access to platform features."
+        : `Local shops are being notified. You'll receive bids within 24-48 hours.`,
+      userBlocked: user.isBlocked
     });
 
   } catch (error) {

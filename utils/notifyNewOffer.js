@@ -1,4 +1,3 @@
-// utils/notifyNewOffer.js
 import Shop from "../models/shopModel.js";
 import Customer from "../models/customerModel.js";
 import Bid from "../models/bidModel.js";
@@ -47,21 +46,45 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     const subject = `${shop.businessName} submitted a new offer on your request`;
 
     // ------------------------------------
-    // 5) Email Body (HTML)
+    // 5) Email Body (HTML) with Dashboard Link
     // ------------------------------------
+    const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
+    
     const html = `
-      <h2>🎉 You Received a New Offer!</h2>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
+          🎉 You Received a New Offer!
+        </h2>
 
-      <p><strong>Shop:</strong> ${shop.businessName} (${shop.ownerName})</p>
-      <p><strong>Offer Price:</strong> $${price || offer?.price}</p>
-      <p><strong>Message:</strong> ${note || offer?.note || "No message provided"}</p>
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">Offer Details</h3>
+          <p><strong>Shop:</strong> ${shop.businessName} (${shop.ownerName || ''})</p>
+          <p><strong>Offer Price:</strong> $${price || offer?.price}</p>
+          <p><strong>Message:</strong> ${note || offer?.note || "No message provided"}</p>
 
-      <h3>Request Details:</h3>
-      <p><strong>Category:</strong> ${bid.requestCategory}</p>
-      <p><strong>Description:</strong> ${bid.serviceDescription}</p>
+          <div style="margin-top: 20px; padding: 15px; background-color: #e7f3ff; border-left: 4px solid #007bff;">
+            <h4 style="margin-top: 0;">Your Request Details:</h4>
+            <p><strong>Category:</strong> ${bid.requestCategory}</p>
+            <p><strong>Description:</strong> ${bid.serviceDescription}</p>
+          </div>
+        </div>
 
-      <hr />
-      <p>Login to your dashboard to view more details and respond to the offer.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${customerDashboardLink}" 
+             style="background-color: #007bff; color: white; padding: 12px 30px; 
+                    text-decoration: none; border-radius: 5px; font-weight: bold; 
+                    display: inline-block; font-size: 16px;">
+            View & Respond to Offer
+          </a>
+          <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            Login to your dashboard to review the full offer and respond
+          </p>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+          <p>Or copy and paste this link: ${customerDashboardLink}</p>
+        </div>
+      </div>
     `;
 
     // ------------------------------------
@@ -69,9 +92,8 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // ------------------------------------
     await sendEmail(customer.email, subject, html);
 
-
     // ------------------------------------
-    // 7) SMS NOTIFICATION (Twilio)
+    // 7) SMS NOTIFICATION (Twilio) with Link
     // ------------------------------------
     if (customer.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -86,8 +108,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
       });
       
       // Check if the phone number already has country code
-      // If it starts with '1' (US/Canada) and is 11 digits, it already has country code
-      // If it's 10 digits, add '+1' for US/Canada
       let fullPhone;
       
       if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
@@ -104,7 +124,6 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         return;
       }
       
-      
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
         console.error(`❌ Invalid phone number format: ${fullPhone}`);
@@ -112,23 +131,23 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         return;
       }
 
+      // SMS text with dashboard link
       const smsText = `
 New Offer Received!
 
 Shop: ${shop.businessName}
 Price: $${price || offer?.price}
 
-Check your dashboard for full details.
+View and respond to this offer:
+${customerDashboardLink}
       `;
 
       try {
-        
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
-
 
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {

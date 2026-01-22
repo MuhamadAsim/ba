@@ -196,6 +196,10 @@ export const verifyOtp = async (req, res) => {
   }
 };
 
+
+
+
+
 // ---------------------- SIGNIN ----------------------
 export const signin = async (req, res) => {
   try {
@@ -208,7 +212,19 @@ export const signin = async (req, res) => {
         message: "Invalid email or password" 
       });
 
-    // ✅ STEP 0: Check if customer registered with Google
+    // ✅ STEP 1: Check if user is blocked
+    // Handle backward compatibility: if isBlocked field doesn't exist, treat as unblocked
+    const isBlocked = customer.isBlocked === undefined ? false : customer.isBlocked;
+    
+    if (isBlocked) {
+      return res.status(403).json({
+        status: "account_blocked",
+        message: "Your account has been blocked. Please contact support for assistance.",
+        supportEmail: "support@example.com" // Add your support email
+      });
+    }
+
+    // ✅ STEP 2: Check if customer registered with Google
     if (customer.registrationMethod === "google") {
       return res.json({
         status: "google_auth_required",
@@ -255,7 +271,8 @@ export const signin = async (req, res) => {
         customerId: customer._id, 
         email: customer.email,
         role: "customer",
-        registrationMethod: customer.registrationMethod // ✅ Include in JWT
+        registrationMethod: customer.registrationMethod,
+        isBlocked: isBlocked // Include block status in JWT
       },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
@@ -269,11 +286,13 @@ export const signin = async (req, res) => {
         id: customer._id,
         name: customer.name,
         email: customer.email,
-        registrationMethod: customer.registrationMethod, // ✅ Include in response
+        registrationMethod: customer.registrationMethod,
         avatar: customer.avatar || null,
         phone: customer.phone || null,
         address: customer.address || null,
         zip: customer.zip || null,
+        isAuthenticated: customer.isAuthenticated || false,
+        isBlocked: isBlocked, // Include in response
       },
     });
   } catch (error) {
@@ -284,6 +303,11 @@ export const signin = async (req, res) => {
     });
   }
 };
+
+
+
+
+
 
 // ---------------------- UPDATE PROFILE ----------------------
 export const updateProfile = async (req, res) => {
@@ -332,6 +356,14 @@ export const updateProfile = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
 
 // ============================================
 // FORGOT PASSWORD CONTROLLERS
@@ -635,6 +667,12 @@ export const getGoogleAuthURL = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
 // -------------------- STEP 2: GOOGLE CALLBACK --------------------
 export const googleCallback = async (req, res) => {
   try {
@@ -671,13 +709,23 @@ export const googleCallback = async (req, res) => {
         name,
         email,
         avatar,
-        registrationMethod: "google", // ✅ Added: Track Google registration
-        password: "", // Empty password for Google auth
-        googleId: googleUser.sub, // ✅ Store Google ID
+        registrationMethod: "google",
+        password: "",
+        googleId: googleUser.sub,
         isEmailVerified: true,
         isAuthenticated: true,
+        isBlocked: false, // New Google users are not blocked by default
       });
     } else {
+      // ✅ STEP 1: Check if user is blocked (with backward compatibility)
+      const isBlocked = user.isBlocked === undefined ? false : user.isBlocked;
+      
+      if (isBlocked) {
+        return res.redirect(
+          `https://bidawrap.com/google-status?status=account_blocked&message=${encodeURIComponent("Your account has been blocked. Please contact support for assistance.")}&supportEmail=support@bidawrap.com`
+        );
+      }
+
       // Update registration method if switching from email/password
       if (user.registrationMethod !== "google") {
         user.registrationMethod = "google";
@@ -686,25 +734,36 @@ export const googleCallback = async (req, res) => {
       }
     }
 
+    // ✅ Final check for block status (in case user was just created)
+    const isBlocked = user.isBlocked === undefined ? false : user.isBlocked;
+    
+    if (isBlocked) {
+      return res.redirect(
+        `https://bidawrap.com/google-status?status=account_blocked&message=${encodeURIComponent("Your account has been blocked. Please contact support for assistance.")}&supportEmail=support@bidawrap.com`
+      );
+    }
+
     // -------------------- EXISTING USER LOGIN --------------------
     const token = jwt.sign(
       { 
         customerId: user._id, 
         email: user.email, 
         role: "customer",
-        registrationMethod: user.registrationMethod // ✅ Include in JWT
+        registrationMethod: user.registrationMethod,
+        isBlocked: isBlocked // Include block status in JWT
       },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
-    // ✅ Include user._id in the redirect URL
+    // ✅ Include user._id and other details in the redirect URL
     const redirectUrl = `https://bidawrap.com/google-success?` +
       `id=${user._id}&` +
       `token=${token}&` +
       `name=${encodeURIComponent(user.name)}&` +
       `email=${encodeURIComponent(user.email)}&` +
-      `registrationMethod=${user.registrationMethod}&` + // ✅ Include registration method
+      `registrationMethod=${user.registrationMethod}&` +
+      `isBlocked=${isBlocked}&` + // Include block status
       `avatar=${encodeURIComponent(user.avatar || '')}`;
 
     return res.redirect(redirectUrl);
@@ -712,7 +771,7 @@ export const googleCallback = async (req, res) => {
   } catch (error) {
     console.error("Google callback error:", error);
     return res.redirect(
-      `https://bidawrap.com/google-failed`
+      `https://bidawrap.com/google-failed?error=${encodeURIComponent(error.message || "Authentication failed")}`
     );
   }
 };

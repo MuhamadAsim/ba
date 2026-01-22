@@ -16,13 +16,13 @@ const customerSchema = new mongoose.Schema(
     },
     registrationMethod: {
       type: String,
-      enum: ['email_password', 'google'], // ✅ Added: Track registration method
+      enum: ['email_password', 'google'],
       default: 'email_password',
       required: true
     },
     googleId: {
       type: String,
-      sparse: true // Allows null values
+      sparse: true
     },
     password: {
       type: String,
@@ -30,7 +30,6 @@ const customerSchema = new mongoose.Schema(
         return this.registrationMethod === "email_password";
       },
     },
-
     phone: {
       type: String,
       trim: true,
@@ -39,7 +38,7 @@ const customerSchema = new mongoose.Schema(
     avatar: {
       type: String,
       trim: true,
-      default: "", // can later store default avatar image URL
+      default: "",
     },
     zip: {
       type: String,
@@ -51,8 +50,6 @@ const customerSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-
-    // ------------------ NEW FIELDS ------------------
     otp: {
       type: String,
       default: null,
@@ -65,20 +62,38 @@ const customerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    // ------------------------------------------------
-
     isAuthenticated: {
       type: Boolean,
       default: true,
     },
-    resetPasswordOtp: { type: String, default: null },
-    resetPasswordOtpExpiry: { type: Date, default: null },
+    // Add this new field for blocking users
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockedAt: {
+      type: Date,
+      default: null,
+    },
+    blockedReason: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    resetPasswordOtp: { 
+      type: String, 
+      default: null 
+    },
+    resetPasswordOtpExpiry: { 
+      type: Date, 
+      default: null 
+    },
   },
   { timestamps: true }
 );
 
+// Index for faster blocked users queries
+customerSchema.index({ isBlocked: 1 });
+customerSchema.index({ email: 1, isBlocked: 1 });
+
 export default mongoose.model("Customer", customerSchema);
-
-
-
-
