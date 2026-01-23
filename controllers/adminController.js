@@ -1936,7 +1936,7 @@ export const createShopByAdmin = async (req, res) => {
             </a>
           </p>
           <p style="color: #999; font-size: 14px;">
-            Need help? Contact our support team at support@yourplatform.com
+            Need help? Contact our support team at support@bidawrap.com
           </p>
         </div>
         
@@ -4656,7 +4656,7 @@ export const updateShopByAdmin = async (req, res) => {
 
 
 /**
- * @desc    Block or unblock a customer
+ * @desc    Block or unblock a customer with email notification
  * @route   POST /api/admin/customers/:id/block
  * @access  Private/Admin
  */
@@ -4697,13 +4697,132 @@ export const blockCustomer = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry');
 
+    // Send email notification for blocking action only
+    if (action === 'block') {
+      try {
+        const blockReason = reason || "Violation of terms of service";
+        const subject = "Account Access Restricted - Action Required";
+        
+        const html = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h1 style="color: #e74c3c; margin-bottom: 10px;">⚠️ Account Restricted</h1>
+              <div style="height: 2px; background: #e74c3c; width: 100px; margin: 0 auto;"></div>
+            </div>
+            
+            <div style="margin-bottom: 25px;">
+              <p style="font-size: 16px; line-height: 1.6; color: #333;">
+                Dear <strong>${customer.name}</strong>,
+              </p>
+              <p style="font-size: 16px; line-height: 1.6; color: #333;">
+                We regret to inform you that your account has been temporarily restricted from accessing our platform.
+              </p>
+            </div>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 25px 0; border-left: 4px solid #e74c3c;">
+              <h3 style="color: #e74c3c; margin-top: 0;">Account Restriction Details:</h3>
+              <ul style="color: #555; line-height: 1.8;">
+                <li><strong>Account Email:</strong> ${customer.email}</li>
+                <li><strong>Restriction Date:</strong> ${new Date().toLocaleDateString()}</li>
+                <li><strong>Reason:</strong> ${blockReason}</li>
+              </ul>
+            </div>
+            
+            <div style="margin-bottom: 25px;">
+              <h3 style="color: #333; margin-bottom: 15px;">What This Means:</h3>
+              <ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+                <li>You will not be able to log into your account</li>
+                <li>Any active sessions have been terminated</li>
+                <li>You cannot make purchases or place orders</li>
+                <li>Your account data remains secure and preserved</li>
+              </ul>
+            </div>
+            
+            <div style="margin-bottom: 25px;">
+              <h3 style="color: #333; margin-bottom: 15px;">Next Steps:</h3>
+              <ol style="color: #555; line-height: 1.8; padding-left: 20px;">
+                <li>Review our Terms of Service and Community Guidelines</li>
+                <li>If you believe this is an error, please contact our support team</li>
+                <li>Include your account email in all communications</li>
+                <li>Allow 24-48 hours for review of appeal requests</li>
+              </ol>
+            </div>
+            
+            <div style="background: #e8f4fd; padding: 15px; border-radius: 6px; margin: 25px 0; border-left: 4px solid #3498db;">
+              <p style="margin: 0; color: #2c3e50;">
+                <strong>Need Help?</strong><br>
+                Contact our support team at: 
+                <a href="mailto:support@bidawrap.com" style="color: #3498db; text-decoration: none;">
+                  support@bidawrap.com
+                </a>
+              </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+              <p style="color: #7f8c8d; font-size: 14px; margin-bottom: 5px;">
+                This is an automated notification. Please do not reply to this email.
+              </p>
+              <p style="color: #7f8c8d; font-size: 12px;">
+                © ${new Date().getFullYear()} Your Company Name. All rights reserved.
+              </p>
+            </div>
+          </div>
+        `;
+
+        // Send the email
+        await sendEmail(customer.email, subject, html);
+        
+        console.log(`📧 Block notification email sent to: ${customer.email}`);
+      } catch (emailError) {
+        // Log email error but don't fail the whole operation
+        console.error('❌ Failed to send block notification email:', emailError);
+        // Continue with the response - the block action was successful
+      }
+    } else if (action === 'unblock') {
+      // Optional: Send unblock notification email
+      try {
+        const subject = "Account Access Restored";
+        
+        const html = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #27ae60; text-align: center;">✅ Account Restored</h1>
+            
+            <p>Dear ${customer.name},</p>
+            
+            <p>We are pleased to inform you that your account has been restored and you can now access our platform again.</p>
+            
+            <div style="background: #f0f8f0; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Account:</strong> ${customer.email}</p>
+              <p><strong>Status:</strong> Active</p>
+              <p><strong>Restored on:</strong> ${new Date().toLocaleDateString()}</p>
+            </div>
+            
+            <p>You may now log in to your account and resume using our services.</p>
+            
+            <p>If you have any questions, please contact our support team.</p>
+            
+            <p style="color: #666; font-size: 12px; margin-top: 30px;">
+              This is an automated message.
+            </p>
+          </div>
+        `;
+
+        await sendEmail(customer.email, subject, html);
+        console.log(`📧 Unblock notification email sent to: ${customer.email}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send unblock notification email:', emailError);
+        // Continue with response
+      }
+    }
+
     // Log the action
     console.log(`Customer ${action}ed:`, {
       customerId: id,
       customerEmail: customer.email,
       action,
       reason,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      emailSent: action === 'block' ? 'attempted' : 'none'
     });
 
     res.status(200).json({
@@ -4716,6 +4835,10 @@ export const blockCustomer = async (req, res) => {
         isBlocked: updatedCustomer.isBlocked,
         blockedAt: updatedCustomer.blockedAt,
         blockedReason: updatedCustomer.blockedReason
+      },
+      notification: {
+        emailSent: true,
+        recipient: customer.email
       }
     });
 

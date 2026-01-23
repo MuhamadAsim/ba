@@ -34,7 +34,7 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
       return;
     }
 
-    // Add customer dashboard link
+    // Direct customer dashboard link
     const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
 
     const subject = `${shop.businessName} accepted your counter offer!`;
@@ -63,7 +63,8 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
           <a href="${customerDashboardLink}" 
              style="background-color: #28a745; color: white; padding: 12px 30px; 
                     text-decoration: none; border-radius: 5px; font-weight: bold; 
-                    display: inline-block; font-size: 16px;">
+                    display: inline-block; font-size: 16px;"
+             target="_blank">
             View Accepted Bid
           </a>
           <p style="margin-top: 10px; color: #666; font-size: 14px;">
@@ -71,9 +72,10 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
           </p>
         </div>
 
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
-          <p>Or copy and paste this link: ${customerDashboardLink}</p>
-        </div>
+        <p style="color: #666; margin-top: 20px; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <span style="color: #28a745; word-break: break-all;">${customerDashboardLink}</span>
+        </p>
       </div>
     `;
 
@@ -86,6 +88,7 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
     // Send EMAIL
     if (method === "email" || method === "both") {
       await sendEmail(customer.email, subject, html);
+      console.log(`📧 Counter offer acceptance email sent to customer: ${customer.email}`);
     }
 
     // Send SMS
@@ -120,7 +123,6 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
         return;
       }
       
-      
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
         console.error(`❌ Invalid phone number format: ${fullPhone}`);
@@ -128,14 +130,13 @@ export const notifyCounterAccepted = async (offer, counterOffer, shopId, bidId) 
         return;
       }
 
-      // SMS text with dashboard link
+      // SMS text WITHOUT link
       const smsText = `
 Great news! ${shop.businessName} accepted your counter offer.
 
 Accepted Price: $${counterOffer.counterPrice}
 
-Your bid is now in progress. View details:
-${customerDashboardLink}
+Your bid is now in progress. Check your email for details.
       `;
 
       try {
@@ -144,6 +145,8 @@ ${customerDashboardLink}
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
+
+        console.log(`✅ Counter acceptance SMS sent to customer ${customer.name}: ${twilioMessage.sid}`);
 
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
@@ -159,14 +162,15 @@ ${customerDashboardLink}
           console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
         }
       }
+    } else {
+      console.log(`ℹ️ No SMS sent to customer ${customer.name} - ${method === "email" ? 'email only mode' : 'missing phone or Twilio credentials'}`);
     }
 
     // -----------------------------
 
   } catch (err) {
     console.error("❌ Error notifying customer about counter acceptance:", {
-      error: err.message,
-      stack: err.stack
+      error: err.message
     });
   }
 };

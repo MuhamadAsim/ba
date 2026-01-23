@@ -46,7 +46,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     const subject = `${shop.businessName} submitted a new offer on your request`;
 
     // ------------------------------------
-    // 5) Email Body (HTML) with Dashboard Link
+    // 5) Email Body (HTML) with Direct Dashboard Link
     // ------------------------------------
     const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
     
@@ -73,7 +73,8 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
           <a href="${customerDashboardLink}" 
              style="background-color: #007bff; color: white; padding: 12px 30px; 
                     text-decoration: none; border-radius: 5px; font-weight: bold; 
-                    display: inline-block; font-size: 16px;">
+                    display: inline-block; font-size: 16px;"
+             target="_blank">
             View & Respond to Offer
           </a>
           <p style="margin-top: 10px; color: #666; font-size: 14px;">
@@ -81,9 +82,10 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
           </p>
         </div>
 
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
-          <p>Or copy and paste this link: ${customerDashboardLink}</p>
-        </div>
+        <p style="color: #666; margin-top: 20px; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <span style="color: #007bff; word-break: break-all;">${customerDashboardLink}</span>
+        </p>
       </div>
     `;
 
@@ -91,9 +93,10 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // 6) Send Email to Customer
     // ------------------------------------
     await sendEmail(customer.email, subject, html);
+    console.log(`📧 Offer notification email sent to customer: ${customer.email}`);
 
     // ------------------------------------
-    // 7) SMS NOTIFICATION (Twilio) with Link
+    // 7) SMS NOTIFICATION (Twilio) - NO LINK
     // ------------------------------------
     if (customer.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -131,15 +134,14 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         return;
       }
 
-      // SMS text with dashboard link
+      // SMS text WITHOUT link
       const smsText = `
 New Offer Received!
 
 Shop: ${shop.businessName}
 Price: $${price || offer?.price}
 
-View and respond to this offer:
-${customerDashboardLink}
+Check your email for details and to respond to this offer.
       `;
 
       try {
@@ -148,6 +150,8 @@ ${customerDashboardLink}
           from: process.env.TWILIO_PHONE_NUMBER,
           to: fullPhone,
         });
+
+        console.log(`✅ SMS sent to customer ${customer.name}: ${twilioMessage.sid}`);
 
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
@@ -163,7 +167,10 @@ ${customerDashboardLink}
           console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
         }
       }
-    } 
+    } else {
+      console.log(`ℹ️ No SMS sent to customer ${customer.name} - missing phone or Twilio credentials`);
+    }
+    
   } catch (err) {
     console.error("❌ notifyNewOffer FAILED:", err.message);
   }

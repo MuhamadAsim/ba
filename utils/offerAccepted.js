@@ -17,8 +17,8 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     const customer = await Customer.findById(customerId).select("name email");
     const customerName = customer?.name || "Customer";
 
-    // Add website link
-    const websiteLink = "https://bidawrap.com/partner/dashboard/bids";
+    // Direct link for shop dashboard
+    const shopDashboardLink = "https://bidawrap.com/partner/dashboard/bids";
 
     // Build HTML Email
     const html = `
@@ -46,10 +46,11 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
         </div>
 
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${websiteLink}" 
+          <a href="${shopDashboardLink}" 
              style="background-color: #28a745; color: white; padding: 12px 30px; 
                     text-decoration: none; border-radius: 5px; font-weight: bold; 
-                    display: inline-block; font-size: 16px;">
+                    display: inline-block; font-size: 16px;"
+             target="_blank">
             View Bid in Dashboard
           </a>
           <p style="margin-top: 10px; color: #666; font-size: 14px;">
@@ -57,21 +58,27 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
           </p>
         </div>
 
+        <p style="color: #666; margin-top: 20px; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <span style="color: #28a745; word-break: break-all;">${shopDashboardLink}</span>
+        </p>
+
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
           <p>This notification was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
-          <p>Or copy and paste this link: ${websiteLink}</p>
         </div>
       </div>
     `;
 
     // ---------------------- SENDGRID EMAIL ----------------------
     await sendEmail(shop.email, subject, html);
+    console.log(`📧 Offer accepted notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
-    const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+    if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-    // Create SMS text with the website link
-    const smsText = `
+      // Create SMS text WITHOUT link
+      const smsText = `
 ${subject}
 
 ${message}
@@ -79,11 +86,9 @@ ${message}
 ${offer ? `Accepted Offer: $${offer.price}` : ""}
 ${bid ? `Bid Category: ${bid.requestCategory}` : ""}
 
-View and manage this bid:
-${websiteLink}
-    `;
+Check your email for details and to manage this bid.
+      `;
 
-    if (shop.phone) {
       // Clean the phone number - remove all non-numeric characters
       const cleanedPhone = shop.phone.replace(/\D/g, '');
       
@@ -105,10 +110,8 @@ ${websiteLink}
         originalPhone: shop.phone,
         cleanedPhone: cleanedPhone,
         countryCode: countryCode,
-        countryCodeNumber: countryCodeNumber,
         fullPhone: fullPhone,
-        shopPlan: shop.plan,
-        smsTextLength: smsText.length
+        shopPlan: shop.plan
       });
 
       // Validate phone number format (E.164 format for Twilio)
@@ -125,13 +128,13 @@ ${websiteLink}
           to: fullPhone,
         });
 
+        console.log(`✅ Offer accepted SMS sent to shop ${shop.businessName}: ${twilioMessage.sid}`);
+
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
           errorCode: twilioError.code,
           errorMessage: twilioError.message,
-          moreInfo: twilioError.moreInfo,
-          phoneNumber: fullPhone,
-          twilioFromNumber: process.env.TWILIO_PHONE_NUMBER
+          phoneNumber: fullPhone
         });
         
         // Check for common Twilio errors
@@ -145,9 +148,11 @@ ${websiteLink}
           console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
         }
       }
-    } 
+    } else {
+      console.log(`ℹ️ No SMS sent to shop ${shop.businessName} - missing phone or Twilio credentials`);
+    }
 
   } catch (err) {
-    console.error("❌ Error notifying shop:", err);
+    console.error("❌ Error notifying shop:", err.message);
   }
 };

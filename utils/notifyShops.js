@@ -79,7 +79,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
 
     // ---------------------- 4️⃣ EMAIL + SMS TEMPLATES ----------------------
     const customerName = customer.name || "Customer";
-    
+
     // Get first letter of each name part for subject and content
     const getInitials = (name) => {
       if (!name) return '';
@@ -91,54 +91,58 @@ export const notifyShopsForBid = async (newBid, customer) => {
     };
 
     const customerInitials = getInitials(customerName);
-    
+
     // Add website link
     const websiteLink = "https://bidawrap.com/partner/dashboard/bids";
-    
+
     // Use initials in subject instead of full name
     const subject = `${customerInitials} posted a bid`;
 
     const buildEmailHTML = () => {
+      // Use the direct URL without any email tracking
+      const directBidLink = `https://bidawrap.com/partner/dashboard/bids`;
+
       return `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
-          ${customerInitials} posted a new bid
-        </h2>
-        
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-          <p><strong>Category:</strong> ${newBid.requestCategory}</p>
-          <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
-          <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
-          <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
-          <p><strong>Coordinates:</strong> ${bidLocation.latitude?.toFixed(6)}, ${bidLocation.longitude?.toFixed(6)}</p>
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${websiteLink}" 
-             style="background-color: #007bff; color: white; padding: 12px 30px; 
-                    text-decoration: none; border-radius: 5px; font-weight: bold; 
-                    display: inline-block; font-size: 16px;">
-            View Bid & Submit Offer
-          </a>
-        </div>
-        
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
-          <p>You received this notification because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
-          <p>Or copy and paste this link: ${websiteLink}</p>
-        </div>
-      </div>
-    `;
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
+      ${customerInitials} posted a new bid
+    </h2>
+    
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+      <p><strong>Category:</strong> ${newBid.requestCategory}</p>
+      <p><strong>Description:</strong> ${newBid.serviceDescription}</p>
+      <p><strong>Vehicle:</strong> ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel} ${newBid.vehicleTrim || ''}</p>
+      <p><strong>Location:</strong> ${bidLocation.address || bidLocation.zipCode || 'Location provided'}</p>
+    </div>
+    
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${directBidLink}" 
+         style="background-color: #007bff; color: white; padding: 12px 30px; 
+                text-decoration: none; border-radius: 5px; font-weight: bold; 
+                display: inline-block; font-size: 16px;"
+         target="_blank">
+        View Bid & Submit Offer
+      </a>
+    </div>
+    
+    <p style="color: #666; margin-top: 20px; font-size: 14px;">
+      Or copy and paste this link in your browser:<br>
+      <span style="color: #007bff; word-break: break-all;">${directBidLink}</span>
+    </p>
+    
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+      <p>You received this notification because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
+    </div>
+  </div>
+`;
     };
 
-    const buildSMSText = () => `
+ const buildSMSText = () => `
 ${customerInitials} posted a new bid!
 Category: ${newBid.requestCategory}
 Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
 Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Check dashboard'}
-
-View and submit an offer here:
-${websiteLink}
-    `;
+`;
 
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -158,21 +162,21 @@ ${websiteLink}
           if (shop.phone) {
             // Clean the phone number - remove all non-numeric characters
             const cleanedPhone = shop.phone.replace(/\D/g, '');
-            
+
             // Get country code (default to +1 if not provided)
             let countryCode = shop.countryCode || "+1";
-            
+
             // Ensure country code starts with +
             if (!countryCode.startsWith('+')) {
               countryCode = '+' + countryCode;
             }
-            
+
             // Remove any plus from the country code for the full phone number
             const countryCodeNumber = countryCode.replace('+', '');
-            
+
             // Construct full phone number
             const fullPhone = `+${countryCodeNumber}${cleanedPhone}`;
-            
+
             console.log(`📱 SMS Details for ${shop.businessName}:`, {
               originalPhone: shop.phone,
               cleanedPhone: cleanedPhone,
@@ -205,7 +209,7 @@ ${websiteLink}
                 phoneNumber: fullPhone,
                 twilioFromNumber: process.env.TWILIO_PHONE_NUMBER
               });
-              
+
               // Check for common Twilio errors
               if (twilioError.code === 21211) {
                 console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
@@ -217,7 +221,7 @@ ${websiteLink}
                 console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
               }
             }
-          } 
+          }
         } catch (err) {
           console.error(`❌ Notification error for shop ${shop.businessName}:`, {
             error: err.message,
@@ -244,11 +248,11 @@ ${websiteLink}
 
     // Wait for all notifications to complete
     const results = await Promise.allSettled(notificationPromises);
-    
+
     // Log summary of notification results
     const fulfilled = results.filter(r => r.status === 'fulfilled').length;
     const rejected = results.filter(r => r.status === 'rejected').length;
-    
+
     // Log any rejected promises
     results.forEach((result, index) => {
       if (result.status === 'rejected') {

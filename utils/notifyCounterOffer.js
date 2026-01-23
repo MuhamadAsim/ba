@@ -20,7 +20,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
     const customer = await Customer.findById(customerId).select("name email");
     const customerName = customer?.name || "Customer";
 
-    // Add website link for shop
+    // Direct link for shop dashboard
     const shopDashboardLink = "https://bidawrap.com/partner/dashboard/bids";
 
     // Prepare email subject
@@ -53,7 +53,8 @@ export const notifyCounterOffer = async (offer, counterData) => {
           <a href="${shopDashboardLink}" 
              style="background-color: #ffc107; color: #333; padding: 12px 30px; 
                     text-decoration: none; border-radius: 5px; font-weight: bold; 
-                    display: inline-block; font-size: 16px;">
+                    display: inline-block; font-size: 16px;"
+             target="_blank">
             View & Respond to Counter Offer
           </a>
           <p style="margin-top: 10px; color: #666; font-size: 14px;">
@@ -61,15 +62,20 @@ export const notifyCounterOffer = async (offer, counterData) => {
           </p>
         </div>
 
+        <p style="color: #666; margin-top: 20px; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <span style="color: #ffc107; word-break: break-all;">${shopDashboardLink}</span>
+        </p>
+
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
           <p>This counter-offer was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
-          <p>Or copy and paste this link: ${shopDashboardLink}</p>
         </div>
       </div>
     `;
 
     // ---------------------- EMAIL ----------------------
     await sendEmail(shop.email, subject, html);
+    console.log(`📧 Counter offer notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
     if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
@@ -96,7 +102,6 @@ export const notifyCounterOffer = async (offer, counterData) => {
         originalPhone: shop.phone,
         cleanedPhone: cleanedPhone,
         countryCode: countryCode,
-        countryCodeNumber: countryCodeNumber,
         fullPhone: fullPhone,
         shopPlan: shop.plan
       });
@@ -108,7 +113,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
         return;
       }
 
-      // SMS text with dashboard link
+      // SMS text WITHOUT link
       const smsText = `
 ${customerName} submitted a counter offer!
 
@@ -116,8 +121,7 @@ Original: $${offer.price}
 Counter: $${counterData.counterPrice}
 ${counterData.message ? `Message: ${counterData.message.substring(0, 50)}...` : ''}
 
-View and respond here:
-${shopDashboardLink}
+Check your email for details and to respond to this counter offer.
       `;
 
       try {
@@ -127,13 +131,13 @@ ${shopDashboardLink}
           to: fullPhone,
         });
         
+        console.log(`✅ Counter offer SMS sent to shop ${shop.businessName}: ${twilioMessage.sid}`);
+
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error for shop ${shop.businessName}:`, {
           errorCode: twilioError.code,
           errorMessage: twilioError.message,
-          moreInfo: twilioError.moreInfo,
-          phoneNumber: fullPhone,
-          twilioFromNumber: process.env.TWILIO_PHONE_NUMBER
+          phoneNumber: fullPhone
         });
         
         // Check for common Twilio errors
@@ -147,11 +151,12 @@ ${shopDashboardLink}
           console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
         }
       }
-    } 
+    } else {
+      console.log(`ℹ️ No SMS sent to shop ${shop.businessName} - missing phone or Twilio credentials`);
+    }
   } catch (err) {
     console.error("❌ Error notifying shop about counter offer:", {
-      error: err.message,
-      stack: err.stack
+      error: err.message
     });
   }
 };
