@@ -1,6 +1,11 @@
 import ShopUser from "../models/shopUserModel.js";
 import Shop from "../models/shopModel.js";
 
+
+
+
+
+
 /**
  * Create sub-account
  * Owner only
@@ -24,11 +29,39 @@ export const createChildAccount = async (req, res) => {
             });
         }
 
-        const shop = await Shop.findById(req.user.shopId);
+        // Fetch shop with populated plan
+        const shop = await Shop.findById(req.user.shopId).populate('plan');
         if (!shop) {
             return res.status(404).json({
                 success: false,
                 message: "Shop not found",
+            });
+        }
+
+        // 🔒 Subscription / access check
+        const blockedStatuses = ["inactive", "canceled", "incomplete_expired", "unpaid", "paused"];
+        if (shop.isBlocked || blockedStatuses.includes(shop.subscriptionStatus)) {
+            return res.status(403).json({
+                success: false,
+                message: shop.isBlocked
+                    ? "Your account has been blocked by admin."
+                    : "Your subscription is not active. Please update or renew your plan.",
+            });
+        }
+
+        // Check if shop's plan allows sub-accounts
+        if (!shop.plan) {
+            return res.status(400).json({
+                success: false,
+                message: "Your current plan does not support sub-accounts",
+            });
+        }
+
+        const subAccountLimit = shop.plan.features?.subAccounts || 0;
+        if (subAccountLimit <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Your current plan does not support sub-accounts",
             });
         }
 
@@ -38,10 +71,10 @@ export const createChildAccount = async (req, res) => {
             role: { $ne: "owner" },
         });
 
-        if (childCount >= shop.maxChildAccounts) {
+        if (childCount >= subAccountLimit) {
             return res.status(400).json({
                 success: false,
-                message: `You can only create ${shop.maxChildAccounts} sub-accounts`,
+                message: `You can only create up to ${subAccountLimit} sub-accounts with your current plan`,
             });
         }
 
@@ -97,6 +130,11 @@ export const createChildAccount = async (req, res) => {
     }
 };
 
+
+
+
+
+
 /**
  * Delete sub-account
  * Owner only
@@ -146,6 +184,8 @@ export const deleteChildAccount = async (req, res) => {
     }
 };
 
+
+
 /**
  * Toggle sub-account status (enable/disable)
  * Owner only
@@ -154,6 +194,7 @@ export const toggleChildAccountStatus = async (req, res) => {
     try {
         const { userId } = req.params;
 
+        // Check if user is owner
         if (req.user.role !== "owner") {
             return res.status(403).json({
                 success: false,
@@ -161,6 +202,7 @@ export const toggleChildAccountStatus = async (req, res) => {
             });
         }
 
+        // Find the user to toggle
         const user = await ShopUser.findOne({
             _id: userId,
             shop: req.user.shopId,
@@ -173,6 +215,7 @@ export const toggleChildAccountStatus = async (req, res) => {
             });
         }
 
+        // Check if trying to disable owner
         if (user.role === "owner") {
             return res.status(400).json({
                 success: false,
@@ -180,8 +223,57 @@ export const toggleChildAccountStatus = async (req, res) => {
             });
         }
 
+        // 🔥 NEW: Get shop with plan to check sub-account limits
+        const shop = await Shop.findById(req.user.shopId)
+            .populate('plan', 'name features.subAccounts');
+        
+        if (!shop || !shop.plan) {
+            return res.status(400).json({
+                success: false,
+                message: "Shop does not have an active subscription plan",
+            });
+        }
+
+        const plan = shop.plan;
+        const maxSubAccounts = plan.features?.subAccounts || 0;
+
+        // Count current active sub-accounts (excluding owner)
+        const activeSubAccountsCount = await ShopUser.countDocuments({
+            shop: req.user.shopId,
+            isActive: true,
+            role: { $ne: "owner" }
+        });
+
+        // If trying to ENABLE the user (changing from disabled to active)
+        if (!user.isActive) {
+            // Check if max limit would be exceeded
+            if (activeSubAccountsCount >= maxSubAccounts) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot enable more sub-accounts. Your "${plan.name}" plan allows maximum ${maxSubAccounts} sub-account${maxSubAccounts !== 1 ? 's' : ''}.`,
+                    data: {
+                        maxAllowed: maxSubAccounts,
+                        currentActive: activeSubAccountsCount,
+                        planName: plan.name,
+                        errorType: "LIMIT_EXCEEDED"
+                    }
+                });
+            }
+        }
+
+        // If trying to DISABLE the user (changing from active to disabled)
+        // No limit check needed for disabling
+
+        // Toggle the status
         user.isActive = !user.isActive;
         await user.save();
+
+        // Get updated count after toggle
+        const updatedActiveCount = await ShopUser.countDocuments({
+            shop: req.user.shopId,
+            isActive: true,
+            role: { $ne: "owner" }
+        });
 
         res.status(200).json({
             success: true,
@@ -189,6 +281,15 @@ export const toggleChildAccountStatus = async (req, res) => {
             data: {
                 _id: user._id,
                 isActive: user.isActive,
+                name: user.name || user.email,
+                role: user.role,
+                // Include limit information for frontend
+                limitInfo: {
+                    maxSubAccounts: maxSubAccounts,
+                    currentActive: updatedActiveCount,
+                    remaining: Math.max(0, maxSubAccounts - updatedActiveCount),
+                    planName: plan.name
+                }
             },
         });
     } catch (error) {
@@ -200,8 +301,12 @@ export const toggleChildAccountStatus = async (req, res) => {
     }
 };
 
+
+
+
+
 /**
- * Get all sub-accounts for the shop
+ * Get all sub-accounts
  * Owner only
  */
 export const getChildAccounts = async (req, res) => {
@@ -214,7 +319,8 @@ export const getChildAccounts = async (req, res) => {
             });
         }
 
-        const shop = await Shop.findById(req.user.shopId);
+        // Fetch shop with populated plan
+        const shop = await Shop.findById(req.user.shopId).populate('plan');
         if (!shop) {
             return res.status(404).json({
                 success: false,
@@ -222,39 +328,55 @@ export const getChildAccounts = async (req, res) => {
             });
         }
 
-        // Get all sub-accounts (not owner)
-        const childAccounts = await ShopUser.find({
+        // 🔒 Subscription / access check
+        const allowedStatuses = ["active", "trialing", "past_due"];
+        const blockedStatuses = ["inactive", "canceled", "incomplete_expired", "unpaid", "paused"];
+        if (shop.isBlocked || blockedStatuses.includes(shop.subscriptionStatus)) {
+            return res.status(403).json({
+                success: false,
+                message: shop.isBlocked
+                    ? "Your account has been blocked by admin."
+                    : "Your subscription is not active. Please update or renew your plan.",
+            });
+        }
+
+        // Get sub-account limit from plan features
+        const subAccountLimit = shop.plan?.features?.subAccounts || 0;
+
+        // 🧮 Fetch all sub-accounts
+        const subAccounts = await ShopUser.find({
             shop: shop._id,
             role: { $ne: "owner" },
-        })
-        .select('-password -permissions') // Don't send sensitive data
-        .sort({ createdAt: -1 });
+        }).sort({ createdAt: -1 });
 
-        // Format the response
-        const formattedAccounts = childAccounts.map(account => ({
-            _id: account._id,
-            name: account.name || account.email.split('@')[0],
-            email: account.email,
-            isActive: account.isActive,
-            createdAt: account.createdAt,
-            lastLogin: account.lastLogin,
-            role: account.role,
-        }));
+        // Calculate stats
+        const activeCount = subAccounts.filter(acc => acc.isActive).length;
 
-        // Get stats
-        const activeCount = childAccounts.filter(acc => acc.isActive).length;
-        const maxAllowed = shop.maxChildAccounts || 2;
-
-        res.status(200).json({
+        res.json({
             success: true,
-            data: formattedAccounts,
+            data: subAccounts.map(acc => ({
+                _id: acc._id,
+                name: acc.name,
+                email: acc.email,
+                isActive: acc.isActive,
+                createdAt: acc.createdAt,
+                lastLogin: acc.lastLogin,
+                role: acc.role,
+                permissions: acc.permissions,
+            })),
             stats: {
-                total: childAccounts.length,
+                total: subAccounts.length,
                 active: activeCount,
-                available: maxAllowed - childAccounts.length,
-                maxAllowed: maxAllowed,
+                available: Math.max(0, subAccountLimit - subAccounts.length),
+                limit: subAccountLimit,
             },
+            planDetails: {
+                planName: shop.plan?.name || 'No Plan',
+                subAccountLimit: subAccountLimit,
+                canCreateSubAccounts: subAccountLimit > 0,
+            }
         });
+
     } catch (error) {
         console.error("❌ Get sub-accounts error:", error);
         res.status(500).json({
@@ -264,58 +386,8 @@ export const getChildAccounts = async (req, res) => {
     }
 };
 
-/**
- * Get single sub-account details
- * Owner only
- */
-export const getChildAccount = async (req, res) => {
-    try {
-        const { userId } = req.params;
 
-        // 🔐 Only owner
-        if (req.user.role !== "owner") {
-            return res.status(403).json({
-                success: false,
-                message: "Only shop owner can view sub-accounts",
-            });
-        }
 
-        const user = await ShopUser.findOne({
-            _id: userId,
-            shop: req.user.shopId,
-            role: { $ne: "owner" },
-        })
-        .select('-password')
-        .populate('createdBy', 'email name');
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "Sub-account not found",
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                isActive: user.isActive,
-                role: user.role,
-                createdAt: user.createdAt,
-                lastLogin: user.lastLogin,
-                createdBy: user.createdBy,
-            },
-        });
-    } catch (error) {
-        console.error("❌ Get sub-account error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch sub-account",
-        });
-    }
-};
 
 /**
  * Update sub-account
@@ -398,38 +470,6 @@ export const updateChildAccount = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Failed to update sub-account",
-        });
-    }
-};
-
-/**
- * Get sub-account permissions
- * For sub-account user
- */
-export const getMyPermissions = async (req, res) => {
-    try {
-        const user = await ShopUser.findById(req.user.userId)
-            .select('permissions role');
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found",
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: {
-                permissions: user.permissions,
-                role: user.role,
-            },
-        });
-    } catch (error) {
-        console.error("❌ Get permissions error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch permissions",
         });
     }
 };

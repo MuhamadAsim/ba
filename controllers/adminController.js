@@ -13,6 +13,7 @@ import mongoose from "mongoose";
 import sgMail from "@sendgrid/mail";
 import Stripe from "stripe";
 import validator from "validator";
+import Plan from "../models/planModel.js"
 
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -1090,183 +1091,6 @@ export const toggleAdminStatus = async (req, res) => {
 
 
 
-
-
-
-
-
-
-// /**
-//  * GET /api/admin/dashboard/stats
-//  * Returns overall platform statistics
-//  */
-// export const getDashboardStats = async (req, res) => {
-//   try {
-//     // Run all queries in parallel for better performance
-//     const [totalShops, totalUsers, completedBids, activeBids] = await Promise.all([
-//       Shop.countDocuments({
-//         isEmailVerified: true,
-//         isVerified: true  // Only count admin-approved shops
-//       }),
-//       Customer.countDocuments({ isEmailVerified: true }),
-//       Bid.countDocuments({ status: "completed" }),
-//       Bid.countDocuments({ status: "active" }),
-//     ]);
-
-//     return res.status(200).json({
-//       success: true,
-//       data: {
-//         totalShops,
-//         totalUsers,
-//         completedBids,
-//         activeBids,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error fetching dashboard stats:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch dashboard statistics",
-//       error: error.message,
-//     });
-//   }
-// };
-
-// /**
-//  * GET /api/admin/dashboard/overview
-//  * Returns recent activities and top shops
-//  */export const getDashboardOverview = async (req, res) => {
-//   try {
-//     // ===== RECENT ACTIVITIES =====
-//     const recentActivities = await Event.find({
-//       type: { $in: ["bid-created", "offer-accepted", "bid-completed"] },
-//     })
-//       .sort({ createdAt: -1 })
-//       .limit(10)
-//       .populate("customerId", "name email")
-//       .populate("shopId", "businessName")
-//       .populate("bidId", "requestCategory")
-//       .lean();
-
-//     // Format activities for frontend
-//     const formattedActivities = recentActivities.map((activity) => {
-//       let description = activity.message || "Activity occurred";
-//       let user = "Unknown User";
-//       let shop = null;
-//       let activityStatus = "info";
-
-//       // Determine user name
-//       if (activity.customerId) {
-//         user = activity.customerId.name || activity.customerId.email || "Unknown User";
-//       } else if (activity.shopId) {
-//         user = activity.shopId.businessName || "Unknown Shop";
-//       }
-
-//       // Determine shop name if available
-//       if (activity.shopId) {
-//         shop = activity.shopId.businessName;
-//       }
-
-//       // Set status based on type
-//       switch (activity.type) {
-//         case "bid-created":
-//           activityStatus = "info";
-//           break;
-//         case "offer-accepted":
-//         case "bid-completed":
-//           activityStatus = "success";
-//           break;
-//         default:
-//           activityStatus = "info";
-//       }
-
-//       return {
-//         id: activity._id.toString(),
-//         type: activity.type,
-//         description,
-//         user,
-//         shop,
-//         timestamp: activity.createdAt,
-//         status: activityStatus,
-//       };
-//     });
-
-//     // ===== TOP SHOPS BY COMPLETED BIDS =====
-//     const topShops = await Shop.aggregate([
-//       {
-//         $match: {
-//           isEmailVerified: true,
-//           isVerified: true, // Only verified shops
-//           businessName: { $exists: true, $ne: "" }
-//         }
-//       },
-//       {
-//         $lookup: {
-//           from: "bids",
-//           localField: "_id",
-//           foreignField: "shopId",
-//           as: "bids",
-//         },
-//       },
-//       {
-//         $addFields: {
-//           completedBids: {
-//             $size: {
-//               $filter: {
-//                 input: "$bids",
-//                 as: "bid",
-//                 cond: { $eq: ["$$bid.status", "completed"] },
-//               },
-//             },
-//           },
-//         },
-//       },
-//       {
-//         $project: {
-//           businessName: 1,
-//           ownerName: 1, // ✅ Use ownerName directly from Shop schema
-//           completedBids: 1,
-//           plan: 1, // ✅ Use plan directly from Shop schema
-//         },
-//       },
-//       { $sort: { completedBids: -1 } },
-//       { $limit: 5 },
-//     ]);
-
-//     // Format shops for frontend
-//     const formattedShops = topShops.map((shop) => ({
-//       id: shop._id.toString(),
-//       name: shop.businessName,
-//       owner: shop.ownerName || "Unknown Owner", // ✅ Now using the correct field
-//       completedBids: shop.completedBids,
-//       subscription: {
-//         plan: shop.plan || "basic", // ✅ Using the correct field
-//       },
-//     }));
-
-//     return res.status(200).json({
-//       success: true,
-//       data: {
-//         activities: formattedActivities,
-//         shops: formattedShops,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Error fetching dashboard overview:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch dashboard overview",
-//       error: error.message,
-//     });
-//   }
-// };
-
-
-
-
-
-
-
 export const getDashboardStats = async (req, res) => {
   try {
     // Run all queries in parallel for better performance
@@ -1643,10 +1467,6 @@ export const getUnverifiedShops = async (req, res) => {
 
 
 
-
-
-
-
 // Generate random password
 const generateRandomPassword = () => {
   const length = 12;
@@ -1658,8 +1478,6 @@ const generateRandomPassword = () => {
   }
   return password;
 };
-
-
 
 
 
@@ -1692,7 +1510,6 @@ export const createShopByAdmin = async (req, res) => {
       facebookLink,
       linkedinLink,
       additionalInfo,
-      plan = 'professional', // Default to professional plan for admin-created shops
     } = req.body;
 
     // Get uploaded file URLs from multer
@@ -1719,32 +1536,26 @@ export const createShopByAdmin = async (req, res) => {
       });
     }
 
+    // 🔍 Find the Founder Plan from the Plan collection
+    const founderPlan = await Plan.findOne({ 
+      name: { $regex: /^founder/i } // Case-insensitive search for "Founder" plan
+    });
+
+    if (!founderPlan) {
+      return res.status(500).json({
+        success: false,
+        message: 'Founder Plan not found. Please create the Founder Plan in the system first.'
+      });
+    }
+
+
     // Generate random password
     const randomPassword = generateRandomPassword();
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
-    // Generate random Stripe customer ID (for admin shops, we don't create real Stripe customers)
-    // Format: cus_randomstring
-    const generateStripeCustomerId = () => {
-      const randomString = Math.random().toString(36).substring(2, 15) +
-        Math.random().toString(36).substring(2, 15);
-      return `cus_${randomString}`;
-    };
-
-    // Generate random Stripe subscription ID
-    const generateStripeSubscriptionId = () => {
-      const randomString = Math.random().toString(36).substring(2, 15) +
-        Math.random().toString(36).substring(2, 15);
-      return `sub_${randomString}`;
-    };
-
-    // Set trial end date to far in the future (year 2099)
-    const perpetualTrialEndDate = new Date('2099-12-31T23:59:59.999Z');
+    // Set perpetual trial dates (year 2099 = unlimited access)
     const perpetualTrialStartDate = new Date();
-
-    // Set current period dates (also far in future)
-    const currentPeriodStart = new Date();
-    const currentPeriodEnd = new Date('2099-12-31T23:59:59.999Z');
+    const perpetualTrialEndDate = new Date('2099-12-31T23:59:59.999Z');
 
     // Prepare shop data
     const shopData = {
@@ -1784,36 +1595,32 @@ export const createShopByAdmin = async (req, res) => {
       workSpacePhoto: workSpacePhoto || '',
       profilePic: profilePic || '',
 
-      // Set plan to professional for admin-created shops
-      plan: 'professional',
+      // 🎯 Link to Founder Plan (ObjectId reference)
+      plan: founderPlan._id,
 
-      // Generate fake Stripe IDs for admin shops
-      stripeCustomerId: generateStripeCustomerId(),
-      stripeSubscriptionId: generateStripeSubscriptionId(),
+      // 🔥 NO Stripe IDs for admin shops (they don't use Stripe)
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
 
-      // Subscription status - always active for admin shops
-      subscriptionStatus: 'active',
+      // Subscription status - perpetual trial for admin shops
+      subscriptionStatus: 'trialing', // Always in trial (never converts to paid)
 
       // Current subscription details with perpetual trial
       currentSubscription: {
-        // Fake Stripe IDs
-        priceId: process.env.STRIPE_PROFESSIONAL_PRICE_ID || 'price_admin_professional',
-        productId: process.env.STRIPE_PROFESSIONAL_PRODUCT_ID || 'prod_admin_professional',
+        // Link to the Founder Plan
+        plan: founderPlan._id,
 
-        // Plan details
-        planName: 'professional',
-        amount: 19900, // $199 in cents
-        currency: 'usd',
-        interval: 'month',
+        // NO Stripe IDs (admin shops don't use Stripe)
+        stripeProductId: null,
+        stripePriceId: null,
 
-        // Period information - perpetual trial
-        currentPeriodStart: currentPeriodStart,
-        currentPeriodEnd: currentPeriodEnd,
+        // Period information - perpetual trial (year 2099)
+        currentPeriodStart: perpetualTrialStartDate,
+        currentPeriodEnd: perpetualTrialEndDate,
         trialStart: perpetualTrialStartDate,
         trialEnd: perpetualTrialEndDate,
-        trialDays: 36500, // ~100 years in days
 
-        // Subscription management - never cancels
+        // Never cancels
         cancelAtPeriodEnd: false,
 
         // Trial extension tracking
@@ -1822,29 +1629,11 @@ export const createShopByAdmin = async (req, res) => {
           extendedBy: req.admin?._id || null, // Admin who created the shop
           previousEndDate: new Date(new Date().setDate(new Date().getDate() + 30)), // Original 30-day trial
           newEndDate: perpetualTrialEndDate,
-          extendedDays: 36470, // 100 years minus 30 days
+          extendedDays: 36470, // ~100 years
           extendedAt: new Date(),
-          reason: 'Admin-created shop with perpetual access'
+          reason: 'Admin-created Founder Plan shop with lifetime access'
         }]
       },
-
-      // Insurance Information
-      insuranceCarrier,
-      policyNumber,
-      policyExpiration: policyExpiration ? new Date(policyExpiration) : null,
-      insuranceCertificate: insuranceCertificate || '',
-
-      // Social Media Links
-      socialMedia: {
-        instagram: instagramLink || '',
-        facebook: facebookLink || '',
-        linkedin: linkedinLink || ''
-      },
-
-      additionalInfo: additionalInfo || '',
-      storeFrontPhoto: storeFrontPhoto || '',
-      workSpacePhoto: workSpacePhoto || '',
-      profilePic: profilePic || '',
 
       // For admin-created shops, set them as automatically verified
       isEmailVerified: true,
@@ -1856,10 +1645,10 @@ export const createShopByAdmin = async (req, res) => {
       acceptedPolicy: true,
       policyAcceptedAt: new Date(),
 
-      // Mark as admin shop
+      // 🏆 Mark as admin shop (Founder)
       isAdminShop: true,
 
-      // Billing information (optional)
+      // Billing information (optional for Founder shops)
       billingDetails: {
         billingEmail: email,
         companyName: businessName,
@@ -1876,13 +1665,14 @@ export const createShopByAdmin = async (req, res) => {
     // Create the shop
     const shop = await Shop.create(shopData);
 
+
     // Send welcome email with login credentials
-    const emailSubject = `🎉 Welcome to Our Platform - Your Shop Account is Ready!`;
+    const emailSubject = `🎉 Welcome to Our Platform - Your Founder Shop Account is Ready!`;
     const emailBody = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
         <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #4F46E5; margin-bottom: 10px;">Welcome, ${ownerName}!</h1>
-          <p style="color: #666; font-size: 16px;">Your shop <strong>${businessName}</strong> has been created by our admin team.</p>
+          <h1 style="color: #4F46E5; margin-bottom: 10px;">🏆 Welcome, ${ownerName}!</h1>
+          <p style="color: #666; font-size: 16px;">Your shop <strong>${businessName}</strong> has been created with <strong>Founder Plan</strong> access.</p>
         </div>
         
         <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
@@ -1894,28 +1684,36 @@ export const createShopByAdmin = async (req, res) => {
           </p>
         </div>
         
-        <div style="background-color: #e8f5e9; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-          <h2 style="color: #374151; margin-top: 0;">✨ Your Subscription Details</h2>
+        <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 2px solid #f59e0b;">
+          <h2 style="color: #374151; margin-top: 0;">🏆 Your Founder Plan Benefits</h2>
           <div style="display: flex; align-items: center; margin-bottom: 15px;">
-            <div style="background-color: #4F46E5; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin-right: 10px;">
-              PROFESSIONAL PLAN
+            <div style="background-color: #f59e0b; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin-right: 10px;">
+              👑 FOUNDER PLAN
             </div>
             <div style="font-size: 24px; font-weight: bold; color: #059669;">
-              $0/month
+              LIFETIME ACCESS
             </div>
           </div>
-          <p><strong>✅ Status:</strong> Active (Admin-created account)</p>
-          <p><strong>⏰ Trial Period:</strong> Perpetual access</p>
-          <p><strong>📅 Next Billing Date:</strong> Never - This is a complimentary account</p>
+          <p><strong>✅ Status:</strong> Active (Lifetime Founder Access)</p>
+          <p><strong>⏰ Access Period:</strong> <span style="color: #059669; font-weight: bold;">UNLIMITED</span></p>
+          <p><strong>💰 Monthly Cost:</strong> <span style="color: #059669; font-weight: bold;">$0 - Complimentary Forever</span></p>
+          <p><strong>📅 Expiration:</strong> <span style="color: #059669; font-weight: bold;">Never</span></p>
           
-          <h3 style="color: #374151; margin-top: 20px;">Premium Features Included:</h3>
+          <h3 style="color: #374151; margin-top: 20px;">🌟 Exclusive Founder Features:</h3>
           <ul style="padding-left: 20px;">
-            <li>Unlimited active bids</li>
-            <li>Premium shop listing</li>
-            <li>Priority customer support</li>
-            <li>Advanced analytics dashboard</li>
-            <li>Featured in search results</li>
+            <li><strong>Unlimited Bids:</strong> ${founderPlan.features.unlimitedBids ? 'Yes ✅' : `${founderPlan.features.bidsPerMonth} per month`}</li>
+            <li><strong>Sub-Accounts:</strong> ${founderPlan.features.subAccounts} team members</li>
+            <li><strong>Premium Shop Listing:</strong> Featured placement in search results</li>
+            <li><strong>Priority Support:</strong> Direct access to our team</li>
+            <li><strong>Advanced Analytics:</strong> Complete business insights</li>
+            <li><strong>Lifetime Updates:</strong> All future features included</li>
+            <li><strong>Zero Fees:</strong> No hidden charges, ever</li>
           </ul>
+          
+          <p style="background-color: #fff; padding: 15px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #f59e0b;">
+            <strong>🎁 Special Note:</strong> As a Founder member, you have lifetime access to all platform features. 
+            This account will never expire and will never be charged.
+          </p>
         </div>
         
         <div style="background-color: #e0f2fe; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
@@ -1931,7 +1729,7 @@ export const createShopByAdmin = async (req, res) => {
         
         <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
           <p style="color: #666; margin-bottom: 10px;">
-            <a href="${process.env.FRONTEND_URL}/partner/login" style="display: inline-block; background-color: #4F46E5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+            <a href="${process.env.FRONTEND_URL}/partner/login" style="display: inline-block; background-color: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
               👉 Log in to Your Dashboard
             </a>
           </p>
@@ -1951,9 +1749,12 @@ export const createShopByAdmin = async (req, res) => {
     try {
       await sendEmail(email, emailSubject, emailBody);
     } catch (emailError) {
-      console.error('Failed to send welcome email:', emailError);
+      console.error('❌ Failed to send welcome email:', emailError);
       // Don't fail the whole request if email fails
     }
+
+    // Populate the plan before sending response
+    await shop.populate('plan', 'name price currency interval features descriptionPoints tags');
 
     // Return success response (without password)
     const shopResponse = shop.toObject();
@@ -1961,23 +1762,26 @@ export const createShopByAdmin = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Shop created successfully by admin',
+      message: 'Founder shop created successfully by admin',
       data: {
         shop: shopResponse,
         temporaryPassword: randomPassword, // Only returned in this response for admin reference
         credentialsSent: true,
         subscriptionDetails: {
-          plan: 'professional',
-          status: 'active',
+          plan: founderPlan.name,
+          planId: founderPlan._id,
+          status: 'trialing',
           trialEndDate: perpetualTrialEndDate,
-          amount: '$0/month (Admin complimentary)',
-          nextBillingDate: 'Never'
+          amount: '$0/month (Founder - Lifetime Access)',
+          nextBillingDate: 'Never',
+          features: founderPlan.features,
+          access: 'Unlimited Lifetime'
         }
       }
     });
 
   } catch (error) {
-    console.error('Error creating shop by admin:', error);
+    console.error('❌ Error creating shop by admin:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create shop',
@@ -1993,10 +1797,13 @@ export const createShopByAdmin = async (req, res) => {
 
 
 
+
+
 // Accept/Verify a shop
 export const acceptShop = async (req, res) => {
   try {
     const { shopId } = req.params;
+    const { planId, trialDays = 30 } = req.body; // Get plan and trial days from request
 
     const shop = await Shop.findById(shopId);
 
@@ -2014,24 +1821,65 @@ export const acceptShop = async (req, res) => {
       });
     }
 
-    // Use the model method to approve shop
-    await shop.approveShop();
+    // Check if plan exists if provided
+    let selectedPlan = null;
+    if (planId) {
+      selectedPlan = await Plan.findById(planId);
+      if (!selectedPlan) {
+        return res.status(404).json({
+          success: false,
+          message: "Selected plan not found",
+        });
+      }
+    }
+
+    // Update shop status
+    shop.isVerified = true;
+    shop.verifiedAt = new Date();
+    shop.status = "active";
+
+    // If plan is provided, assign it and start trial
+    if (selectedPlan) {
+      shop.plan = selectedPlan._id;
+      shop.subscriptionStatus = "trialing";
+      
+      const now = new Date();
+      const trialEnd = new Date(now);
+      trialEnd.setDate(trialEnd.getDate() + trialDays);
+
+      shop.currentSubscription = {
+        plan: selectedPlan._id,
+        trialStart: now,
+        trialEnd: trialEnd,
+        stripeProductId: selectedPlan.stripeProductId,
+        stripePriceId: selectedPlan.stripePriceId,
+      };
+    }
+
+    await shop.save();
 
     // Send approval email
     await sendEmail(
       shop.email,
       "Your Shop Registration Has Been Approved!",
       `
-    <h2>🎉 Congratulations, ${shop.businessName}!</h2>
-    <p>Your shop registration request has been successfully reviewed and <strong>approved</strong>.</p>
-
-    <p>You can now access all features available to your account.</p>
-
-    <p>If you have any questions, feel free to reply to this email.</p>
-
-    <br/>
-    <p>Best regards,<br/>Support Team</p>
-  `
+      <h2>🎉 Congratulations, ${shop.businessName}!</h2>
+      <p>Your shop registration request has been successfully reviewed and <strong>approved</strong>.</p>
+      
+      ${selectedPlan ? `
+      <p><strong>Plan Assigned:</strong> ${selectedPlan.name}</p>
+      <p><strong>Trial Period:</strong> ${trialDays} days (until ${new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toLocaleDateString()})</p>
+      <p>During your trial period, you have access to all features of the ${selectedPlan.name} plan.</p>
+      ` : `
+      <p>No subscription plan has been assigned to your shop yet. Please contact support for plan assignment.</p>
+      `}
+      
+      <p>You can now access all features available to your account.</p>
+      <p>If you have any questions, feel free to reply to this email.</p>
+      
+      <br/>
+      <p>Best regards,<br/>Support Team</p>
+      `
     );
 
     res.status(200).json({
@@ -2042,8 +1890,11 @@ export const acceptShop = async (req, res) => {
         businessName: shop.businessName,
         isVerified: shop.isVerified,
         plan: shop.plan,
+        planName: selectedPlan?.name || null,
+        subscriptionStatus: shop.subscriptionStatus,
         status: shop.status,
         verifiedAt: shop.verifiedAt,
+        trialDays: selectedPlan ? trialDays : null,
       },
     });
   } catch (error) {
@@ -2086,8 +1937,7 @@ export const rejectShop = async (req, res) => {
     } = shop;
 
     // ================= STRIPE CLEANUP =================
-
-    // ✅ Cancel subscription (CORRECT METHOD)
+    // Only cleanup if subscription exists in Stripe
     if (stripeSubscriptionId) {
       try {
         await stripe.subscriptions.cancel(stripeSubscriptionId);
@@ -2099,10 +1949,23 @@ export const rejectShop = async (req, res) => {
       }
     }
 
-    // ⚠️ OPTIONAL: Delete customer (only if you NEVER want reuse)
+    // ⚠️ Delete customer only if they have no other subscriptions
     if (stripeCustomerId) {
       try {
-        await stripe.customers.del(stripeCustomerId);
+        const customer = await stripe.customers.retrieve(stripeCustomerId);
+        if (customer && !customer.deleted) {
+          // Check if customer has any active subscriptions
+          const subscriptions = await stripe.subscriptions.list({
+            customer: stripeCustomerId,
+            status: 'active',
+            limit: 1
+          });
+          
+          // Only delete customer if they have no active subscriptions
+          if (subscriptions.data.length === 0) {
+            await stripe.customers.del(stripeCustomerId);
+          }
+        }
       } catch (err) {
         console.warn(
           "⚠️ Stripe customer already deleted or missing:",
@@ -2111,8 +1974,21 @@ export const rejectShop = async (req, res) => {
       }
     }
 
-    // ================= DELETE SHOP =================
-    await Shop.findByIdAndDelete(shopId);
+    // ================= UPDATE SHOP STATUS (SOFT DELETE APPROACH) =================
+    // Instead of deleting, mark as rejected/blocked
+    shop.status = "blocked";
+    shop.isBlocked = true;
+    shop.blockedAt = new Date();
+    shop.blockedReason = reason || "Registration rejected";
+    shop.isVerified = false;
+    
+    // Clear subscription data
+    shop.plan = null;
+    shop.stripeSubscriptionId = null;
+    shop.subscriptionStatus = "inactive";
+    shop.currentSubscription = null;
+    
+    await shop.save();
 
     // ================= SEND EMAIL =================
     await sendEmail(
@@ -2132,22 +2008,34 @@ export const rejectShop = async (req, res) => {
 
         <p>You may correct the issues and register again using the same email.</p>
 
+        <p>If you believe this was a mistake, please contact our support team.</p>
+
         <p>Best regards,<br/>Support Team</p>
       `
     );
 
     return res.status(200).json({
       success: true,
-      message: "Shop rejected, Stripe cleaned up, and shop deleted",
+      message: "Shop rejected successfully",
+      data: {
+        shopId: shop._id,
+        businessName: shop.businessName,
+        status: shop.status,
+        blockedReason: shop.blockedReason,
+        blockedAt: shop.blockedAt,
+      },
     });
   } catch (error) {
     console.error("❌ Error rejecting shop:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to reject shop",
+      error: error.message,
     });
   }
 };
+
+
 
 
 
@@ -2527,24 +2415,77 @@ export const getCustomerById = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Helper function to safely populate plan (handles both string and ObjectId)
+const safePopulatePlan = async (query) => {
+  try {
+    return await query.populate('plan', 'name').lean();
+  } catch (error) {
+    // If populate fails (because plan is a string), just return without populating
+    return await query.lean();
+  }
+};
+
+// Get shop statistics
 export const getShopStats = async (req, res) => {
   try {
-    const totalShops = await Shop.countDocuments({ isVerified: true });
-    const basicShops = await Shop.countDocuments({
-      isVerified: true,
-      plan: "basic"
+    // Get all verified shops - use select to avoid populate issues
+    const allVerifiedShops = await Shop.find({ isVerified: true })
+      .select('plan rating reviewCount')
+      .lean();
+    
+    // Manually populate plans for shops that have ObjectId plans
+    const planIds = allVerifiedShops
+      .filter(shop => shop.plan && mongoose.Types.ObjectId.isValid(shop.plan))
+      .map(shop => shop.plan);
+    
+    const plans = await Plan.find({ _id: { $in: planIds } }).select('_id name').lean();
+    const planMap = new Map(plans.map(p => [p._id.toString(), p]));
+    
+    // Enhance shops with plan data
+    const shopsWithPlans = allVerifiedShops.map(shop => {
+      if (typeof shop.plan === 'string' && !mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // Old format - plan is already a string
+        return { ...shop, planName: shop.plan };
+      } else if (shop.plan && mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // New format - get plan from map
+        const planData = planMap.get(shop.plan.toString());
+        return { ...shop, planName: planData?.name || 'Unknown' };
+      }
+      return { ...shop, planName: 'Founder Plan' };
     });
-    const professionalShops = await Shop.countDocuments({
-      isVerified: true,
-      plan: "professional"
-    });
+    
+    const totalShops = shopsWithPlans.length;
+    
+    // Count shops by plan name
+    const basicShops = shopsWithPlans.filter(shop => 
+      shop.planName?.toLowerCase() === 'basic'
+    ).length;
+    
+    const professionalShops = shopsWithPlans.filter(shop => 
+      shop.planName?.toLowerCase() === 'professional'
+    ).length;
+    
     const pendingShops = await Shop.countDocuments({ isVerified: false });
 
-    // ADDED: Count blocked and active shops
+    // Count blocked and active shops
     const activeShops = await Shop.countDocuments({
       isVerified: true,
       isBlocked: false
     });
+    
     const blockedShops = await Shop.countDocuments({
       isVerified: true,
       isBlocked: true
@@ -2556,9 +2497,8 @@ export const getShopStats = async (req, res) => {
     });
 
     // Get average rating across all shops
-    const shops = await Shop.find({ isVerified: true }).select("rating reviewCount");
-    const avgRating = shops.length > 0
-      ? shops.reduce((sum, shop) => sum + shop.rating, 0) / shops.length
+    const avgRating = shopsWithPlans.length > 0
+      ? shopsWithPlans.reduce((sum, shop) => sum + (shop.rating || 0), 0) / shopsWithPlans.length
       : 0;
 
     res.status(200).json({
@@ -2568,8 +2508,8 @@ export const getShopStats = async (req, res) => {
         basic: basicShops,
         professional: professionalShops,
         pending: pendingShops,
-        active: activeShops, // ADDED
-        blocked: blockedShops, // ADDED
+        active: activeShops,
+        blocked: blockedShops,
         totalCompletedBids,
         averageRating: Math.round(avgRating * 10) / 10,
       },
@@ -2595,18 +2535,11 @@ export const getAllShops = async (req, res) => {
     // Filter by verification status
     if (verified === "true") {
       query.isVerified = true;
-      // REMOVED: Don't hardcode status to "active"
-      // query.status = "active";
     } else if (verified === "false") {
       query.isVerified = false;
     }
 
-    // Filter by plan type
-    if (plan && (plan === "basic" || plan === "professional")) {
-      query.plan = plan;
-    }
-
-    // ADDED: Filter by block status
+    // Filter by block status
     if (status) {
       if (status === "active") {
         query.isBlocked = false;
@@ -2615,7 +2548,10 @@ export const getAllShops = async (req, res) => {
       }
     }
 
-    // Fetch shops with pagination
+    // Get total count before plan filtering
+    const totalCount = await Shop.countDocuments(query);
+
+    // Fetch shops with pagination (NO POPULATE YET)
     const shops = await Shop.find(query)
       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry -paymentInfo.paymentToken")
       .sort({ createdAt: -1 })
@@ -2623,9 +2559,44 @@ export const getAllShops = async (req, res) => {
       .skip((page - 1) * limit)
       .lean();
 
+    // Manually populate plans for shops that have ObjectId plans
+    const planIds = shops
+      .filter(shop => shop.plan && mongoose.Types.ObjectId.isValid(shop.plan))
+      .map(shop => shop.plan);
+    
+    const plans = await Plan.find({ _id: { $in: planIds } }).select('_id name').lean();
+    const planMap = new Map(plans.map(p => [p._id.toString(), p]));
+
+    // Enhance shops with plan data
+    const shopsWithPlans = shops.map(shop => {
+      let planName = 'Founder Plan';
+      
+      if (typeof shop.plan === 'string' && !mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // Old format - plan is already a string
+        planName = shop.plan;
+      } else if (shop.plan && mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // New format - get plan from map
+        const planData = planMap.get(shop.plan.toString());
+        planName = planData?.name || 'Unknown';
+      }
+      
+      return {
+        ...shop,
+        planName: planName
+      };
+    });
+
+    // Filter by plan name if specified
+    let filteredShops = shopsWithPlans;
+    if (plan && (plan.toLowerCase() === "basic" || plan.toLowerCase() === "professional")) {
+      filteredShops = shopsWithPlans.filter(shop => 
+        shop.planName?.toLowerCase() === plan.toLowerCase()
+      );
+    }
+
     // Get bid statistics and reviews for each shop
     const shopsWithStats = await Promise.all(
-      shops.map(async (shop) => {
+      filteredShops.map(async (shop) => {
         // Count total bids received
         const totalBids = await Bid.countDocuments({
           currentShopId: shop._id
@@ -2655,7 +2626,7 @@ export const getAllShops = async (req, res) => {
 
         return {
           ...shop,
-          // ADDED: Include block status fields
+          plan: shop.planName, // Return plan as string for backward compatibility
           status: shop.isBlocked ? "blocked" : "active",
           isBlocked: shop.isBlocked || false,
           statistics: {
@@ -2671,7 +2642,10 @@ export const getAllShops = async (req, res) => {
       })
     );
 
-    const count = await Shop.countDocuments(query);
+    // Use filtered count if plan filter was applied
+    const count = plan && (plan.toLowerCase() === "basic" || plan.toLowerCase() === "professional")
+      ? filteredShops.length
+      : totalCount;
 
     res.status(200).json({
       success: true,
@@ -2695,12 +2669,6 @@ export const getAllShops = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
 // Get all shops for map view with location data
 export const getShopsForMap = async (req, res) => {
   try {
@@ -2713,10 +2681,18 @@ export const getShopsForMap = async (req, res) => {
       query.status = "active";
     }
 
-    // Fetch only necessary fields for map markers
+    // Fetch only necessary fields for map markers (NO POPULATE)
     const shops = await Shop.find(query)
-      .select("businessName profilePic address country latitude longitude location rating reviewCount plan")
+      .select("businessName profilePic address country latitude longitude location rating reviewCount plan isAdminShop")
       .lean();
+
+    // Manually populate plans for shops that have ObjectId plans
+    const planIds = shops
+      .filter(shop => shop.plan && mongoose.Types.ObjectId.isValid(shop.plan))
+      .map(shop => shop.plan);
+    
+    const plans = await Plan.find({ _id: { $in: planIds } }).select('_id name').lean();
+    const planMap = new Map(plans.map(p => [p._id.toString(), p]));
 
     // Filter shops that have valid coordinates
     const shopsWithLocation = shops.filter(
@@ -2728,20 +2704,34 @@ export const getShopsForMap = async (req, res) => {
     );
 
     // Format data for map
-    const mapData = shopsWithLocation.map(shop => ({
-      id: shop._id,
-      name: shop.businessName,
-      profilePic: shop.profilePic,
-      address: shop.address,
-      country: shop.country,
-      rating: shop.rating || 0,
-      reviewCount: shop.reviewCount || 0,
-      plan: shop.plan,
-      coordinates: {
-        lat: shop.latitude || shop.location.coordinates[1],
-        lng: shop.longitude || shop.location.coordinates[0],
-      },
-    }));
+    const mapData = shopsWithLocation.map(shop => {
+      // Determine plan name as string
+      let planName = "Founder Plan";
+      
+      if (typeof shop.plan === 'string' && !mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // Old format - plan is already a string
+        planName = shop.plan;
+      } else if (shop.plan && mongoose.Types.ObjectId.isValid(shop.plan)) {
+        // New format - get plan from map
+        const planData = planMap.get(shop.plan.toString());
+        planName = planData?.name || 'Unknown';
+      }
+
+      return {
+        id: shop._id,
+        name: shop.businessName,
+        profilePic: shop.profilePic,
+        address: shop.address,
+        country: shop.country,
+        rating: shop.rating || 0,
+        reviewCount: shop.reviewCount || 0,
+        plan: planName, // Return plan as string
+        coordinates: {
+          lat: shop.latitude || shop.location.coordinates[1],
+          lng: shop.longitude || shop.location.coordinates[0],
+        },
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -2759,13 +2749,6 @@ export const getShopsForMap = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
 // Get single shop details by ID
 export const getShopById = async (req, res) => {
   try {
@@ -2779,16 +2762,29 @@ export const getShopById = async (req, res) => {
       });
     }
 
-    // Find shop by ID and populate relevant fields
+    // Find shop by ID (NO POPULATE YET)
     const shop = await Shop.findById(shopId)
       .select("-password -otp -otpExpiry -resetPasswordOtp -resetPasswordOtpExpiry")
-      .lean({ virtuals: true }); // Add virtuals to get isInTrial, etc.
+      .lean();
 
     if (!shop) {
       return res.status(404).json({
         success: false,
         message: "Shop not found",
       });
+    }
+
+    // Manually populate plan if it's an ObjectId
+    let planData = null;
+    let planName = "Founder Plan";
+    
+    if (typeof shop.plan === 'string' && !mongoose.Types.ObjectId.isValid(shop.plan)) {
+      // Old format - plan is already a string
+      planName = shop.plan;
+    } else if (shop.plan && mongoose.Types.ObjectId.isValid(shop.plan)) {
+      // New format - fetch plan
+      planData = await Plan.findById(shop.plan).lean();
+      planName = planData?.name || 'Unknown';
     }
 
     // Calculate statistics for this shop based on currentShopId
@@ -2849,8 +2845,6 @@ export const getShopById = async (req, res) => {
     }
 
     // Determine subscription status from currentSubscription
-    // If we have trialEnd in future, status should be "trialing"
-    // Otherwise use the subscriptionStatus from root or determine from dates
     let subscriptionStatus = shop.subscriptionStatus || "inactive";
     if (isInTrial) {
       subscriptionStatus = "trialing";
@@ -2863,10 +2857,25 @@ export const getShopById = async (req, res) => {
       }
     }
 
+    // Get plan details if available (only for new ObjectId format)
+    let planDetails = null;
+    if (planData) {
+      planDetails = {
+        name: planData.name,
+        price: planData.price,
+        currency: planData.currency,
+        interval: planData.interval,
+        features: planData.features,
+        descriptionPoints: planData.descriptionPoints,
+        tags: planData.tags
+      };
+    }
+
     // Transform data to match frontend expectations
     const shopData = {
       // Basic Information
       ...shop,
+      plan: planName, // Return plan as string for backward compatibility
 
       // CRITICAL: Ensure subscriptionStatus is correct for frontend
       subscriptionStatus: subscriptionStatus,
@@ -2874,24 +2883,22 @@ export const getShopById = async (req, res) => {
       // CRITICAL: Ensure currentSubscription exists and has all needed fields
       currentSubscription: {
         ...currentSub,
-        // Ensure trialEnd is included (it should be)
         trialEnd: currentSub.trialEnd || null,
         trialStart: currentSub.trialStart || null,
-        trialDays: currentSub.trialDays || 30,
-        amount: currentSub.amount || 0,
-        interval: currentSub.interval || "month",
-        planName: currentSub.planName || shop.plan || "basic",
+        planName: planName, // Use the determined plan name
         currentPeriodStart: currentSub.currentPeriodStart || null,
         currentPeriodEnd: currentSub.currentPeriodEnd || null,
         cancelAtPeriodEnd: currentSub.cancelAtPeriodEnd || false,
-        trialExtended: currentSub.trialExtended || false,
-        trialExtensions: currentSub.trialExtensions || []
+        stripeProductId: currentSub.stripeProductId || null,
+        stripePriceId: currentSub.stripePriceId || null,
       },
+
+      // Plan details (separate object for detailed plan info if needed)
+      planDetails: planDetails,
 
       // Plan Information
       planStartDate: currentSub.currentPeriodStart || shop.createdAt,
       trialEndDate: currentSub.trialEnd || null,
-      plan: shop.plan,
       status: shop.status,
 
       // Statistics
@@ -2905,7 +2912,7 @@ export const getShopById = async (req, res) => {
         reviewCount: shop.reviewCount || 0,
       },
 
-      // Additional fields that frontend might expect
+      // Additional fields
       isBlocked: shop.isBlocked || false,
       blockedAt: shop.blockedAt,
       blockedReason: shop.blockedReason,
@@ -2935,9 +2942,6 @@ export const getShopById = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 
@@ -4045,13 +4049,12 @@ export const sendEmail_To_User = async (req, res) => {
 
 
 
-
-
 export const extendShopTrial = async (req, res) => {
   try {
     const { shopId } = req.params;
     const days = Number(req.body.days);
 
+    // Validate days input
     if (!Number.isInteger(days) || days < 1 || days > 365) {
       return res.status(400).json({
         success: false,
@@ -4059,59 +4062,86 @@ export const extendShopTrial = async (req, res) => {
       });
     }
 
+    // Find shop
     const shop = await Shop.findById(shopId);
-    if (!shop || !shop.stripeSubscriptionId) {
+    if (!shop) {
       return res.status(404).json({
         success: false,
-        message: "Shop or Stripe subscription not found"
+        message: "Shop not found"
       });
     }
 
+    // Check if shop is currently in trial
+    if (shop.subscriptionStatus !== 'trialing') {
+      return res.status(400).json({
+        success: false,
+        message: "Shop is not in trial period. Only shops with active trials can be extended."
+      });
+    }
+
+    // Check if trial end date exists
     const trialEnd = shop.currentSubscription?.trialEnd;
-    if (!trialEnd || Date.now() >= new Date(trialEnd).getTime()) {
+    if (!trialEnd) {
+      return res.status(400).json({
+        success: false,
+        message: "Trial end date not found"
+      });
+    }
+
+    // Check if trial has already ended
+    const now = new Date();
+    const currentTrialEnd = new Date(trialEnd);
+    if (now >= currentTrialEnd) {
       return res.status(400).json({
         success: false,
         message: "Trial has already ended"
       });
     }
 
-    const previousTrialEnd = new Date(trialEnd);
-    const newTrialEnd = new Date(previousTrialEnd.getTime() + days * 86400 * 1000);
+    // Calculate new trial end date
+    const previousTrialEnd = new Date(currentTrialEnd);
+    const newTrialEnd = new Date(previousTrialEnd.getTime() + days * 24 * 60 * 60 * 1000);
 
-    // 1️⃣ Update Stripe
-    await stripe.subscriptions.update(shop.stripeSubscriptionId, {
-      trial_end: Math.floor(newTrialEnd.getTime() / 1000),
-      proration_behavior: "none"
-    });
+    // Ensure currentSubscription exists
+    if (!shop.currentSubscription) {
+      shop.currentSubscription = {};
+    }
 
-    // 2️⃣ Fetch updated subscription
-    const updatedSubscription = await stripe.subscriptions.retrieve(shop.stripeSubscriptionId);
+    // Initialize trialExtensions array if it doesn't exist
+    if (!shop.currentSubscription.trialExtensions) {
+      shop.currentSubscription.trialExtensions = [];
+    }
 
-    // 3️⃣ Sync Stripe fields
-    await shop.updateSubscriptionFromStripe(updatedSubscription);
-
-    // 4️⃣ Ensure currentSubscription exists before modifying
-    if (!shop.currentSubscription) shop.currentSubscription = {};
-
-    shop.currentSubscription.trialExtended = true;
-    shop.currentSubscription.trialDays = (shop.currentSubscription.trialDays || 0) + days;
+    // Update trial information
     shop.currentSubscription.trialEnd = newTrialEnd;
-    shop.currentSubscription.trialExtensions = shop.currentSubscription.trialExtensions || [];
+    shop.currentSubscription.trialExtended = true;
+    
+    // Add extension record
     shop.currentSubscription.trialExtensions.push({
       extendedBy: req.admin?._id || null,
       previousEndDate: previousTrialEnd,
       newEndDate: newTrialEnd,
       extendedDays: days,
+      extendedAt: now,
       reason: "Admin extension"
     });
 
+    // Save the shop
     await shop.save();
 
 
     return res.json({
       success: true,
       message: `Free trial extended by ${days} days`,
-      newTrialEnd
+      data: {
+        shopId: shop._id,
+        shopName: shop.businessName,
+        previousTrialEnd: previousTrialEnd,
+        newTrialEnd: newTrialEnd,
+        extendedDays: days,
+        totalExtensions: shop.currentSubscription.trialExtensions.length,
+        trialDaysRemaining: Math.ceil((newTrialEnd - now) / (1000 * 60 * 60 * 24))
+      }
     });
 
   } catch (err) {
@@ -4127,163 +4157,8 @@ export const extendShopTrial = async (req, res) => {
 
 
 
-/**
- * Get shop's trial information
- * GET /api/admin/shops/:shopId/trial-info
- */
-export const getShopTrialInfo = async (req, res) => {
-  try {
-    const { shopId } = req.params;
 
-    const shop = await Shop.findById(shopId)
-      .select('businessName trialEndDate planStartDate plan subscription isBlocked status');
 
-    if (!shop) {
-      return res.status(404).json({
-        success: false,
-        message: 'Shop not found'
-      });
-    }
-
-    const now = new Date();
-    const trialEnd = new Date(shop.trialEndDate);
-    const isTrialActive = now < trialEnd;
-
-    // Calculate days remaining
-    const diffTime = trialEnd - now;
-    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    res.json({
-      success: true,
-      data: {
-        shopId: shop._id,
-        shopName: shop.businessName,
-        plan: shop.plan,
-        trialStartDate: shop.planStartDate,
-        trialEndDate: shop.trialEndDate,
-        subscriptionStatus: shop.subscription?.status || 'trialing',
-        isTrialActive: isTrialActive,
-        daysRemaining: isTrialActive ? Math.max(0, daysRemaining) : 0,
-        isBlocked: shop.isBlocked,
-        status: shop.status
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching trial info:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch trial information'
-    });
-  }
-};
-
-/**
- * Bulk extend trial for multiple shops
- * POST /api/admin/shops/bulk-extend-trial
- */
-export const bulkExtendTrial = async (req, res) => {
-  try {
-    const { shopIds, months, reason } = req.body;
-    const adminId = req.user._id;
-
-    // Validate input
-    if (!Array.isArray(shopIds) || shopIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide an array of shop IDs'
-      });
-    }
-
-    if (!months || months < 1 || months > 24) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid extension duration. Must be between 1-24 months'
-      });
-    }
-
-    // Find all shops
-    const shops = await Shop.find({
-      _id: { $in: shopIds },
-      isBlocked: false
-    });
-
-    if (shops.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No eligible shops found (all may be blocked)'
-      });
-    }
-
-    const results = [];
-    const errors = [];
-
-    // Process each shop
-    for (const shop of shops) {
-      try {
-        const currentEndDate = shop.trialEndDate || new Date();
-        const newEndDate = new Date(currentEndDate);
-        newEndDate.setMonth(newEndDate.getMonth() + months);
-
-        // Update shop
-        shop.trialEndDate = newEndDate;
-
-        if (shop.subscription) {
-          shop.subscription.status = 'trialing';
-          shop.subscription.nextBillingDate = newEndDate;
-        }
-
-        await shop.save();
-
-        // Create log entry
-        const logEntry = {
-          shopId: shop._id,
-          shopName: shop.businessName,
-          adminId: adminId,
-          extensionMonths: months,
-          reason: reason || 'Bulk extension by admin',
-          previousEndDate: currentEndDate,
-          newEndDate: newEndDate,
-          extendedAt: new Date()
-        };
-
-        results.push({
-          shopId: shop._id,
-          shopName: shop.businessName,
-          success: true,
-          newEndDate: newEndDate,
-          log: logEntry
-        });
-
-      } catch (shopError) {
-        errors.push({
-          shopId: shop._id,
-          shopName: shop.businessName,
-          error: shopError.message
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Extended trial for ${results.length} shop${results.length !== 1 ? 's' : ''}`,
-      data: {
-        totalProcessed: shops.length,
-        successful: results.length,
-        failed: errors.length,
-        results: results,
-        errors: errors.length > 0 ? errors : undefined
-      }
-    });
-
-  } catch (error) {
-    console.error('Error in bulk extend trial:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process bulk trial extension'
-    });
-  }
-};
 
 
 
@@ -4303,7 +4178,6 @@ export const updateShopByAdmin = async (req, res) => {
         message: "Shop ID is required"
       });
     }
-
 
     const shop = await Shop.findById(id);
     if (!shop) {
@@ -4336,27 +4210,11 @@ export const updateShopByAdmin = async (req, res) => {
         });
       }
 
-
-      // IMPORTANT: When admin manually updates rating and reviewCount,
-      // we should recalculate the average rating based on the new values
-      // This ensures consistency with the submitReview logic
-
-      // The admin can either:
-      // 1. Set both rating and reviewCount manually (for correcting data)
-      // 2. Or the system will calculate rating based on existing reviews
-
-      // For manual override, we trust admin's input
-      // But we should validate that if reviewCount is 0, rating should be 0
+      // If reviewCount is 0, rating should be 0
       if (newReviewCount === 0 && newRating !== 0) {
         console.warn(`⚠️ Warning: Setting rating to 0 because reviewCount is 0`);
         req.body.rating = 0;
       }
-
-      // Alternatively, if you want to prevent manual rating updates and only allow through reviews:
-      // return res.status(400).json({
-      //   success: false,
-      //   message: "Rating can only be updated through customer reviews. Use the review system instead."
-      // });
     }
 
     // 🔍 DEBUG: Log received files in detail
@@ -4461,14 +4319,14 @@ export const updateShopByAdmin = async (req, res) => {
       updates.certificateFiles = [...existingFiles, ...newCertificateFiles].slice(0, 5);
     }
 
-    // Parse and add text fields
+    // Parse and add text fields (REMOVED 'plan' - not editable on frontend)
     const textFields = [
       'businessName', 'legalEntityName', 'ownerName', 'email',
       'countryCode', 'phone', 'ownerPhone', 'website',
       'address', 'country', 'zipCode',
       'vinylFilms', 'certificates', 'yearsExperience',
       'insuranceCarrier', 'policyNumber',
-      'additionalInfo', 'plan', 'status',
+      'additionalInfo', 'status',
       'blockedReason'
     ];
 
@@ -4486,14 +4344,10 @@ export const updateShopByAdmin = async (req, res) => {
       updates.longitude = parseFloat(req.body.longitude);
     }
 
-    // Handle rating update - IMPORTANT: Only update if admin provides new values
-    // The rating calculation from submitReview happens automatically when reviews are submitted
-    // Here we allow admin to manually set/override the rating
+    // Handle rating update
     if (req.body.rating !== undefined) {
       const newRating = parseFloat(req.body.rating);
 
-      // If admin is setting rating, we should also ensure reviewCount is properly set
-      // If reviewCount is not being updated, we should use the existing reviewCount
       const reviewCountToUse = req.body.reviewCount !== undefined
         ? parseInt(req.body.reviewCount, 10)
         : shop.reviewCount;
@@ -4505,7 +4359,6 @@ export const updateShopByAdmin = async (req, res) => {
       } else {
         updates.rating = newRating;
       }
-
     }
 
     if (req.body.reviewCount !== undefined) {
@@ -4594,7 +4447,6 @@ export const updateShopByAdmin = async (req, res) => {
       }
     });
 
-
     // Apply updates
     const updatedShop = await Shop.findByIdAndUpdate(
       id,
@@ -4642,9 +4494,6 @@ export const updateShopByAdmin = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 
@@ -4772,7 +4621,6 @@ export const blockCustomer = async (req, res) => {
         // Send the email
         await sendEmail(customer.email, subject, html);
         
-        console.log(`📧 Block notification email sent to: ${customer.email}`);
       } catch (emailError) {
         // Log email error but don't fail the whole operation
         console.error('❌ Failed to send block notification email:', emailError);
@@ -4808,7 +4656,6 @@ export const blockCustomer = async (req, res) => {
         `;
 
         await sendEmail(customer.email, subject, html);
-        console.log(`📧 Unblock notification email sent to: ${customer.email}`);
       } catch (emailError) {
         console.error('❌ Failed to send unblock notification email:', emailError);
         // Continue with response

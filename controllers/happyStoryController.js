@@ -292,7 +292,6 @@ import asyncHandler from 'express-async-handler';
 export const getAllStories = asyncHandler(async (req, res) => {
   const { active, limit, page, isBillboard, type } = req.query;
 
-  console.log('Query params:', { active, limit, page, isBillboard, type });
 
   // Build query
   let query = {};
@@ -332,7 +331,6 @@ export const getAllStories = asyncHandler(async (req, res) => {
     query.isBillboard = true;
   }
 
-  console.log('MongoDB query:', JSON.stringify(query, null, 2));
 
   // Pagination
   const pageNum = parseInt(page) || 1;
@@ -347,7 +345,6 @@ export const getAllStories = asyncHandler(async (req, res) => {
       .skip(skip)
       .select('-__v');
 
-    console.log('Found stories:', stories.length);
 
     // Get total count for pagination
     const total = await Story.countDocuments(query);

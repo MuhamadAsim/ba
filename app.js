@@ -17,6 +17,7 @@ import videoRoutes from "./routes/videoRoutes.js";
 import adminChatRoutes from "./routes/adminSupportRoutes.js";
 import stripewebhookRoutes from "./routes/stripeWebhookRoutes.js";
 import blogRoutes from "./routes/blogRoutes.js";
+import adminPlans from "./routes/adminPlanRoutes.js"
 
 
 
@@ -35,11 +36,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 app.use("/uploads", express.static("uploads"));
 
+
+
 // ✅ ATTACH SOCKET.IO TO REQ (BEFORE ROUTES)
 app.use((req, res, next) => {
   req.io = req.app.get("io");
   next();
 });
+
+
 
 // ✅ NOW ADD ROUTES (AFTER MIDDLEWARE)
 app.use("/api/bids", bidRoutes);
@@ -52,6 +57,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/video", videoRoutes);
 app.use("/api/support", adminChatRoutes);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/plans", adminPlans);
+
 
 
 

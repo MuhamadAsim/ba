@@ -436,25 +436,73 @@ export const getBidOffers = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
 export const acceptOffer = async (req, res) => {
   try {
     const { offerId } = req.params;
     const customerId = req.customer._id;
 
     const offer = await Offer.findById(offerId);
-    if (!offer) return res.status(404).json({ message: "Offer not found" });
+    if (!offer) {
+      return res.status(404).json({ message: "Offer not found" });
+    }
 
     const bid = await Bid.findById(offer.bidId);
-    if (!bid) return res.status(404).json({ message: "Bid not found" });
+    if (!bid) {
+      return res.status(404).json({ message: "Bid not found" });
+    }
 
     if (bid.user_id.toString() !== customerId.toString()) {
-      return res.status(403).json({ message: "Unauthorized: This bid does not belong to you" });
+      return res.status(403).json({
+        message: "Unauthorized: This bid does not belong to you",
+      });
     }
 
     const customer = await Customer.findById(customerId);
-    if (!customer) return res.status(404).json({ message: "Customer not found" });
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
 
-    // Update bid and offer
+    // 🔥 NEW: Load shop + plan
+    const shop = await Shop.findById(offer.shopId).populate("plan");
+    if (!shop) {
+      return res.status(404).json({ message: "Shop not found" });
+    }
+
+    // 🔒 NEW: Subscription check
+    if (!["active", "trialing"].includes(shop.subscriptionStatus)) {
+      return res.status(403).json({
+        message: "Shop subscription is not active",
+      });
+    }
+
+    // 🔒 NEW: Bid limit check
+    const plan = shop.plan;
+    if (!plan) {
+      return res.status(403).json({
+        message: "Shop has no active plan",
+      });
+    }
+
+    const bidsLimit = plan.features?.bidsPerMonth ?? 0;
+    const usedBids = shop.bidUsage?.usedThisPeriod ?? 0;
+
+    if (bidsLimit !== -1 && usedBids >= bidsLimit) {
+      return res.status(403).json({
+        message: "This shop has reached its monthly bid limit",
+      });
+    }
+
+    // ===============================
+    // EXISTING LOGIC (UNCHANGED)
+    // ===============================
+
     bid.acceptedOffer = offer._id;
     bid.status = "in_progress";
     bid.currentShopId = offer.shopId;
@@ -463,15 +511,18 @@ export const acceptOffer = async (req, res) => {
     offer.status = "accepted";
     await offer.save();
 
-    // Reject other offers
     await Offer.updateMany(
       { bidId: bid._id, _id: { $ne: offer._id } },
       { $set: { status: "rejected" } }
     );
 
-    // Save event
+    // 🔥 NEW: Increment shop bid usage AFTER success
+    shop.bidUsage.usedThisPeriod += 1;
+    await shop.save();
+
+    // Event
     await Event.create({
-      customerId: customerId,
+      customerId,
       shopId: offer.shopId,
       bidId: bid._id,
       type: "offer-accepted",
@@ -484,14 +535,16 @@ export const acceptOffer = async (req, res) => {
       },
     });
 
-    // Build notification message with customer phone
-    const phoneInfo = customer.phone && customer.phone.trim() !== ""
-      ? ` Customer phone: ${customer.phone}.`
-      : "";
+    // Notification message
+    const phoneInfo =
+      customer.phone && customer.phone.trim() !== ""
+        ? ` Customer phone: ${customer.phone}.`
+        : "";
 
-    const vehicleInfo = bid.vehicleYear && bid.vehicleMake && bid.vehicleModel
-      ? ` Vehicle: ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel}.`
-      : "";
+    const vehicleInfo =
+      bid.vehicleYear && bid.vehicleMake && bid.vehicleModel
+        ? ` Vehicle: ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel}.`
+        : "";
 
     await offerAccepted({
       shopId: offer.shopId,
@@ -500,13 +553,16 @@ export const acceptOffer = async (req, res) => {
       message: `Great news! ${customer.name} has accepted your offer of $${offer.price}.${phoneInfo}${vehicleInfo}`,
       bid,
       offer,
-      customerPhone: customer.phone
+      customerPhone: customer.phone,
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Offer accepted successfully",
-      acceptedOffer: offer,
+      bidUsage: {
+        used: shop.bidUsage.usedThisPeriod,
+        limit: bidsLimit,
+      },
       updatedBid: {
         _id: bid._id,
         status: bid.status,
@@ -523,6 +579,9 @@ export const acceptOffer = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 

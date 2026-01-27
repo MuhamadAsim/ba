@@ -18,14 +18,7 @@ export const authenticateShop = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized: Invalid token" });
     }
 
-    // 🔍 DEBUG: Log what's in the token
-    console.log("🔑 JWT Decoded Payload:", {
-      userId: decoded.userId,
-      shopId: decoded.shopId,
-      role: decoded.role,
-      userType: decoded.userType,
-      email: decoded.email
-    });
+  
 
     // Find the shop
     const shop = await Shop.findById(decoded.shopId);
@@ -50,8 +43,6 @@ export const authenticateShop = async (req, res, next) => {
       subscriptionStatus: decoded.subscriptionStatus
     };
 
-    // 🔍 DEBUG: Confirm what was attached
-    console.log("📋 Attached req.user:", req.user);
 
     next();
   } catch (error) {

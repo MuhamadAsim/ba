@@ -24,7 +24,6 @@ const shopStorage = new CloudinaryStorage({
     // Generate safe public_id
     const publicId = generatePublicId(file);
     
-    console.log(`Uploading file: ${file.originalname}, public_id: ${publicId}, type: ${isImage ? 'image' : 'raw'}`);
     
     return {
       folder: "shop-uploads",

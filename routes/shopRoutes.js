@@ -20,26 +20,28 @@ import {
   markBidCompleted,
   getShopStats,
   getPlanDetails,
-  cancelSubscription,
-  changePlan,
   getBidActivities,
   getBidHistorySummary,
   getBidHistory,
-  getPlanChangeConsequences,
+  getAllPlans,
+  subscribeShop,
   getSubscriptionDetails,
-  reactivateSubscription
+  cancelSubscription
 } from "../controllers/shopController.js";
 import {
   createChildAccount,
   deleteChildAccount,
   toggleChildAccountStatus,
-  getChildAccount,
   getChildAccounts,
   updateChildAccount
 } from "../controllers/shopUserController.js";
 import { upload } from "../middlewares/upload.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
+import { ownerOnly } from "../middlewares/ownerOnlyMiddleware.js";
 const router = express.Router();
+
+
+
 
 //Auth
 router.post("/signup", registerShop);
@@ -49,9 +51,10 @@ router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 router.post("/change-password", authenticateShop, changePassword)
 
+
+
 //Registration
-router.post(
-  "/complete-registration",
+router.post("/complete-registration",
   upload.fields([
     { name: "insuranceCertificate", maxCount: 1 },
     { name: "storeFrontPhoto", maxCount: 1 },
@@ -61,9 +64,11 @@ router.post(
   completeRegistration
 );
 
+
+
+
 //profile
-router.put(
-  "/profile/:id",
+router.put("/profile/:id",
   upload.fields([
     { name: "profilePic", maxCount: 1 },
     { name: "insuranceCertificate", maxCount: 1 },
@@ -71,12 +76,11 @@ router.put(
     { name: "workSpacePhoto", maxCount: 1 },
     { name: "certificateFiles", maxCount: 5 },
   ]),
+  authenticateShop, ownerOnly,
   updateShopProfile
 );
 router.get("/stats", authenticateShop, getShopStats);
-router.put(
-  "/update-verified-info",
-  authenticateShop,
+router.put("/update-verified-info", ownerOnly, authenticateShop,
   upload.fields([
     { name: "certificateFiles", maxCount: 5 },
     { name: "insuranceCertificate", maxCount: 1 },
@@ -84,63 +88,49 @@ router.put(
   submitVerificationRequest
 );
 // Get own verification requests
-router.get(
-  "/my-requests",
-  authenticateShop,
-  getMyVerificationRequests
-);
+router.get("/my-requests", authenticateShop, ownerOnly, getMyVerificationRequests);
+
+
 
 // bids
-router.post("/offers", authenticateShop, makeOffer);
 router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
 router.post("/bids/:bidId/complete", authenticateShop, markBidCompleted);
+router.post("/offers", authenticateShop, makeOffer);
 router.get("/bid-history", authenticateShop, getBidHistory);
 router.get("/bid-history/summary", authenticateShop, getBidHistorySummary);
 router.get("/bid-history/:bidId", authenticateShop, getBidActivities);
 
+
+
+
 // counter offers
-router.post(
-  "/counter-offers/:counterId/accept",
-  authenticateShop,
-  acceptCounterOffer
-);
+router.post("/counter-offers/:counterId/accept", authenticateShop, acceptCounterOffer);
+router.post("/counter-offers/:counterId/reject", authenticateShop, rejectCounterOffer);
 
 
-router.post(
-  "/counter-offers/:counterId/reject",
-  authenticateShop,
-  rejectCounterOffer
-);
 
 
 //plans
-router.get("/plan", authenticateShop, getPlanDetails);
-router.put("/plan/change", authenticateShop, changePlan);
-router.get('/consequences', authenticateShop, getPlanChangeConsequences);
-router.post("/subscription/cancel", authenticateShop, cancelSubscription);
-router.get(
-  "/subscription/details",
-  authenticateShop,
-  getSubscriptionDetails
-);
-router.post(
-  "/subscription/reactivate",
-  authenticateShop,
-  reactivateSubscription
-);
+router.get("/get-plans", getAllPlans);
+router.get("/plan", authenticateShop, ownerOnly, getPlanDetails);
+router.post("/subscribe", authenticateShop, ownerOnly, subscribeShop);
+router.get("/subscription-details", authenticateShop, ownerOnly, getSubscriptionDetails);
+router.post("/cancel-subscription", authenticateShop, ownerOnly, cancelSubscription);
+
+
+
 
 
 // Sub-accounts management 
-router.post("/sub-accounts", authenticateShop, createChildAccount);
-router.get("/sub-accounts", authenticateShop, getChildAccounts);
-router.get("/sub-accounts/:userId", authenticateShop, getChildAccount);
-router.put("/sub-accounts/:userId", authenticateShop, updateChildAccount);
-router.delete("/sub-accounts/:userId", authenticateShop, deleteChildAccount);
-router.put("/sub-accounts/:userId/toggle-status", authenticateShop, toggleChildAccountStatus);
+router.post("/sub-accounts", authenticateShop, ownerOnly, createChildAccount);
+router.get("/sub-accounts", authenticateShop, ownerOnly, getChildAccounts);
+router.put("/sub-accounts/:userId", authenticateShop, ownerOnly, updateChildAccount);
+router.delete("/sub-accounts/:userId", authenticateShop, ownerOnly, deleteChildAccount);
+router.put("/sub-accounts/:userId/toggle-status", authenticateShop, ownerOnly, toggleChildAccountStatus);
 
 
 
-//map
+//map//
 router.get("/get-all-shops", getShops);
 
 export default router;

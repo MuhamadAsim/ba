@@ -1,4 +1,5 @@
 import Shop from "../models/shopModel.js";
+import Plan from "../models/planModel.js"
 import { sendEmail } from "./sendEmail.js";
 import twilio from "twilio";
 
@@ -40,11 +41,16 @@ export const notifyShopsForBid = async (newBid, customer) => {
     const customerLng = bidLocation.longitude;
 
     // ---------------------- 2️⃣ GET VERIFIED SHOPS ----------------------
+    // Populate the plan details to access notificationDelay
     const shops = await Shop.find({
       status: "active",
       isEmailVerified: true,
       isVerified: true,
-    }).select("email phone countryCode businessName ownerName location latitude longitude plan");
+    }).select("email phone countryCode businessName ownerName location latitude longitude plan")
+      .populate({
+        path: 'plan',
+        select: 'features name'
+      });
 
     if (!shops.length) {
       return;
@@ -137,7 +143,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
 `;
     };
 
- const buildSMSText = () => `
+    const buildSMSText = () => `
 ${customerInitials} posted a new bid!
 Category: ${newBid.requestCategory}
 Vehicle: ${newBid.vehicleYear} ${newBid.vehicleMake} ${newBid.vehicleModel}
@@ -146,10 +152,17 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
 
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-    // ---------------------- 5️⃣ SEND NOTIFICATIONS ----------------------
+    // ---------------------- 5️⃣ SEND NOTIFICATIONS WITH PLAN-BASED DELAYS ----------------------
     const notificationPromises = [];
 
     for (const shop of nearbyShops) {
+      // Get notification delay from plan (in minutes), default to 0 if no plan
+      let notificationDelayMinutes = 0;
+      
+      if (shop.plan && shop.plan.features && shop.plan.features.notificationDelay) {
+        notificationDelayMinutes = shop.plan.features.notificationDelay;
+      }
+
       const emailHTML = buildEmailHTML();
       const smsText = buildSMSText();
 
@@ -183,7 +196,8 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
               countryCode: countryCode,
               countryCodeNumber: countryCodeNumber,
               fullPhone: fullPhone,
-              shopPlan: shop.plan,
+              shopPlan: shop.plan?.name || 'No plan',
+              notificationDelay: `${notificationDelayMinutes} minutes`,
               smsTextLength: smsText.length
             });
 
@@ -201,13 +215,20 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
                 to: fullPhone,
               });
 
+              console.log(`✅ SMS sent to ${shop.businessName}:`, {
+                messageId: message.sid,
+                to: fullPhone,
+                delayApplied: `${notificationDelayMinutes} minutes`
+              });
+
             } catch (twilioError) {
               console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
                 errorCode: twilioError.code,
                 errorMessage: twilioError.message,
                 moreInfo: twilioError.moreInfo,
                 phoneNumber: fullPhone,
-                twilioFromNumber: process.env.TWILIO_PHONE_NUMBER
+                twilioFromNumber: process.env.TWILIO_PHONE_NUMBER,
+                delayApplied: `${notificationDelayMinutes} minutes`
               });
 
               // Check for common Twilio errors
@@ -225,24 +246,26 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
         } catch (err) {
           console.error(`❌ Notification error for shop ${shop.businessName}:`, {
             error: err.message,
-            stack: err.stack
+            stack: err.stack,
+            delayApplied: `${notificationDelayMinutes} minutes`
           });
         }
       };
 
-      // Professional plan shops get immediate notifications
-      // Basic plan shops get delayed notifications
-      if (shop.plan === "professional") {
-        notificationPromises.push(sendNotifications());
-      } else {
+      // Apply notification delay based on plan
+      if (notificationDelayMinutes > 0) {
         notificationPromises.push(
           new Promise(resolve => {
             setTimeout(async () => {
+              console.log(`⏰ Delayed notification for ${shop.businessName} (${notificationDelayMinutes} minutes delay)`);
               await sendNotifications();
               resolve();
-            }, 60 * 60 * 1000); // 1-hour delay
+            }, notificationDelayMinutes * 60 * 1000); // Convert minutes to milliseconds
           })
         );
+      } else {
+        // Send immediately if no delay
+        notificationPromises.push(sendNotifications());
       }
     }
 
@@ -252,6 +275,13 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
     // Log summary of notification results
     const fulfilled = results.filter(r => r.status === 'fulfilled').length;
     const rejected = results.filter(r => r.status === 'rejected').length;
+
+    console.log(`📊 Notification Summary:`, {
+      totalShops: nearbyShops.length,
+      notificationsSent: fulfilled,
+      notificationsFailed: rejected,
+      timestamp: new Date().toISOString()
+    });
 
     // Log any rejected promises
     results.forEach((result, index) => {

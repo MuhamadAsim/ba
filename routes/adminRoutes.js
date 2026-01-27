@@ -34,14 +34,11 @@ import {
   toggleBlockShop,
   sendEmail_To_User,
   extendShopTrial,
-  bulkExtendTrial,
-  getShopTrialInfo,
   getAdminActivities,
   getActivityTypes,
   updateShopByAdmin,
   getShops,
   blockCustomer,
-
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -57,10 +54,10 @@ import {
 import { getAllAdmins, createAdmin, updateAdmin, toggleAdminStatus } from "../controllers/adminAccountController.js";
 
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
+import {superAdminOnly} from "../middlewares/superAdminOnlyMiddleware.js"
 import { upload } from "../middlewares/upload.js";
 import { shopUpload } from "../middlewares/shopUpload.js";
 
-import { sendEmail } from "../utils/sendEmail.js";
 const router = express.Router();
 
 // Auth (no authentication required)
@@ -76,20 +73,36 @@ router.put("/change-password", authenticateAdmin, changePassword);
 // Happy stories (public)
 router.get('/happy-stories', getAllStories);
 router.get('/happy-stories/:id', getStoryById);
-router.get('/happy-stories/type/stories', getStoriesOnly); // Get only stories
-router.get('/happy-stories/type/billboards', getBillboardsOnly); // Get only billboards
+router.get('/happy-stories/type/stories', getStoriesOnly); 
+router.get('/happy-stories/type/billboards', getBillboardsOnly); 
+
+
+
+
 
 // ⚠️ ALL ROUTES BELOW REQUIRE AUTHENTICATION
 router.use(authenticateAdmin);
+
+
+
+
 
 // Dashboard
 router.get("/dashboard/stats", getDashboardStats);
 router.get("/dashboard/overview", getDashboardOverview);
 
+
+
+
+
 // Activity routes
 router.get("/activities", getAdminActivities);
 router.get("/activity-types", getActivityTypes);
 router.get("/shops-list", getShops);
+
+
+
+
 
 // Shop registration
 router.post(
@@ -101,6 +114,7 @@ router.post(
     { name: "workSpacePhoto", maxCount: 1 },
     { name: "certificateFiles", maxCount: 5 },
   ]),
+  superAdminOnly,
   createShopByAdmin
 );
 router.get("/shops/unverified", getUnverifiedShops);
@@ -108,19 +122,22 @@ router.put("/shops/:shopId/accept", acceptShop);
 router.put("/shops/:shopId/reject", rejectShop);
 router.patch("/shops/:shopId/block", toggleBlockShop);
 
+
+
+
 // Shop page
 router.get("/shops/stats", getShopStats);
 router.get("/shops", getAllShops);
 router.get("/shops/map", getShopsForMap);
 router.get("/shops/:shopId", getShopById);
 
+
+
+
+
 // Shop trial management routes
 router.post('/shops/:shopId/extend-trial', extendShopTrial);
-router.get('/shops/:shopId/trial-info', getShopTrialInfo);
-router.post('/shops/bulk-extend-trial', bulkExtendTrial);
-
 router.put("/shops/:shopId/status", updateShopStatus);
-
 router.put("/shops/update", shopUpload.fields([
   { name: "profilePic", maxCount: 1 },
   { name: "insuranceCertificate", maxCount: 1 },
@@ -130,6 +147,8 @@ router.put("/shops/update", shopUpload.fields([
 ]), updateShopByAdmin);
 
 
+
+
 // Customer routes
 router.get("/customers/stats", getCustomerStats);
 router.get("/customers", getAllCustomers);
@@ -137,9 +156,14 @@ router.get("/customers/:id/details", getCustomerById);
 router.post("/customers/:id/block", blockCustomer);
 
 
+
+
 // Verification requests - SPECIFIC ROUTES FIRST
 router.get("/pending", getPendingVerificationRequests);
 router.get("/verification/all", getAllVerificationRequests);
+
+
+
 
 // Bid management routes
 router.get("/bids/active", getActiveBids);
@@ -149,6 +173,9 @@ router.get("/bids/all", getAllBids);
 router.get("/bids/stats", getBidStats);
 router.get("/bids/:bidId", getBidDetails);
 
+
+
+
 // Happy stories (admin)
 router.post('/happy-stories', upload.single('image'), createStory);
 router.put('/happy-stories/:id', upload.single('image'), updateStory);
@@ -156,18 +183,29 @@ router.delete('/happy-stories/:id', deleteStory);
 router.patch('/happy-stories/:id/deactivate', deactivateStory);
 router.patch('/happy-stories/reorder', reorderStories);
 
+
+
 // Send email
 router.post("/send-email", sendEmail_To_User);
 
+
+
+
 // 🔐 ADMIN ACCOUNT MANAGEMENT (Super Admin only)
-router.get("/get-admins", getAllAdmins);
-router.post("/create-admins", createAdmin);
-router.put("/update-admins/:id", updateAdmin);
-router.put("/admins/:id/toggle-status", toggleAdminStatus);
+router.get("/get-admins", superAdminOnly, getAllAdmins);
+router.post("/create-admins", superAdminOnly, createAdmin);
+router.put("/update-admins/:id", superAdminOnly, updateAdmin);
+router.put("/admins/:id/toggle-status", superAdminOnly, toggleAdminStatus);
+
+
+
 
 // Verification request actions (with :requestId parameter)
 router.get("/:requestId", getVerificationRequestDetails);
 router.post("/:requestId/approve", approveVerificationRequest);
 router.post("/:requestId/reject", rejectVerificationRequest);
+
+
+
 
 export default router;

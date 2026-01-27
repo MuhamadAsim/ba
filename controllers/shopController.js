@@ -10,6 +10,9 @@ import { notifyBidCompleted } from "../utils/notifyBidCompleted.js"; '@sendgrid/
 import BidActivity from "../models/bidLogsModel.js";
 import Stripe from 'stripe';
 import stripeLib from "stripe";
+import Plan from '../models/planModel.js';
+import { enforceSubAccountLimit } from "../utils/accountLimitation.js";
+
 
 const stripelib = stripeLib(process.env.STRIPE_SECRET_KEY);
 
@@ -725,15 +728,16 @@ const formatNameInitials = (fullName) => {
 
 
 
-
 export const getAvailableBidsForShops = async (req, res) => {
   try {
     await updateExpiredBids();
 
     const shopId = req.shopId;
 
-    // ---------------------- 1️⃣ GET SHOP LOCATION ----------------------
-    const shop = await Shop.findById(shopId).select("location latitude longitude");
+    // ---------------------- 1️⃣ GET SHOP ----------------------
+    const shop = await Shop.findById(shopId).select(
+      "location latitude longitude subscriptionStatus isBlocked status"
+    );
 
     if (!shop) {
       return res.status(404).json({
@@ -742,6 +746,26 @@ export const getAvailableBidsForShops = async (req, res) => {
       });
     }
 
+    // ---------------------- 2️⃣ CHECK ACCESS ----------------------
+    const blockedStatuses = [
+      "inactive",
+      "canceled",
+      "incomplete_expired",
+      "unpaid",
+      "paused",
+    ];
+
+    if (blockedStatuses.includes(shop.subscriptionStatus) || shop.isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: shop.isBlocked
+          ? "Your account has been blocked by admin."
+          : "Your subscription is not active. Please upgrade or renew to access bids.",
+        bids: [],
+      });
+    }
+
+    // ---------------------- 3️⃣ GET SHOP LOCATION ----------------------
     let shopLng = null;
     let shopLat = null;
 
@@ -760,7 +784,7 @@ export const getAvailableBidsForShops = async (req, res) => {
       });
     }
 
-    // ---------------------- 2️⃣ ACTIVE BIDS (15-MILE RADIUS) ----------------------
+    // ---------------------- 4️⃣ FETCH ACTIVE BIDS ----------------------
     const activeBids = await Bid.find({
       status: "active",
       location: {
@@ -779,7 +803,6 @@ export const getAvailableBidsForShops = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
-    // ---------------------- 3️⃣ OFFERS MADE BY THIS SHOP ----------------------
     const shopOffers = await Offer.find({ shopId })
       .populate("counterOffers.createdBy", "name")
       .lean();
@@ -789,7 +812,6 @@ export const getAvailableBidsForShops = async (req, res) => {
       offerMap[offer.bidId.toString()] = offer;
     });
 
-    // ---------------------- 4️⃣ RELATED BIDS (ALREADY ASSIGNED) ----------------------
     const relatedBids = await Bid.find({
       currentShopId: shopId,
       status: { $in: ["in_progress", "completed"] },
@@ -799,54 +821,41 @@ export const getAvailableBidsForShops = async (req, res) => {
         select: "name email phone zip address",
       })
       .populate({
-        path: "acceptedOffer", // ✅ CRITICAL: Populate accepted offer with appointment data
-        select: "price appointmentDate appointmentTime estimatedCompletionDays workingHours shopId",
+        path: "acceptedOffer",
+        select:
+          "price appointmentDate appointmentTime estimatedCompletionDays workingHours shopId",
       })
       .sort({ createdAt: -1 });
 
-    // ---------------------- 5️⃣ MERGE BIDS (NO DUPLICATES) ----------------------
+    // ---------------------- 5️⃣ MERGE & FORMAT ----------------------
     const allBidsMap = {};
-
     [...activeBids, ...relatedBids].forEach((bid) => {
       allBidsMap[bid._id.toString()] = bid.toObject();
     });
 
-    // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
-    // ---------------------- 6️⃣ FORMAT BIDS WITH PROPER CUSTOMER INFO ----------------------
     const formattedBids = Object.values(allBidsMap).map((bid) => {
       const myOffer = offerMap[bid._id.toString()] || null;
-
-      // Extract customer info
       const customer = bid.user_id || {};
 
-
-      // Format based on bid status
       let customerInfo = {};
-
       if (bid.status === "active") {
-        // For active bids: initials only, no contact info
         customerInfo = {
-          _id: customer._id || customer.id || '', // ✅ CRITICAL: Include _id
-          name: formatNameInitials(customer.name || ''),
-          zip: customer.zip || '',
-          address: customer.address || '',
-          // No email/phone for active bids
+          _id: customer._id || customer.id || "",
+          name: formatNameInitials(customer.name || ""),
+          zip: customer.zip || "",
+          address: customer.address || "",
         };
       } else {
-        // For in_progress/completed bids: full info
         customerInfo = {
-          _id: customer._id || customer.id || '', // ✅ CRITICAL: Include _id
-          name: customer.name || '',
-          email: customer.email || '',
-          phone: customer.phone || '',
-          zip: customer.zip || '',
-          address: customer.address || '',
+          _id: customer._id || customer.id || "",
+          name: customer.name || "",
+          email: customer.email || "",
+          phone: customer.phone || "",
+          zip: customer.zip || "",
+          address: customer.address || "",
         };
       }
 
-
-
-      // ✅ Extract appointment data from accepted offer for in-progress/completed bids
       let appointmentData = null;
       if (bid.status === "in_progress" || bid.status === "completed") {
         if (bid.acceptedOffer) {
@@ -864,40 +873,28 @@ export const getAvailableBidsForShops = async (req, res) => {
         user_id: customerInfo,
         hasOffered: !!myOffer,
         myOffer,
-        // ✅ Include appointment data in response
         appointment: appointmentData,
-        // Also include acceptedOffer directly for easier access
         acceptedOffer: bid.acceptedOffer || null,
       };
     });
 
-    // ---------------------- 7️⃣ RESPONSE ----------------------
-    // Add debug info to response
-    const responseData = {
+    // ---------------------- 6️⃣ RESPONSE ----------------------
+    return res.status(200).json({
       success: true,
       total: formattedBids.length,
       radiusMiles: MAX_RADIUS_MILES,
       bids: formattedBids,
-      debug: formattedBids.length > 0 ? {
-        sampleBid: {
-          id: formattedBids[0]._id,
-          status: formattedBids[0].status,
-          hasAppointment: !!formattedBids[0].appointment, // ✅ Debug check
-          appointment: formattedBids[0].appointment,
-        }
-      } : null
-    };
-
-
-    return res.status(200).json(responseData);
+    });
   } catch (error) {
     console.error("❌ Error fetching bids for shops:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch bids",
+      bids: [],
     });
   }
 };
+
 
 
 export const getShopStats = async (req, res) => {
@@ -984,10 +981,19 @@ const createShopSnapshot = (shop) => {
 };
 
 
+
+
+
+
+
+
+
+
+
+
 // Make Offer
 export const makeOffer = async (req, res) => {
   try {
-    // Accept all fields including appointment details
     const {
       bidId,
       price,
@@ -1000,8 +1006,6 @@ export const makeOffer = async (req, res) => {
     } = req.body;
 
     const shopId = req.user?._id || req.shopId;
-
-    // Use whichever is provided (message takes priority)
     const offerMessage = message || note || "";
 
     // 1️⃣ Validate input
@@ -1014,18 +1018,44 @@ export const makeOffer = async (req, res) => {
     if (!bid) {
       return res.status(404).json({ message: "Bid not found." });
     }
-
     if (bid.status !== "active") {
       return res.status(400).json({ message: "Cannot make an offer on this bid." });
     }
 
-    // Customer ID (from bid)
     const customerId = bid.user_id;
 
-    // 3️⃣ Verify shop
-    const shop = await Shop.findById(shopId);
+    // 3️⃣ Verify shop + subscription + bid limit
+    const shop = await Shop.findById(shopId).populate("plan");
     if (!shop) {
       return res.status(404).json({ message: "Shop not found or not authorized." });
+    }
+
+    // 🔒 Subscription check
+    const allowedStatuses = ["active", "trialing", "past_due"];
+    const blockedStatuses = ["inactive", "canceled", "incomplete_expired", "unpaid", "paused"];
+    if (shop.isBlocked || blockedStatuses.includes(shop.subscriptionStatus)) {
+      return res.status(403).json({
+        message: shop.isBlocked
+          ? "Your account has been blocked by admin."
+          : "Your subscription is not active. Please update or renew your plan.",
+      });
+    }
+
+    // Ensure shop has a plan
+    if (!shop.plan) {
+      return res.status(403).json({
+        message: "No active subscription plan found for this shop.",
+      });
+    }
+
+    // Enforce monthly bid limit
+    const bidsLimit = shop.plan.features?.bidsPerMonth ?? 0;
+    const usedBids = shop.bidUsage?.usedThisPeriod ?? 0;
+
+    if (bidsLimit !== -1 && usedBids >= bidsLimit) {
+      return res.status(403).json({
+        message: "You have reached your monthly bid limit. Upgrade your plan to continue.",
+      });
     }
 
     // 4️⃣ Check for duplicate offers
@@ -1034,38 +1064,29 @@ export const makeOffer = async (req, res) => {
       return res.status(400).json({ message: "You have already made an offer for this bid." });
     }
 
-    // 5️⃣ Create new offer with appointment fields
+    // 5️⃣ Create new offer
     const offer = new Offer({
       bidId,
       shopId,
       price,
       message: offerMessage,
       status: "pending",
-      // Include appointment fields if provided
       ...(appointmentDate && { appointmentDate: new Date(appointmentDate) }),
       ...(appointmentTime && { appointmentTime }),
       ...(estimatedCompletionDays && { estimatedCompletionDays }),
       ...(workingHours && workingHours.start && workingHours.end && { workingHours }),
     });
-
     await offer.save();
 
     // 6️⃣ Link offer to bid
     bid.offers.push(offer._id);
     await bid.save();
 
+    // 7️⃣ Increment bid usage
+    shop.bidUsage.usedThisPeriod += 1;
+    await shop.save();
 
-    // Prepare metadata for activity logging
-    const offerMetadata = {
-      price,
-      hasAppointment: !!(appointmentDate || appointmentTime),
-      appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
-      appointmentTime,
-      estimatedCompletionDays,
-      workingHours
-    };
-
-    // ⭐ 7️⃣ LOG ACTIVITY to BidLogsModel
+    // 8️⃣ Log activity
     try {
       const activityLog = new BidActivity({
         shop_id: shopId,
@@ -1075,24 +1096,28 @@ export const makeOffer = async (req, res) => {
         price: price,
         message: offerMessage,
         bid_snapshot: createBidSnapshot(bid),
-        customer_snapshot: createCustomerSnapshot(bid.user_id),
+        customer_snapshot: createCustomerSnapshot(bid?.user_id),
         shop_snapshot: createShopSnapshot(shop),
         offer_id: offer._id,
         metadata: {
-          appointmentDetails: offerMetadata,
-          hasAppointment: !!(appointmentDate || appointmentTime)
+          appointmentDetails: {
+            price,
+            hasAppointment: !!(appointmentDate || appointmentTime),
+            appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+            appointmentTime,
+            estimatedCompletionDays,
+            workingHours
+          },
         },
         ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
         user_agent: req.headers['user-agent']
       });
-
       await activityLog.save();
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
-      // Don't fail the main operation if activity logging fails
     }
 
-    // ⭐ 8️⃣ CREATE EVENT for both shop & customer  
+    // 9️⃣ Create Event
     const event = new Event({
       type: "new-offer",
       bidId,
@@ -1109,20 +1134,26 @@ export const makeOffer = async (req, res) => {
         workingHours
       }
     });
-
     await event.save();
 
-    // Fix: Pass the correct message variable with appointment details
-    notifyNewOffer(offer, bidId, shopId, price, offerMessage, offerMetadata);
+    // 10️⃣ Notify customer
+    notifyNewOffer(offer, bidId, shopId, price, offerMessage, {
+      price,
+      hasAppointment: !!(appointmentDate || appointmentTime),
+      appointmentDate,
+      appointmentTime,
+      estimatedCompletionDays,
+      workingHours
+    });
 
     return res.status(201).json({
       success: true,
-      message: offerMetadata.hasAppointment
+      message: appointmentDate || appointmentTime
         ? "Offer with appointment details submitted successfully."
         : "Offer submitted successfully.",
       data: {
         ...offer.toObject(),
-        hasAppointment: offerMetadata.hasAppointment
+        hasAppointment: !!(appointmentDate || appointmentTime)
       },
     });
 
@@ -1135,6 +1166,14 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
 
 export const getShops = async (req, res) => {
   try {
@@ -1459,13 +1498,68 @@ export const getNearbyShops = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
 export const acceptCounterOffer = async (req, res) => {
   try {
     const { counterId } = req.params;
     const { bidId } = req.body;
-    const shopId = req.shop._id; // From auth middleware
+    const shopId = req.shop._id;
 
-    // 1️⃣ Find the offer with this counter offer
+    // 🔹 Load shop with plan and subscription info
+    const shop = await Shop.findById(shopId).populate("plan");
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+      });
+    }
+
+    // 🔹 Subscription/access check
+    const allowedStatuses = ["active", "trialing", "past_due"]; // ✅ allow access
+    const blockedStatuses = [
+      "inactive",
+      "canceled",
+      "incomplete_expired",
+      "unpaid",
+      "paused",
+    ];
+
+    if (shop.isBlocked || blockedStatuses.includes(shop.subscriptionStatus)) {
+      return res.status(403).json({
+        success: false,
+        message: shop.isBlocked
+          ? "Your account has been blocked by admin."
+          : "Your subscription is not active. Please upgrade or renew to accept counter offers.",
+      });
+    }
+
+    // 🔹 Ensure shop has a plan
+    const plan = shop.plan;
+    if (!plan) {
+      return res.status(403).json({
+        success: false,
+        message: "No plan assigned to your account",
+      });
+    }
+
+    // 🔹 Bid usage limit
+    const bidsLimit = plan.features?.bidsPerMonth ?? 0;
+    const usedBids = shop.bidUsage?.usedThisPeriod ?? 0;
+
+    if (bidsLimit !== -1 && usedBids >= bidsLimit) {
+      return res.status(403).json({
+        success: false,
+        message: "You have reached your monthly bid limit",
+      });
+    }
+
+    // 1️⃣ Find the offer
     const offer = await Offer.findOne({
       bidId,
       shopId,
@@ -1479,9 +1573,8 @@ export const acceptCounterOffer = async (req, res) => {
       });
     }
 
-    // 2️⃣ Find the specific counter offer
+    // 2️⃣ Find counter offer
     const counterOffer = offer.counterOffers.id(counterId);
-
     if (!counterOffer) {
       return res.status(404).json({
         success: false,
@@ -1489,7 +1582,7 @@ export const acceptCounterOffer = async (req, res) => {
       });
     }
 
-    // 3️⃣ Check if already responded
+    // 3️⃣ Already handled?
     if (counterOffer.status !== "pending") {
       return res.status(400).json({
         success: false,
@@ -1501,24 +1594,23 @@ export const acceptCounterOffer = async (req, res) => {
     counterOffer.status = "accepted";
     counterOffer.respondedAt = new Date();
 
-    // 5️⃣ Update main offer price and status
-    const originalPrice = offer.price; // Store original price for logging
+    // 5️⃣ Update offer
+    const originalPrice = offer.price;
     offer.price = counterOffer.counterPrice;
     offer.status = "accepted";
     await offer.save();
 
     // 6️⃣ Update bid
-    const bid = await Bid.findById(bidId).populate('user_id');
+    const bid = await Bid.findById(bidId).populate("user_id");
     if (bid) {
       bid.status = "in_progress";
       bid.acceptedOffer = offer._id;
       bid.currentShopId = shopId;
       await bid.save();
 
-      // Reject all other pending offers
       await Offer.updateMany(
         {
-          bidId: bidId,
+          bidId,
           _id: { $ne: offer._id },
           status: "pending",
         },
@@ -1526,72 +1618,57 @@ export const acceptCounterOffer = async (req, res) => {
       );
     }
 
-    // 7️⃣ LOG ACTIVITY to BidLogsModel
+    // 🔹 Increment bid usage
+    shop.bidUsage.usedThisPeriod += 1;
+    await shop.save();
+
+    // 7️⃣ Activity log
     try {
       const activityLog = new BidActivity({
         shop_id: shopId,
         customer_id: bid?.user_id?._id || bid?.user_id,
         bid_id: bidId,
-        activity_type: 'counter_offer_accepted',
-        price: originalPrice, // Original offer price
-        counter_price: counterOffer.counterPrice, // New accepted price
+        activity_type: "counter_offer_accepted",
+        price: originalPrice,
+        counter_price: counterOffer.counterPrice,
         message: counterOffer.message,
         bid_snapshot: createBidSnapshot(bid),
         customer_snapshot: createCustomerSnapshot(bid?.user_id),
-        shop_snapshot: createShopSnapshot(req.shop), // Shop data from auth middleware
+        shop_snapshot: createShopSnapshot(req.shop),
         offer_id: offer._id,
         counter_offer_id: counterId,
-        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
-        user_agent: req.headers['user-agent'],
         metadata: {
           original_price: originalPrice,
           accepted_price: counterOffer.counterPrice,
-          price_difference: counterOffer.counterPrice - originalPrice
-        }
+          price_difference: counterOffer.counterPrice - originalPrice,
+        },
       });
 
       await activityLog.save();
-    } catch (activityError) {
-      console.error("⚠️ Failed to log activity (non-critical):", activityError);
-      // Don't fail the main operation if activity logging fails
+    } catch (e) {
+      console.error("⚠️ Activity log failed:", e);
     }
 
-    // Trigger notification
+    // Notifications
     notifyCounterAccepted(offer, counterOffer, shopId, bidId);
 
-    // ⭐⭐⭐ 8️⃣ CREATE EVENT (ADDED ONLY — DOES NOT CHANGE OLD FLOW)
-    const customerId = bid.user_id; // from bid model
-
+    // Event
     await Event.create({
       type: "counter-offer-accepted",
       bidId,
       offerId: offer._id,
       counterOfferId: counterOffer._id,
-      shopId,          // shop accepted customer's counter offer
-      customerId,      // customer should be notified
-      message: `Counter offer for bid "${bid.service}" was accepted (${counterOffer.counterPrice}).`,
+      shopId,
+      customerId: bid.user_id,
+      message: `Counter offer accepted (${counterOffer.counterPrice})`,
     });
 
-    // ⭐ No other logic modified above this point
-
-    res.json({
+    return res.json({
       success: true,
-      message: "Counter offer accepted successfully! The bid is now in progress.",
-      offer: {
-        id: offer._id,
-        price: offer.price,
-        status: offer.status,
-        counterOffer: {
-          id: counterOffer._id,
-          status: counterOffer.status,
-          price: counterOffer.counterPrice,
-        },
-      },
-      bid: {
-        id: bid._id,
-        status: bid.status,
-        currentShopId: bid.currentShopId,
-        acceptedOffer: bid.acceptedOffer,
+      message: "Counter offer accepted successfully",
+      bidUsage: {
+        used: shop.bidUsage.usedThisPeriod,
+        limit: bidsLimit,
       },
     });
   } catch (error) {
@@ -1603,10 +1680,6 @@ export const acceptCounterOffer = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 
 
@@ -1859,530 +1932,628 @@ export const markBidCompleted = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+/* =====================================================
+   GET SHOP PLAN DETAILS
+   - Fetches authenticated shop's current plan and subscription info
+   - Returns plan details with trial information
+===================================================== */
 export const getPlanDetails = async (req, res) => {
   try {
-    const shopId = req.shop.id;
+    // req.shop is set by the authentication middleware
+    const shopId = req.shop._id || req.shop.id;
 
-    const shop = await Shop.findById(shopId).select(
-      "plan subscriptionStatus currentSubscription"
-    );
+    // Fetch shop with plan populated
+    const shop = await Shop.findById(shopId)
+      .populate('plan')
+      .select('businessName email subscriptionStatus currentSubscription plan');
 
     if (!shop) {
-      return res.status(404).json({ message: "Shop not found" });
-    }
-
-    const now = new Date();
-
-    const trialEnd = shop.currentSubscription?.trialEnd
-      ? new Date(shop.currentSubscription.trialEnd)
-      : null;
-
-    // Access vs state
-    const trialAccess = !!trialEnd && now < trialEnd;
-
-    const trialActive =
-      shop.subscriptionStatus === "trialing" &&
-      trialAccess &&
-      !shop.currentSubscription?.cancelAtPeriodEnd;
-
-    const daysRemaining = trialAccess
-      ? Math.max(
-          0,
-          Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))
-        )
-      : 0;
-
-    // Trial duration
-    const originalTrialDays = shop.currentSubscription?.trialDays || 0;
-    const extendedDays =
-      shop.currentSubscription?.trialExtensions?.reduce(
-        (sum, ext) => sum + (ext.extendedDays || 0),
-        0
-      ) || 0;
-
-    const totalTrialDays = originalTrialDays + extendedDays;
-
-    // Next billing
-    const nextBillingDate = trialAccess
-      ? trialEnd
-      : shop.currentSubscription?.currentPeriodEnd
-        ? new Date(shop.currentSubscription.currentPeriodEnd)
-        : null;
-
-    const canReactivate =
-      ["cancelled", "canceled", "trial_canceled", "inactive"].includes(
-        shop.subscriptionStatus
-      );
-
-    return res.json({
-      plan: shop.plan,
-      subscriptionStatus: shop.subscriptionStatus,
-
-      trialAccess,
-      trialActive,
-      daysRemaining,
-      trialDaysTotal: totalTrialDays,
-      trialEndDate: trialEnd,
-
-      nextBillingDate,
-      cancelAtPeriodEnd:
-        shop.currentSubscription?.cancelAtPeriodEnd || false,
-
-      canReactivate,
-      trialExtensions:
-        shop.currentSubscription?.trialExtensions || [],
-    });
-
-  } catch (error) {
-    console.error("Error fetching plan details:", error);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-
-
-
-
-
-// Plan features configuration
-const PLAN_FEATURES = {
-  basic: {
-    monthlyBids: 25,
-    analytics: 'Basic analytics',
-    support: 'Basic email support',
-    teamMembers: 1,
-    smsNotifications: false
-  },
-  professional: {
-    monthlyBids: 60,
-    analytics: 'Advanced analytics',
-    support: 'Priority support',
-    teamMembers: 3,
-    smsNotifications: true
-  }
-};
-
-
-
-
-
-
-
-
-
-
-export const changePlan = async (req, res) => {
-  try {
-    const shopId = req.shopId;
-    const { newPlan } = req.body;
-
-    const allowedPlans = ["basic", "professional"];
-    if (!newPlan || !allowedPlans.includes(newPlan)) {
-      return res.status(400).json({ message: "Invalid or missing plan" });
-    }
-
-    const priceMap = {
-      basic: process.env.STRIPE_BASIC_PRICE_ID,
-      professional: process.env.STRIPE_PROFESSIONAL_PRICE_ID,
-    };
-    const stripePriceId = priceMap[newPlan];
-
-    const shop = await Shop.findById(shopId);
-    if (!shop || !shop.stripeSubscriptionId) {
-      return res.status(404).json({ message: "Subscription not found" });
-    }
-
-    const subscription = await stripe.subscriptions.retrieve(shop.stripeSubscriptionId);
-
-    // Prevent changes if cancelled
-    if (subscription.cancel_at_period_end || subscription.status === "canceled") {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
-        message: "Cannot change plan: subscription is cancelled or scheduled for cancellation",
+        message: "Shop not found",
       });
     }
 
-    // Determine if in trial
-    const now = new Date();
-    const trialEnd = shop.currentSubscription?.trialEnd ? new Date(shop.currentSubscription.trialEnd) : null;
-    const isTrial = trialEnd && now < trialEnd;
-
-    const currentItem = subscription.items.data[0];
-    const updateParams = {
-      items: [{ id: currentItem.id, price: stripePriceId }],
-      metadata: { shopId: shop._id.toString(), requestedPlan: newPlan },
-    };
-
-    // Proration logic
-    if (isTrial) updateParams.proration_behavior = "none";
-    else if (shop.plan === "basic" && newPlan === "professional") updateParams.proration_behavior = "always_invoice";
-    else if (shop.plan === "professional" && newPlan === "basic") {
-      updateParams.proration_behavior = "none";
-      updateParams.billing_cycle_anchor = "unchanged";
+    // Check if shop has a plan
+    if (!shop.plan) {
+      return res.status(404).json({
+        success: false,
+        message: "No plan assigned to this shop",
+      });
     }
 
-    const updatedSubscription = await stripe.subscriptions.update(shop.stripeSubscriptionId, updateParams);
+    // Calculate trial information
+    let isInTrial = false;
+    let trialDaysRemaining = 0;
 
-    // Update DB
-    shop.plan = newPlan;
-    await shop.updateSubscriptionFromStripe(updatedSubscription);
+    if (shop.subscriptionStatus === 'trialing' && shop.currentSubscription?.trialEnd) {
+      const trialEnd = new Date(shop.currentSubscription.trialEnd);
+      const now = new Date();
+      
+      if (now < trialEnd) {
+        isInTrial = true;
+        const diffTime = trialEnd.getTime() - now.getTime();
+        trialDaysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      }
+    }
 
-    // ✅ Recalculate trial info locally
-    if (shop.currentSubscription?.trialEnd) {
-      const trialEndDate = new Date(shop.currentSubscription.trialEnd);
-      const daysRemaining = Math.max(0, Math.ceil((trialEndDate - now) / (1000 * 60 * 60 * 24)));
-      shop.currentSubscription.daysRemaining = daysRemaining;
+    // Check if shop has active subscription (either trialing or active)
+    const hasActiveSubscription = ['trialing', 'active'].includes(shop.subscriptionStatus);
+
+ 
+    return res.status(200).json({
+      success: true,
+      shop: {
+        _id: shop._id,
+        businessName: shop.businessName,
+        email: shop.email,
+        subscriptionStatus: shop.subscriptionStatus,
+        currentSubscription: shop.currentSubscription,
+      },
+      planInfo: shop.plan, // This is the populated Plan document
+      isInTrial,
+      trialDaysRemaining,
+      hasActiveSubscription,
+    });
+  } catch (error) {
+    console.error("❌ Get Shop Plan Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch plan details",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+// Helper function to get plan info
+async function getPlanInfo(shop, stripeSubscription = null) {
+  let planData = null;
+  
+  // Try to get plan from current subscription first
+  if (shop.currentSubscription?.plan) {
+    const plan = await Plan.findById(shop.currentSubscription.plan);
+    if (plan) {
+      planData = {
+        _id: plan._id,
+        name: plan.name,
+        price: plan.price,
+        interval: plan.interval,
+        currency: plan.currency,
+        descriptionPoints: plan.descriptionPoints || [],
+        features: plan.features || {
+          subAccounts: 0,
+          bidsPerMonth: 0,
+          unlimitedBids: false
+        }
+      };
+    }
+  }
+  
+  // Fall back to shop.plan
+  if (!planData && shop.plan) {
+    const plan = await Plan.findById(shop.plan);
+    if (plan) {
+      planData = {
+        _id: plan._id,
+        name: plan.name,
+        price: plan.price,
+        interval: plan.interval,
+        currency: plan.currency,
+        descriptionPoints: plan.descriptionPoints || [],
+        features: plan.features || {
+          subAccounts: 0,
+          bidsPerMonth: 0,
+          unlimitedBids: false
+        }
+      };
+    }
+  }
+  
+  // If still no plan, check if trial is active
+  if (!planData && shop.isInTrial) {
+    planData = {
+      _id: 'trial_plan',
+      name: 'Trial Plan',
+      price: 0,
+      interval: 'month',
+      currency: 'USD',
+      descriptionPoints: ['Trial access with limited features'],
+      features: {
+        subAccounts: 0,
+        bidsPerMonth: 10,
+        unlimitedBids: false
+      }
+    };
+  }
+  
+  // Last resort - free plan
+  if (!planData) {
+    planData = {
+      _id: 'free_plan',
+      name: 'Free Plan',
+      price: 0,
+      interval: 'month',
+      currency: 'USD',
+      descriptionPoints: ['Limited bidding access', 'Basic features'],
+      features: {
+        subAccounts: 0,
+        bidsPerMonth: 0,
+        unlimitedBids: false
+      }
+    };
+  }
+  
+  return planData;
+}
+
+// Helper function to get billing details
+function getBillingDetails(shop, stripeSubscription = null) {
+  // Prefer Stripe subscription data if available
+  if (stripeSubscription) {
+    return {
+      currentPeriodStart: stripeSubscription.current_period_start ? 
+        new Date(stripeSubscription.current_period_start * 1000).toISOString() : null,
+      currentPeriodEnd: stripeSubscription.current_period_end ? 
+        new Date(stripeSubscription.current_period_end * 1000).toISOString() : null,
+      cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end || false,
+      trialEnd: stripeSubscription.trial_end ? 
+        new Date(stripeSubscription.trial_end * 1000).toISOString() : null
+    };
+  }
+  
+  // Fall back to shop's current subscription data
+  if (shop.currentSubscription) {
+    return {
+      currentPeriodStart: shop.currentSubscription.currentPeriodStart?.toISOString() || null,
+      currentPeriodEnd: shop.currentSubscription.currentPeriodEnd?.toISOString() || null,
+      cancelAtPeriodEnd: shop.currentSubscription.cancelAtPeriodEnd || false,
+      trialEnd: shop.currentSubscription.trialEnd?.toISOString() || null
+    };
+  }
+  
+  // Return null if no billing info
+  return null;
+}
+
+export const getSubscriptionDetails = async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.shop._id)
+      .populate('plan')
+      .populate('currentSubscription.plan');
+
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found"
+      });
+    }
+
+    // If no Stripe customer ID, return basic info
+    if (!shop.stripeCustomerId) {
+      const planInfo = await getPlanInfo(shop);
+      
+      return res.json({
+        success: true,
+        hasActiveSubscription: shop.hasActiveSubscription,
+        subscriptionStatus: shop.subscriptionStatus,
+        currentPlan: planInfo,
+        stripeCustomerId: null,
+        defaultPaymentMethod: null,
+        paymentMethodDetails: null,
+        billingDetails: getBillingDetails(shop),
+        isInTrial: shop.isInTrial,
+        trialDaysRemaining: shop.trialDaysRemaining,
+        nextInvoice: null
+      });
+    }
+
+    // Fetch customer details from Stripe
+    let customer = null;
+    let defaultPaymentMethod = null;
+    let paymentMethodDetails = null;
+    
+    try {
+      customer = await stripe.customers.retrieve(shop.stripeCustomerId, {
+        expand: ['subscriptions', 'invoice_settings.default_payment_method']
+      });
+      
+      // Get payment method details if available
+      if (customer.invoice_settings?.default_payment_method) {
+        const paymentMethod = customer.invoice_settings.default_payment_method;
+        
+        if (paymentMethod.type === 'card') {
+          defaultPaymentMethod = paymentMethod.id;
+          paymentMethodDetails = {
+            last4: paymentMethod.card.last4,
+            brand: paymentMethod.card.brand,
+            exp_month: paymentMethod.card.exp_month,
+            exp_year: paymentMethod.card.exp_year,
+            funding: paymentMethod.card.funding,
+            country: paymentMethod.card.country
+          };
+        }
+      }
+    } catch (stripeError) {
+      console.error("Stripe customer fetch error:", stripeError);
+      // Continue with shop data even if Stripe fetch fails
+    }
+
+    // Get active subscription from Stripe or use shop data
+    let activeStripeSubscription = null;
+    let nextInvoice = null;
+    
+    if (customer?.subscriptions?.data) {
+      activeStripeSubscription = customer.subscriptions.data.find(sub => 
+        ['active', 'trialing', 'past_due'].includes(sub.status)
+      );
+      
+      // Get upcoming invoice for active subscriptions
+      if (activeStripeSubscription) {
+        try {
+          const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+            customer: shop.stripeCustomerId,
+          });
+          
+          nextInvoice = {
+            amountDue: upcomingInvoice.amount_due / 100, // Convert from cents
+            nextPaymentAttempt: upcomingInvoice.next_payment_attempt ?
+              new Date(upcomingInvoice.next_payment_attempt * 1000).toISOString() : null
+          };
+        } catch (invoiceError) {
+          // No upcoming invoice is okay
+          nextInvoice = null;
+        }
+      }
+    }
+
+    // Get plan info
+    const planInfo = await getPlanInfo(shop, activeStripeSubscription);
+    
+    // Get billing details - prefer Stripe data, fall back to shop data
+    const billingDetails = getBillingDetails(shop, activeStripeSubscription);
+
+    // Determine if in trial
+    const isInTrial = shop.subscriptionStatus === 'trialing' && shop.isInTrial;
+    const trialDaysRemaining = shop.trialDaysRemaining || 0;
+
+    return res.json({
+      success: true,
+      hasActiveSubscription: shop.hasActiveSubscription,
+      subscriptionStatus: shop.subscriptionStatus,
+      currentPlan: planInfo,
+      stripeCustomerId: shop.stripeCustomerId,
+      defaultPaymentMethod,
+      paymentMethodDetails,
+      billingDetails,
+      isInTrial,
+      trialDaysRemaining,
+      nextInvoice
+    });
+
+  } catch (error) {
+    console.error("Error fetching subscription details:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch subscription details"
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const getAllPlans = async (req, res) => {
+  try {
+
+    console.log("🔍 Query:", {
+      isActive: true,
+      isDeleted: false,
+    });
+
+    const plans = await Plan.find({
+      isActive: true,
+      isDeleted: false,
+    })
+    .sort({ sortOrder: 1, price: 1, createdAt: -1 });
+
+
+    // Log each plan's critical flags
+    plans.forEach((plan, index) => {
+      console.log(`🧾 Plan ${index + 1}:`, {
+        id: plan._id,
+        name: plan.name,
+        isActive: plan.isActive,
+        isDeleted: plan.isDeleted, // may be undefined due to select:false
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Active plans fetched successfully",
+      count: plans.length,
+      plans,
+    });
+  } catch (error) {
+    console.error("❌ Fetch Plans Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch plans",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+export const subscribeShop = async (req, res) => {
+  try {
+    const { planId, paymentMethodId, useExistingCard } = req.body;
+    const shopId = req.shopId;
+
+    if (!planId) {
+      return res.status(400).json({ success: false, message: "Plan is required" });
+    }
+
+    // 1️⃣ Load shop & plan
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: "Shop not found" });
+    }
+
+    const plan = await Plan.findById(planId);
+    if (!plan || !plan.isActive) {
+      return res.status(400).json({ success: false, message: "Invalid plan" });
+    }
+
+    const oldPlan = shop.plan ? await Plan.findById(shop.plan) : null;
+
+    // 2️⃣ Ensure Stripe customer
+    if (!shop.stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: shop.email,
+        name: shop.businessName,
+      });
+      shop.stripeCustomerId = customer.id;
+    }
+
+    // 3️⃣ Handle payment method
+    if (!useExistingCard) {
+      if (!paymentMethodId) {
+        return res.status(400).json({
+          success: false,
+          message: "Payment method is required",
+        });
+      }
+
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: shop.stripeCustomerId,
+      });
+
+      await stripe.customers.update(shop.stripeCustomerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+    } else {
+      const customer = await stripe.customers.retrieve(shop.stripeCustomerId);
+      if (!customer?.invoice_settings?.default_payment_method) {
+        return res.status(400).json({
+          success: false,
+          message: "No existing payment method found",
+        });
+      }
+    }
+
+    // 4️⃣ Create / Update subscription
+    let subscription;
+
+    if (shop.stripeSubscriptionId) {
+      // Existing subscription (upgrade / downgrade / re-subscribe)
+      subscription = await stripe.subscriptions.retrieve(
+        shop.stripeSubscriptionId
+      );
+
+      // 🔥 CRITICAL: undo cancellation if user re-subscribes before period end
+      if (subscription.cancel_at_period_end) {
+        await stripe.subscriptions.update(subscription.id, {
+          cancel_at_period_end: false,
+        });
+      }
+
+      const currentPrice =
+        subscription.items.data[0].price.unit_amount / 100;
+
+      const isUpgrade = plan.price > currentPrice;
+
+      subscription = await stripe.subscriptions.update(subscription.id, {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: plan.stripePriceId,
+          },
+        ],
+        proration_behavior: isUpgrade ? "create_prorations" : "none",
+      });
+    } else {
+      // New subscription
+      subscription = await stripe.subscriptions.create({
+        customer: shop.stripeCustomerId,
+        items: [{ price: plan.stripePriceId }],
+        trial_period_days: plan.trialDays || undefined,
+        payment_settings: {
+          save_default_payment_method: "on_subscription",
+        },
+        expand: ["latest_invoice.payment_intent"],
+      });
+    }
+
+    // 5️⃣ Enforce limits ONLY on downgrade
+    if (
+      oldPlan &&
+      plan.features.subAccounts < oldPlan.features.subAccounts
+    ) {
+      await enforceSubAccountLimit({
+        shopId: shop._id,
+        oldPlan,
+        newPlan: plan,
+      });
+    }
+
+    // 6️⃣ Sync subscription snapshot (Stripe = source of truth)
+    const safeDate = (ts) => (ts ? new Date(ts * 1000) : null);
+
+    shop.plan = plan._id;
+    shop.stripeSubscriptionId = subscription.id;
+    shop.subscriptionStatus = subscription.status;
+
+    shop.currentSubscription = {
+      plan: plan._id,
+      stripeProductId: plan.stripeProductId,
+      stripePriceId: plan.stripePriceId,
+      currentPeriodStart: safeDate(subscription.current_period_start),
+      currentPeriodEnd: safeDate(subscription.current_period_end),
+      trialStart: safeDate(subscription.trial_start),
+      trialEnd: safeDate(subscription.trial_end),
+      cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+    };
+
+    // Reset usage only if new billing period
+    if (
+      shop.currentSubscription.currentPeriodStart &&
+      shop.currentSubscription.currentPeriodEnd
+    ) {
+      shop.bidUsage = {
+        usedThisPeriod: 0,
+        periodStart: shop.currentSubscription.currentPeriodStart,
+        periodEnd: shop.currentSubscription.currentPeriodEnd,
+      };
     }
 
     await shop.save();
 
-    return res.json({
+    return res.status(200).json({
       success: true,
-      message: "Plan changed successfully",
-      subscriptionStatus: shop.subscriptionStatus,
-      isTrial: isTrial,
-      daysRemaining: shop.currentSubscription?.daysRemaining || 0,
+      message: "Subscription processed successfully",
+      subscriptionStatus: subscription.status,
     });
-  } catch (err) {
-    console.error("Change plan error:", err);
-    return res.status(500).json({ message: "Failed to change plan", error: err.message });
-  }
-};
-
-
-
-
-
-
-
-// Get plan change consequences for confirmation dialog
-export const getPlanChangeConsequences = async (req, res) => {
-  try {
-    const shopId = req.shop.id;
-    const { targetPlan } = req.query; // 'basic' or 'professional'
-
-    if (!targetPlan || !['basic', 'professional'].includes(targetPlan)) {
-      return res.status(400).json({
-        message: 'Invalid targetPlan parameter'
-      });
-    }
-
-    const shop = await Shop.findById(shopId);
-    if (!shop) {
-      return res.status(404).json({ message: 'Shop not found' });
-    }
-
-    if (shop.plan === targetPlan) {
-      return res.status(400).json({
-        message: `Already on ${targetPlan} plan`
-      });
-    }
-
-    const isUpgrade = targetPlan === 'professional';
-
-    // Get current usage if available
-    const usageStats = await getMonthlyBidUsage(shopId); // You need to implement this
-    const isHighUsage = usageStats && usageStats.percentage > 80;
-
-    const consequences = {
-      title: isUpgrade ? 'Upgrade to Professional Plan' : 'Downgrade to Basic Plan',
-      description: isUpgrade
-        ? `You're about to upgrade from Basic to Professional plan.`
-        : `You're about to downgrade from Professional to Basic plan.`,
-      immediateEffects: isUpgrade
-        ? [
-          "Immediate access to 60 monthly bids (increased from 25)",
-          "Advanced analytics dashboard unlocked",
-          "Priority support activated immediately",
-          "Team member slots increased to 3",
-        ]
-        : [
-          "Monthly bids reduced to 25 (from 60)",
-          "Access to advanced analytics will be lost",
-          "Priority support reverts to basic email support",
-          "Team members beyond 1 will lose access",
-          "SMS notifications will be disabled",
-        ],
-      billingChanges: isUpgrade
-        ? [
-          `Your monthly charge will increase from $99 to $199`,
-          "New rate applies immediately on confirmation",
-          "Prorated charges may apply for the current billing cycle",
-          "Next billing date remains unchanged",
-        ]
-        : [
-          `Your monthly charge will decrease from $199 to $99`,
-          "New rate applies immediately on confirmation",
-          "Prorated credits may apply to your next invoice",
-          "Changes take effect immediately",
-        ],
-      stripePriceId: isUpgrade
-        ? process.env.STRIPE_PROFESSIONAL_PRICE_ID
-        : process.env.STRIPE_BASIC_PRICE_ID,
-      usageWarning: isHighUsage && !isUpgrade ? {
-        message: `You're currently using ${usageStats.used}/${usageStats.total} bids (${usageStats.percentage}%)`,
-        severity: usageStats.percentage > 95 ? 'high' : 'medium'
-      } : null
-    };
-
-    res.status(200).json(consequences);
-
   } catch (error) {
-    console.error('Error getting plan consequences:', error);
-    res.status(500).json({
-      message: 'Failed to get plan change details',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    console.error("❌ Stripe subscription error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Subscription failed",
     });
   }
 };
 
 
-// export const cancelSubscription = async (req, res) => {
-//   try {
-//     const shopId = req.shop.id;
-//     const { reason, feedback } = req.body;
 
-//     const shop = await Shop.findById(shopId);
-//     if (!shop) return res.status(404).json({ message: "Shop not found" });
-//     if (!shop.stripeSubscriptionId)
-//       return res.status(400).json({ message: "No active Stripe subscription found" });
 
-//     const subscription = await stripe.subscriptions.retrieve(shop.stripeSubscriptionId);
-//     const status = subscription.status;
 
-//     const safeDate = (ts) => (ts ? new Date(ts * 1000) : null);
-
-//     const now = new Date();
-//     const isTrial = status === "trialing";
-
-//     const metadata = {
-//       cancellation_reason: reason || "",
-//       cancellation_feedback: feedback || "",
-//     };
-
-//     if (status === "canceled") {
-//       try {
-//         await stripe.subscriptions.update(shop.stripeSubscriptionId, { metadata });
-//       } catch (err) {
-//         console.warn("Failed to update metadata for canceled subscription:", err.message);
-//       }
-
-//       shop.subscriptionStatus = "cancelled";
-//       shop.cancelRequestedAt = new Date();
-//       shop.cancelAt = new Date();
-//       shop.cancellationReason = reason || null;
-//       shop.cancellationFeedback = feedback || null;
-
-//       if (shop.currentSubscription) {
-//         shop.currentSubscription.cancelAtPeriodEnd = true;
-//         shop.currentSubscription.status = status;
-//       }
-
-//       await shop.save();
-//       return res.json({
-//         message: "Subscription already cancelled. Metadata updated.",
-//         subscriptionStatus: shop.subscriptionStatus,
-//       });
-//     }
-
-//     if (isTrial) {
-//       const updatedSubscription = await stripe.subscriptions.cancel(shop.stripeSubscriptionId, { invoice_now: false, prorate: false, metadata });
-
-//       shop.subscriptionStatus = "trial_canceled";
-//       shop.cancelRequestedAt = new Date();
-//       shop.cancelAt = safeDate(updatedSubscription.canceled_at) || new Date();
-//       shop.cancellationReason = reason || null;
-//       shop.cancellationFeedback = feedback || null;
-
-//       if (shop.currentSubscription) {
-//         shop.currentSubscription.cancelAtPeriodEnd = updatedSubscription.cancel_at_period_end || true;
-//         shop.currentSubscription.status = updatedSubscription.status;
-//         shop.currentSubscription.currentPeriodEnd = safeDate(updatedSubscription.current_period_end);
-//       }
-
-//       await shop.save();
-//       return res.json({
-//         message: "Trial cancelled successfully.",
-//         subscriptionStatus: shop.subscriptionStatus,
-//         cancelledAt: shop.cancelAt,
-//       });
-//     }
-
-//     // active, past_due, incomplete → cancel at period end
-//     if (["active", "past_due", "incomplete"].includes(status)) {
-//       const updatedSubscription = await stripe.subscriptions.update(shop.stripeSubscriptionId, {
-//         cancel_at_period_end: true,
-//         metadata,
-//       });
-
-//       shop.subscriptionStatus = "cancel_scheduled";
-//       shop.cancelRequestedAt = new Date();
-//       shop.cancelAt = safeDate(updatedSubscription.current_period_end);
-//       shop.cancellationReason = reason || null;
-//       shop.cancellationFeedback = feedback || null;
-
-//       if (shop.currentSubscription) {
-//         shop.currentSubscription.cancelAtPeriodEnd = true;
-//         shop.currentSubscription.currentPeriodEnd = safeDate(updatedSubscription.current_period_end);
-//         shop.currentSubscription.status = updatedSubscription.status;
-//       }
-
-//       await shop.save();
-//       return res.json({
-//         message: "Subscription will cancel at the end of current period.",
-//         cancelAt: shop.cancelAt,
-//         subscriptionStatus: shop.subscriptionStatus,
-//       });
-//     }
-
-//     return res.status(400).json({ message: `Cannot cancel subscription in state: ${status}` });
-//   } catch (error) {
-//     console.error("Cancel subscription error:", error);
-//     return res.status(500).json({ message: "Failed to cancel subscription", error: error.message });
-//   }
-// };
 
 
 
 export const cancelSubscription = async (req, res) => {
   try {
-    const shopId = req.shop.id;
-    const { reason, feedback } = req.body;
+    const shopId = req.shopId;
 
     const shop = await Shop.findById(shopId);
-    if (!shop || !shop.stripeSubscriptionId) {
-      return res.status(404).json({ message: "Shop or subscription not found" });
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+      });
     }
 
-    const subscription = await stripe.subscriptions.retrieve(shop.stripeSubscriptionId);
-    const now = new Date();
-    const trialEnd = shop.currentSubscription?.trialEnd ? new Date(shop.currentSubscription.trialEnd) : null;
-    const isTrial = subscription.status === "trialing" && trialEnd && now < trialEnd;
-
-    const safeDate = (ts) => (ts ? new Date(ts * 1000) : null);
-
-    if (subscription.status === "canceled") {
-      // Already canceled, update metadata only
-      await stripe.subscriptions.update(shop.stripeSubscriptionId, {
-        metadata: { cancellation_reason: reason || "", cancellation_feedback: feedback || "" },
+    if (!shop.stripeSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        message: "No active subscription to cancel",
       });
-      shop.subscriptionStatus = isTrial ? "trial_canceled" : "inactive";
-      shop.cancelAt = now;
-    } else if (isTrial) {
-      // Cancel trial immediately
-      const updatedSubscription = await stripe.subscriptions.cancel(shop.stripeSubscriptionId);
-      shop.subscriptionStatus = "trial_canceled";
-      shop.cancelAt = safeDate(updatedSubscription.canceled_at) || now;
-    } else if (subscription.status === "active") {
-      // Schedule cancel at period end
-      const updatedSubscription = await stripe.subscriptions.update(shop.stripeSubscriptionId, {
+    }
+
+    // Retrieve subscription from Stripe
+    const subscription = await stripe.subscriptions.retrieve(
+      shop.stripeSubscriptionId
+    );
+
+    // Already cancelled
+    if (subscription.cancel_at_period_end) {
+      return res.status(200).json({
+        success: true,
+        message: "Subscription is already scheduled for cancellation",
+      });
+    }
+
+    // Cancel at period end
+    const updatedSubscription = await stripe.subscriptions.update(
+      shop.stripeSubscriptionId,
+      {
         cancel_at_period_end: true,
-        metadata: { cancellation_reason: reason || "", cancellation_feedback: feedback || "" },
-      });
-      shop.subscriptionStatus = "cancel_scheduled"; // optional: or keep as "active" until end of period
-      shop.cancelAt = safeDate(updatedSubscription.current_period_end);
-    }
+      }
+    );
 
-    // Common updates
-    shop.cancelRequestedAt = now;
-    shop.cancellationReason = reason || null;
-    shop.cancellationFeedback = feedback || null;
+    // Sync local state
+    shop.subscriptionStatus = updatedSubscription.status;
 
-    if (shop.currentSubscription) {
-      shop.currentSubscription.cancelAtPeriodEnd = !isTrial && subscription.status === "active";
-      shop.currentSubscription.status = shop.subscriptionStatus;
-      shop.currentSubscription.daysRemaining = trialEnd
-        ? Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)))
-        : 0;
-      shop.currentSubscription.isTrial = isTrial;
-    }
+    shop.currentSubscription = {
+      ...shop.currentSubscription,
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: new Date(
+        updatedSubscription.current_period_end * 1000
+      ),
+    };
 
     await shop.save();
 
-    return res.json({
-      message: `Subscription ${shop.subscriptionStatus}`,
-      subscriptionStatus: shop.subscriptionStatus,
-      cancelledAt: shop.cancelAt || null,
-      daysRemaining: shop.currentSubscription?.daysRemaining || 0,
+    return res.status(200).json({
+      success: true,
+      message: "Subscription will be cancelled at the end of the billing period",
+      cancelAt: new Date(updatedSubscription.current_period_end * 1000),
+      subscriptionStatus: updatedSubscription.status,
     });
   } catch (error) {
     console.error("Cancel subscription error:", error);
-    return res.status(500).json({ message: "Failed to cancel subscription", error: error.message });
-  }
-};
-
-
-
-
-
-
-// Get plan history (currently just current plan info)
-export const getPlanHistory = async (req, res) => {
-  try {
-    const shopId = req.shop.id;
-
-    const shop = await Shop.findById(shopId).select('plan planStartDate trialEndDate');
-
-    if (!shop) {
-      return res.status(404).json({ message: 'Shop not found' });
-    }
-
-    res.status(200).json({
-      currentPlan: shop.plan,
-      planStartDate: shop.planStartDate,
-      trialEndDate: shop.trialEndDate,
-      // Add billing history from separate model if available
-    });
-  } catch (error) {
-    console.error('Error fetching plan history:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-
-
-
-
-
-
-export const getSubscriptionDetails = async (req, res) => {
-  try {
-    const shopId = req.shop.id;
-
-    const shop = await Shop.findById(shopId).select(
-      "businessName email plan subscriptionStatus stripeCustomerId stripeSubscriptionId currentSubscription"
-    );
-
-    if (!shop) {
-      return res.status(404).json({ message: "Shop not found" });
-    }
-
-    const now = new Date();
-    const trialEnd = shop.currentSubscription?.trialEnd ? new Date(shop.currentSubscription.trialEnd) : null;
-    const isTrial = trialEnd && now < trialEnd;
-    const daysRemaining = isTrial ? Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))) : 0;
-
-    const trialDaysOriginal = shop.currentSubscription?.trialDays || 0;
-    const totalExtendedDays = shop.currentSubscription?.trialExtensions?.reduce(
-      (sum, ext) => sum + (ext.extendedDays || 0),
-      0
-    );
-    const totalTrialDays = trialDaysOriginal + (totalExtendedDays || 0);
-
-    return res.json({
-      success: true,
-      shop: {
-        ...shop.toObject(),
-        isTrial,
-        daysRemaining,
-        trialDaysTotal: totalTrialDays,
-        trialExtensions: shop.currentSubscription?.trialExtensions || [],
-      },
-    });
-  } catch (error) {
-    console.error("Get subscription details error:", error);
-    res.status(500).json({
-      message: "Failed to fetch subscription details",
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to cancel subscription",
     });
   }
 };
@@ -2393,96 +2564,134 @@ export const getSubscriptionDetails = async (req, res) => {
 
 
 
-export const reactivateSubscription = async (req, res) => {
-  try {
-    const shopId = req.shop.id;
-    const { paymentMethodId, isNewCard, plan } = req.body;
 
-    const shop = await Shop.findById(shopId);
-    if (!shop || !shop.stripeCustomerId)
-      return res.status(404).json({ message: "Shop not found or Stripe customer missing" });
 
-    const allowedStatuses = ["cancelled", "canceled", "trial_canceled", "inactive"];
 
-    // Only allow reactivation from allowed statuses
-    if (!allowedStatuses.includes(shop.subscriptionStatus)) {
-      return res.status(400).json({
-        message: `Cannot reactivate subscription from status: ${shop.subscriptionStatus}`,
-      });
-    }
 
-    // Attach payment method if provided
-    if (paymentMethodId) {
-      if (isNewCard) {
-        await stripe.paymentMethods.attach(paymentMethodId, { customer: shop.stripeCustomerId });
-      }
-      await stripe.customers.update(shop.stripeCustomerId, {
-        invoice_settings: { default_payment_method: paymentMethodId },
-      });
-    }
 
-    // Determine Stripe price ID
-    const priceId =
-      plan === "professional"
-        ? process.env.STRIPE_PROFESSIONAL_PRICE_ID
-        : process.env.STRIPE_BASIC_PRICE_ID;
 
-    const now = new Date();
-    const trialEnd = shop.currentSubscription?.trialEnd
-      ? new Date(shop.currentSubscription.trialEnd)
-      : null;
 
-    // Determine if we can resume remaining trial
-    const hasRemainingTrial =
-      trialEnd && now < trialEnd && shop.subscriptionStatus === "trial_canceled";
 
-    // Prepare subscription creation parameters
-    const createParams = {
-      customer: shop.stripeCustomerId,
-      items: [{ price: priceId }],
-      expand: ["latest_invoice.payment_intent"],
-    };
 
-    if (hasRemainingTrial) {
-      createParams.trial_end = Math.floor(trialEnd.getTime() / 1000); // resume remaining trial
-      createParams.proration_behavior = "none"; // no proration
-    }
 
-    // Create the subscription in Stripe
-    const subscription = await stripe.subscriptions.create(createParams);
 
-    // Update shop DB from Stripe response
-    await shop.updateSubscriptionFromStripe(subscription);
 
-    // Update subscription status and trial info
-    if (hasRemainingTrial) {
-      shop.subscriptionStatus = "trialing"; // user is still in trial
-      shop.currentSubscription.isTrial = true;
-      shop.currentSubscription.cancelAtPeriodEnd = false;
-      shop.currentSubscription.daysRemaining = Math.max(
-        0,
-        Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24))
-      );
-    } else {
-      shop.subscriptionStatus = "active";
-      shop.currentSubscription.isTrial = false;
-      shop.currentSubscription.daysRemaining = 0;
-      shop.currentSubscription.cancelAtPeriodEnd = false;
-    }
 
-    await shop.save();
+// export const subscribeShop = async (req, res) => {
+//   try {
+//     const { customerId, planId, useExistingCard } = req.body;
+//     const shopId = req.shopId;
 
-    return res.json({
-      success: true,
-      message: hasRemainingTrial
-        ? "Subscription reactivated. Trial resumed."
-        : "Subscription reactivated successfully",
-      subscriptionStatus: shop.subscriptionStatus,
-      isTrial: hasRemainingTrial,
-      daysRemaining: shop.currentSubscription?.daysRemaining || 0,
-    });
-  } catch (error) {
-    console.error("Reactivate subscription error:", error);
-    return res.status(500).json({ message: "Failed to reactivate subscription", error: error.message });
-  }
-};
+//     if (!planId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Plan is required",
+//       });
+//     }
+
+//     const shop = await Shop.findById(shopId);
+//     if (!shop) return res.status(404).json({ success: false, message: "Shop not found" });
+
+//     const plan = await Plan.findById(planId);
+//     if (!plan || !plan.isActive)
+//       return res.status(400).json({ success: false, message: "Invalid plan" });
+
+//     let stripeCustomerId = shop.stripeCustomerId;
+
+//     // 1️⃣ Create Stripe customer if not exists
+//     if (!stripeCustomerId) {
+//       const customer = await stripe.customers.create({
+//         email: shop.email,
+//         name: shop.businessName,
+//       });
+//       stripeCustomerId = customer.id;
+//       shop.stripeCustomerId = stripeCustomerId;
+//     }
+
+//     // 2️⃣ Handle new card if provided
+//     if (!useExistingCard) {
+//       if (!customerId) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Payment method is required for new card",
+//         });
+//       }
+
+//       // Attach new card to Stripe customer
+//       await stripe.paymentMethods.attach(customerId, { customer: stripeCustomerId });
+
+//       // Set as default payment method
+//       await stripe.customers.update(stripeCustomerId, {
+//         invoice_settings: { default_payment_method: customerId },
+//       });
+//     } else {
+//       // Make sure customer has a default payment method
+//       const stripeCustomer = await stripe.customers.retrieve(stripeCustomerId);
+//       if (!stripeCustomer || !stripeCustomer.invoice_settings?.default_payment_method) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "No existing payment method found. Please add a new card.",
+//         });
+//       }
+//     }
+
+//     // 3️⃣ Cancel existing subscription if exists
+//     if (shop.stripeSubscriptionId) {
+//       try {
+//         await stripe.subscriptions.del(shop.stripeSubscriptionId, { invoice_now: false, prorate: false });
+//       } catch (err) {
+//         console.warn("Failed to cancel old subscription:", err.message);
+//       }
+//     }
+
+//     // 4️⃣ Create subscription with default payment method (either new or existing)
+//     const subscription = await stripe.subscriptions.create({
+//       customer: stripeCustomerId,
+//       items: [{ price: plan.stripePriceId }],
+//       trial_period_days: plan.trialDays || undefined,
+//       payment_settings: { save_default_payment_method: "on_subscription" },
+//       expand: ["latest_invoice.payment_intent"],
+//     });
+
+//     // 5️⃣ Safely store subscription info in DB
+//     const safeDate = (timestamp) => (timestamp ? new Date(timestamp * 1000) : null);
+
+//     shop.plan = plan._id;
+//     shop.stripeSubscriptionId = subscription.id;
+//     shop.subscriptionStatus = subscription.status;
+
+//     shop.currentSubscription = {
+//       plan: plan._id,
+//       stripeProductId: plan.stripeProductId,
+//       stripePriceId: plan.stripePriceId,
+//       currentPeriodStart: safeDate(subscription.current_period_start),
+//       currentPeriodEnd: safeDate(subscription.current_period_end),
+//       trialStart: safeDate(subscription.trial_start),
+//       trialEnd: safeDate(subscription.trial_end),
+//       cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+//     };
+
+//     // 6️⃣ Reset bid usage only if period exists
+//     if (shop.currentSubscription.currentPeriodStart && shop.currentSubscription.currentPeriodEnd) {
+//       shop.bidUsage = {
+//         usedThisPeriod: 0,
+//         periodStart: shop.currentSubscription.currentPeriodStart,
+//         periodEnd: shop.currentSubscription.currentPeriodEnd,
+//       };
+//     }
+
+//     await shop.save();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Subscription created successfully",
+//       subscriptionStatus: subscription.status,
+//     });
+//   } catch (error) {
+//     console.error("Stripe subscription error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message || "Subscription failed",
+//     });
+//   }
+// };

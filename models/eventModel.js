@@ -38,6 +38,8 @@ const eventSchema = new mongoose.Schema(
         "offer-accepted",
         "offer-rejected",
         "counter-offer-rejected",
+        'counter-offer-accepted',  // Add this line
+        'counter-offer-rejected',   // You might want this too
 
 
         // System / Notifications

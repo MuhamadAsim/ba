@@ -4,9 +4,7 @@ import express from "express";
 
 const router = express.Router();
 
-// ============================================
-// DEMO VIDEOS ROUTES (Admin)
-// ============================================
+
 
 // Get all demo videos (with optional filters)
 router.get('/demo-videos', videoController.getAllVideos);

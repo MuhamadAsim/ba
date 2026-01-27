@@ -78,7 +78,6 @@ export async function authenticateAdmin(req, res, next) {
       });
     }
 
-    console.log("asdasdsadaspoiunytghvbtrfgvb", req.admin.role, req.originalUrl);
 
     next();
   } catch (err) {
