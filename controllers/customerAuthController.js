@@ -433,6 +433,11 @@ export const forgotPassword = async (req, res) => {
   }
 };
 
+
+
+
+
+
 // ============================================
 // CHANGE PASSWORD (Authenticated Customer)
 // ============================================
@@ -456,7 +461,7 @@ export const changePassword = async (req, res) => {
     }
 
     // Assumes auth middleware sets req.customerId
-    const customerId = req.customerId;
+    const customerId = req.customer._id;
 
     const customer = await Customer.findById(customerId);
     if (!customer) {

@@ -10,6 +10,7 @@ const ALLOWED_MIME_TYPES = [
   "image/png",
   "image/gif",
   "image/webp",
+  "image/avif",
 
   // Documents
   "application/pdf",
@@ -64,7 +65,7 @@ const upload = multer({
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
-    files: 5
+    files: 7
   },
 });
 

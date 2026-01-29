@@ -17,7 +17,8 @@ import videoRoutes from "./routes/videoRoutes.js";
 import adminChatRoutes from "./routes/adminSupportRoutes.js";
 import stripewebhookRoutes from "./routes/stripeWebhookRoutes.js";
 import blogRoutes from "./routes/blogRoutes.js";
-import adminPlans from "./routes/adminPlanRoutes.js"
+import adminPlanRoutes from "./routes/adminPlanRoutes.js";
+import frontendRoutes from "./routes/frontendRoutes.js";
 
 
 
@@ -57,7 +58,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/video", videoRoutes);
 app.use("/api/support", adminChatRoutes);
 app.use("/api/blogs", blogRoutes);
-app.use("/api/plans", adminPlans);
+app.use("/api/plans", adminPlanRoutes);
+app.use("/api/frontend", frontendRoutes);
+
 
 
 

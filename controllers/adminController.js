@@ -2524,6 +2524,9 @@ export const getShopStats = async (req, res) => {
   }
 };
 
+
+
+
 // Get all verified shops with pagination and bid statistics
 export const getAllShops = async (req, res) => {
   try {
@@ -2668,6 +2671,9 @@ export const getAllShops = async (req, res) => {
     });
   }
 };
+
+
+
 
 // Get all shops for map view with location data
 export const getShopsForMap = async (req, res) => {

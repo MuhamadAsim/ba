@@ -28,7 +28,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 
 
-
 /**
  * @route   GET /api/shop/bid-history
  * @desc    Get bid activity history for a shop
@@ -90,18 +89,36 @@ export const getBidHistory = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
-      .populate('customer_id', 'name email phone zip') // Changed from User to Customer
+      .populate('customer_id', 'name email phone zip')
       .populate('bid_id', 'serviceDescription title status vehicleMake vehicleModel zipCode')
-      .populate('offer_id', 'price status')
-      .populate('counter_offer_id', 'counterPrice status')
+      .populate('offer_id', 'price status counterOffers appointmentDate appointmentTime estimatedCompletionDays')
       .lean();
+
+    // Process activities to get counter offer details from offer_id.counterOffers
+    const processedActivities = activities.map(activity => {
+      // If we have a counter_offer_id reference in the activity,
+      // find the specific counter offer from the offer's counterOffers array
+      if (activity.counter_offer_id && activity.offer_id?.counterOffers) {
+        // Find the specific counter offer by matching _id
+        const counterOffer = activity.offer_id.counterOffers.find(
+          co => co._id.toString() === activity.counter_offer_id.toString()
+        );
+        
+        // Add counter offer details to the activity
+        if (counterOffer) {
+          activity.counter_offer_details = counterOffer;
+        }
+      }
+      
+      return activity;
+    });
 
     // Get total count for pagination
     const total = await BidActivity.countDocuments(filter);
     const totalPages = Math.ceil(total / limitNum);
 
     // Format the response data
-    const formattedActivities = activities.map(activity => {
+    const formattedActivities = processedActivities.map(activity => {
       // Format timestamps
       const createdAt = new Date(activity.createdAt);
       const updatedAt = new Date(activity.updatedAt);
@@ -109,31 +126,46 @@ export const getBidHistory = async (req, res) => {
       // Format activity description based on type
       let activityText = '';
       let shortDescription = '';
+      let counterPrice = null;
+      let offerPrice = null;
+
+      // Get price details from various sources
+      if (activity.counter_offer_details) {
+        counterPrice = activity.counter_offer_details.counterPrice;
+      } else if (activity.counter_price) {
+        counterPrice = activity.counter_price;
+      }
+      
+      if (activity.offer_id) {
+        offerPrice = activity.offer_id.price;
+      } else if (activity.price) {
+        offerPrice = activity.price;
+      }
 
       switch (activity.activity_type) {
         case 'offer_made':
-          activityText = `Made an offer of $${activity.price} on bid`;
-          shortDescription = `Offer: $${activity.price}`;
+          activityText = `Made an offer of $${offerPrice} on bid`;
+          shortDescription = `Offer: $${offerPrice}`;
           break;
         case 'offer_accepted':
-          activityText = `Your offer of $${activity.price} was accepted`;
-          shortDescription = `Offer Accepted: $${activity.price}`;
+          activityText = `Your offer of $${offerPrice} was accepted`;
+          shortDescription = `Offer Accepted: $${offerPrice}`;
           break;
         case 'offer_rejected':
-          activityText = `Your offer of $${activity.price} was rejected`;
-          shortDescription = `Offer Rejected: $${activity.price}`;
+          activityText = `Your offer of $${offerPrice} was rejected`;
+          shortDescription = `Offer Rejected: $${offerPrice}`;
           break;
         case 'counter_offer_received':
-          activityText = `Received counter offer of $${activity.counter_price}`;
-          shortDescription = `Counter: $${activity.counter_price}`;
+          activityText = `Received counter offer of $${counterPrice}`;
+          shortDescription = `Counter: $${counterPrice}`;
           break;
         case 'counter_offer_accepted':
-          activityText = `Accepted counter offer of $${activity.counter_price}`;
-          shortDescription = `Accepted Counter: $${activity.counter_price}`;
+          activityText = `Accepted counter offer of $${counterPrice}`;
+          shortDescription = `Accepted Counter: $${counterPrice}`;
           break;
         case 'counter_offer_rejected':
-          activityText = `Rejected counter offer of $${activity.counter_price}`;
-          shortDescription = `Rejected Counter: $${activity.counter_price}`;
+          activityText = `Rejected counter offer of $${counterPrice}`;
+          shortDescription = `Rejected Counter: $${counterPrice}`;
           break;
         case 'bid_completed':
           activityText = 'Marked bid as completed';
@@ -144,12 +176,28 @@ export const getBidHistory = async (req, res) => {
           shortDescription = 'Bid Cancelled';
           break;
         case 'offer_withdrawn':
-          activityText = `Withdrew offer of $${activity.price}`;
-          shortDescription = `Offer Withdrawn: $${activity.price}`;
+          activityText = `Withdrew offer of $${offerPrice}`;
+          shortDescription = `Offer Withdrawn: $${offerPrice}`;
           break;
         case 'counter_offer_withdrawn':
-          activityText = `Counter offer of $${activity.counter_price} was withdrawn`;
-          shortDescription = `Counter Withdrawn: $${activity.counter_price}`;
+          activityText = `Counter offer of $${counterPrice} was withdrawn`;
+          shortDescription = `Counter Withdrawn: $${counterPrice}`;
+          break;
+        case 'appointment_proposed':
+          activityText = 'Proposed appointment time';
+          shortDescription = 'Appointment Proposed';
+          if (activity.offer_id?.appointmentDate) {
+            const date = new Date(activity.offer_id.appointmentDate);
+            activityText += ` for ${date.toLocaleDateString()} ${activity.offer_id.appointmentTime || ''}`;
+          }
+          break;
+        case 'appointment_confirmed':
+          activityText = 'Appointment confirmed';
+          shortDescription = 'Appointment Confirmed';
+          if (activity.offer_id?.appointmentDate) {
+            const date = new Date(activity.offer_id.appointmentDate);
+            activityText += ` for ${date.toLocaleDateString()} ${activity.offer_id.appointmentTime || ''}`;
+          }
           break;
         default:
           activityText = 'Activity recorded';
@@ -167,7 +215,13 @@ export const getBidHistory = async (req, res) => {
         activity.bid_snapshot?.bid_title ||
         'Untitled Bid';
 
-      return {
+      // Get counter offer message if available
+      const counterOfferMessage = activity.counter_offer_details?.message || 
+        activity.message ||
+        activity.metadata?.message;
+
+      // Prepare response
+      const response = {
         id: activity._id,
         activity_type: activity.activity_type,
         activity_text: activityText,
@@ -189,11 +243,16 @@ export const getBidHistory = async (req, res) => {
           status: activity.bid_id?.status || activity.bid_snapshot?.status_at_time
         },
         price_details: {
-          offer_price: activity.price,
-          counter_price: activity.counter_price,
-          final_price: activity.counter_price || activity.price
+          offer_price: offerPrice,
+          counter_price: counterPrice,
+          final_price: counterPrice || offerPrice
         },
-        message: activity.message,
+        appointment_details: activity.offer_id ? {
+          appointment_date: activity.offer_id.appointmentDate,
+          appointment_time: activity.offer_id.appointmentTime,
+          estimated_completion_days: activity.offer_id.estimatedCompletionDays
+        } : null,
+        message: activity.message || counterOfferMessage,
         timestamps: {
           created_at: activity.createdAt,
           created_at_formatted: createdAt.toLocaleDateString('en-US', {
@@ -215,13 +274,28 @@ export const getBidHistory = async (req, res) => {
         metadata: activity.metadata || {},
         references: {
           offer_id: activity.offer_id?._id,
-          counter_offer_id: activity.counter_offer_id?._id,
+          // For counter offers, store both the offer_id and the counter_offer's _id
+          counter_offer_id: activity.counter_offer_id,
+          counter_offer_details: activity.counter_offer_details ? {
+            id: activity.counter_offer_details._id,
+            counterPrice: activity.counter_offer_details.counterPrice,
+            message: activity.counter_offer_details.message,
+            status: activity.counter_offer_details.status,
+            createdBy: activity.counter_offer_details.createdBy
+          } : null,
           bid_id: activity.bid_id?._id
-        },
-        // For frontend display
-        icon: getActivityIcon(activity.activity_type),
-        color_class: getActivityColorClass(activity.activity_type)
+        }
       };
+
+      // Add icon and color class if those functions exist
+      if (typeof getActivityIcon === 'function') {
+        response.icon = getActivityIcon(activity.activity_type);
+      }
+      if (typeof getActivityColorClass === 'function') {
+        response.color_class = getActivityColorClass(activity.activity_type);
+      }
+
+      return response;
     });
 
     // Get activity type statistics
@@ -249,7 +323,7 @@ export const getBidHistory = async (req, res) => {
           has_previous: pageNum > 1
         },
         filters: {
-          activity_types: getActivityTypes(),
+          activity_types: getActivityTypes ? getActivityTypes() : [],
           date_range: {
             start: startDate,
             end: endDate
@@ -271,6 +345,11 @@ export const getBidHistory = async (req, res) => {
     });
   }
 };
+
+
+
+
+
 
 /**
  * @route   GET /api/shop/bid-history/summary
