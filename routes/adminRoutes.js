@@ -30,6 +30,7 @@ import {
   getInProgressBids,
   getBidDetails,
   getBidStats,
+  adminRepostBidWithRadius,
   createShopByAdmin,
   toggleBlockShop,
   sendEmail_To_User,
@@ -172,6 +173,8 @@ router.get("/bids/completed", getCompletedBids);
 router.get("/bids/all", getAllBids);
 router.get("/bids/stats", getBidStats);
 router.get("/bids/:bidId", getBidDetails);
+router.post("/bids/:bidId/repost",adminRepostBidWithRadius );
+
 
 
 

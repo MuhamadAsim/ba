@@ -18,34 +18,7 @@ const eventSchema = new mongoose.Schema(
 
     // ✔️ Type of event
     type: {
-      type: String,
-      enum: [
-        // Auth / Profile
-        "signup",
-        "profile-updated",
-
-        // Bid lifecycle
-        "bid-created",
-        "bid-in-progress",
-        "bid-completed",
-        "bid-expired",
-        "bid-canceled",
-        "bid-reposted",
-
-        // Offer lifecycle
-        "new-offer",
-        "counter-offer",
-        "offer-accepted",
-        "offer-rejected",
-        "counter-offer-rejected",
-        'counter-offer-accepted',  // Add this line
-        'counter-offer-rejected',   // You might want this too
-
-
-        // System / Notifications
-        "system",
-        "info",
-      ],
+      type: String,    
       required: true,
     },
 

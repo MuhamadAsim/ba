@@ -14,6 +14,7 @@ import sgMail from "@sendgrid/mail";
 import Stripe from "stripe";
 import validator from "validator";
 import Plan from "../models/planModel.js"
+import {notifyShopsForBid} from "../utils/notifyShops.js";
 
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -4789,3 +4790,440 @@ export const getCustomerBlockStatus = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const adminRepostBidWithRadius = async (req, res) => {
+  let session = null;
+  try {
+    const { bidId } = req.params;
+    const { radius } = req.body;
+    const adminId = req.admin.id; // Assuming admin is authenticated via req.user
+
+    // Validate radius
+    if (!radius || radius < 1 || radius > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Radius must be between 1 and 100 miles"
+      });
+    }
+
+    // Get the admin details
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found"
+      });
+    }
+
+    // Find the old bid
+    const oldBid = await Bid.findById(bidId);
+    if (!oldBid) return res.status(404).json({
+      success: false,
+      message: "Bid not found"
+    });
+
+    // Get customer details
+    const customer = await Customer.findById(oldBid.user_id);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    // Only allow reposting for active or expired bids
+    if (oldBid.status === 'completed' || oldBid.status === 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot repost bids with status: ${oldBid.status}`,
+        data: {
+          currentStatus: oldBid.status,
+          allowedStatuses: ['active', 'expired']
+        }
+      });
+    }
+
+    // Start transaction
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    // 1. Delete all offers associated with the old bid (optional - you may want to keep them)
+    // Uncomment if you want to clear offers when reposting
+    // await Offer.deleteMany({ bidId: oldBid._id }).session(session);
+
+    // 2. Create event for the repost
+    await Event.create([{
+      customerId: oldBid.user_id,
+      shopId: null,
+      bidId: oldBid._id,
+      type: "admin-bid-reposted",
+      title: "Bid Reposted by Admin",
+      message: `Admin ${admin.name || admin.email} reposted your bid with a ${radius}-mile radius`,
+      metadata: {
+        isAdminRepost: true,
+        adminId: adminId,
+        adminName: admin.name || admin.email,
+        radius: radius,
+        repostedAt: new Date(),
+        previousStatus: oldBid.status,
+        previousRadius: oldBid.radius || null,
+        previousOffersCount: oldBid.offers?.length || 0
+      },
+    }], { session });
+
+    // 3. Update the old bid to mark it as reposted with radius
+    const updateData = {
+      status: 'active',
+      radius: radius,
+      repostedBy: adminId,
+      repostedAt: new Date(),
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      updatedAt: new Date()
+    };
+
+    // If bid was expired, reset expiration
+    if (oldBid.status === 'expired') {
+      updateData.expiredAt = null;
+      updateData.expirationStatus = 'active';
+    }
+
+    await Bid.findByIdAndUpdate(oldBid._id, updateData, { session });
+
+    // 4. Create notification for the customer
+    await Event.create([{
+      user: oldBid.user_id,
+      type: "bid_reposted",
+      title: "Bid Reposted",
+      message: `Your bid has been reposted by admin with a ${radius}-mile radius`,
+      metadata: {
+        bidId: oldBid._id,
+        radius: radius,
+        previousRadius: oldBid.radius || null,
+        repostedBy: admin.name || admin.email,
+        vehicleInfo: `${oldBid.vehicleYear} ${oldBid.vehicleMake} ${oldBid.vehicleModel}`,
+        serviceType: oldBid.requestCategory
+      },
+      read: false
+    }], { session });
+
+    // Commit transaction
+    await session.commitTransaction();
+
+    // Get the updated bid with radius
+    const updatedBid = await Bid.findById(oldBid._id);
+
+    // ------------------------------------
+    // 🚀 NOTIFY SHOPS USING EXISTING FUNCTION
+    // ------------------------------------
+    notifyShopsForBid(updatedBid, customer).catch(error => {
+      console.error("Shop notification with radius failed (non-critical):", error);
+      Event.create({
+        customerId: oldBid.user_id,
+        shopId: null,
+        bidId: oldBid._id,
+        type: "system-error",
+        title: "Shop Notification Failed",
+        message: `Failed to notify shops within ${radius} miles: ${error.message}`,
+        metadata: {
+          bidId: oldBid._id,
+          radius: radius,
+          error: error.message,
+        },
+      }).catch(e => console.error("Failed to log notification error:", e));
+    });
+
+    // 🎯 IMMEDIATE RESPONSE TO ADMIN
+    res.status(200).json({
+      success: true,
+      message: `✅ Bid reposted successfully with ${radius}-mile radius`,
+      data: {
+        bidId: updatedBid._id,
+        status: updatedBid.status,
+        radius: updatedBid.radius,
+        previousRadius: oldBid.radius || null,
+        repostedBy: admin.name || admin.email,
+        repostedAt: updatedBid.repostedAt,
+        dueDate: updatedBid.dueDate,
+        vehicleInfo: `${updatedBid.vehicleYear} ${updatedBid.vehicleMake} ${updatedBid.vehicleModel}`,
+        serviceDescription: updatedBid.serviceDescription,
+        coordinates: {
+          latitude: updatedBid.latitude,
+          longitude: updatedBid.longitude
+        },
+        offersCount: updatedBid.offers?.length || 0,
+        previousStatus: oldBid.status
+      },
+      note: `Shops within ${radius} miles are being notified with plan-based delays.`
+    });
+
+  } catch (err) {
+    // Abort transaction if it exists
+    if (session) {
+      await session.abortTransaction();
+    }
+
+    console.error("❌ Error in admin repost bid with radius:", err);
+
+    // Log error event
+    Event.create({
+      customerId: null,
+      shopId: null,
+      bidId: req.params?.bidId || null,
+      type: "system-error",
+      title: "Admin Bid Repost Failed",
+      message: `Error in admin repost with radius: ${err.message}`,
+      metadata: {
+        error: err.message,
+        bidId: req.params?.bidId,
+        operation: "admin_repost_with_radius",
+        stack: err.stack,
+      },
+    }).catch(e => console.error("Failed to log error event:", e));
+
+    res.status(500).json({
+      success: false,
+      message: "Server error while reposting bid with radius",
+      error: process.env.NODE_ENV === 'development' ? err.message : "Internal server error",
+    });
+  } finally {
+    // End session if it exists
+    if (session) {
+      session.endSession();
+    }
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// export const adminRepostBidWithRadius = async (req, res) => {
+//   let session = null;
+//   try {
+//     const { bidId } = req.params;
+//     const { radius } = req.body;
+//     const adminId = req.admin.id; // Assuming admin is authenticated via req.user
+
+//     // Validate radius
+//     if (!radius || radius < 1 || radius > 100) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Radius must be between 1 and 100 miles"
+//       });
+//     }
+
+//     // Get the admin details
+//     const admin = await Admin.findById(adminId);
+//     if (!admin) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Admin not found"
+//       });
+//     }
+
+//     // Find the old bid
+//     const oldBid = await Bid.findById(bidId);
+//     if (!oldBid) return res.status(404).json({
+//       success: false,
+//       message: "Bid not found"
+//     });
+
+//     // Get customer details
+//     const customer = await Customer.findById(oldBid.user_id);
+//     if (!customer) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Customer not found"
+//       });
+//     }
+
+//     // Only allow reposting for active or expired bids
+//     if (oldBid.status === 'completed' || oldBid.status === 'in_progress') {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Cannot repost bids with status: ${oldBid.status}`,
+//         data: {
+//           currentStatus: oldBid.status,
+//           allowedStatuses: ['active', 'expired']
+//         }
+//       });
+//     }
+
+//     // Start transaction
+//     session = await mongoose.startSession();
+//     session.startTransaction();
+
+//     // 1. Delete all offers associated with the old bid
+//     const deletedOffers = await Offer.deleteMany({ bidId: oldBid._id }).session(session);
+//     console.log(`🗑️ Deleted ${deletedOffers.deletedCount} offers for bid ${oldBid._id}`);
+
+//     // 2. Create event for the repost
+//     await Event.create([{
+//       customerId: oldBid.user_id,
+//       shopId: null,
+//       bidId: oldBid._id,
+//       type: "admin-bid-reposted",
+//       title: "Bid Reposted by Admin",
+//       message: `Admin ${admin.name || admin.email} reposted your bid with a ${radius}-mile radius`,
+//       metadata: {
+//         isAdminRepost: true,
+//         adminId: adminId,
+//         adminName: admin.name || admin.email,
+//         radius: radius,
+//         repostedAt: new Date(),
+//         previousStatus: oldBid.status,
+//         previousRadius: oldBid.radius || null,
+//         previousOffersCount: oldBid.offers?.length || 0,
+//         deletedOffersCount: deletedOffers.deletedCount
+//       },
+//     }], { session });
+
+//     // 3. Update the old bid to mark it as reposted with radius
+//     const updateData = {
+//       status: 'active',
+//       radius: radius,
+//       repostedBy: adminId,
+//       repostedAt: new Date(),
+//       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+//       updatedAt: new Date()
+//     };
+
+//     // If bid was expired, reset expiration
+//     if (oldBid.status === 'expired') {
+//       updateData.expiredAt = null;
+//       updateData.expirationStatus = 'active';
+//     }
+
+//     await Bid.findByIdAndUpdate(oldBid._id, updateData, { session });
+
+//     // 4. Create notification for the customer
+//     await Event.create([{
+//       user: oldBid.user_id,
+//       type: "bid_reposted",
+//       title: "Bid Reposted",
+//       message: `Your bid has been reposted by admin with a ${radius}-mile radius`,
+//       metadata: {
+//         bidId: oldBid._id,
+//         radius: radius,
+//         previousRadius: oldBid.radius || null,
+//         repostedBy: admin.name || admin.email,
+//         vehicleInfo: `${oldBid.vehicleYear} ${oldBid.vehicleMake} ${oldBid.vehicleModel}`,
+//         serviceType: oldBid.requestCategory
+//       },
+//       read: false
+//     }], { session });
+
+//     // Commit transaction
+//     await session.commitTransaction();
+
+//     // Get the updated bid with radius
+//     const updatedBid = await Bid.findById(oldBid._id);
+
+//     // ------------------------------------
+//     // 🚀 NOTIFY SHOPS USING EXISTING FUNCTION
+//     // ------------------------------------
+//     notifyShopsForBid(updatedBid, customer).catch(error => {
+//       console.error("Shop notification with radius failed (non-critical):", error);
+//       Event.create({
+//         customerId: oldBid.user_id,
+//         shopId: null,
+//         bidId: oldBid._id,
+//         type: "system-error",
+//         title: "Shop Notification Failed",
+//         message: `Failed to notify shops within ${radius} miles: ${error.message}`,
+//         metadata: {
+//           bidId: oldBid._id,
+//           radius: radius,
+//           error: error.message,
+//         },
+//       }).catch(e => console.error("Failed to log notification error:", e));
+//     });
+
+//     // 🎯 IMMEDIATE RESPONSE TO ADMIN
+//     res.status(200).json({
+//       success: true,
+//       message: `✅ Bid reposted successfully with ${radius}-mile radius`,
+//       data: {
+//         bidId: updatedBid._id,
+//         status: updatedBid.status,
+//         radius: updatedBid.radius,
+//         previousRadius: oldBid.radius || null,
+//         repostedBy: admin.name || admin.email,
+//         repostedAt: updatedBid.repostedAt,
+//         dueDate: updatedBid.dueDate,
+//         vehicleInfo: `${updatedBid.vehicleYear} ${updatedBid.vehicleMake} ${updatedBid.vehicleModel}`,
+//         serviceDescription: updatedBid.serviceDescription,
+//         coordinates: {
+//           latitude: updatedBid.latitude,
+//           longitude: updatedBid.longitude
+//         },
+//         deletedOffersCount: deletedOffers.deletedCount,
+//         previousStatus: oldBid.status
+//       },
+//       note: `Shops within ${radius} miles are being notified with plan-based delays. ${deletedOffers.deletedCount} previous offer(s) deleted.`
+//     });
+
+//   } catch (err) {
+//     // Abort transaction if it exists
+//     if (session) {
+//       await session.abortTransaction();
+//     }
+
+//     console.error("❌ Error in admin repost bid with radius:", err);
+
+//     // Log error event
+//     Event.create({
+//       customerId: null,
+//       shopId: null,
+//       bidId: req.params?.bidId || null,
+//       type: "system-error",
+//       title: "Admin Bid Repost Failed",
+//       message: `Error in admin repost with radius: ${err.message}`,
+//       metadata: {
+//         error: err.message,
+//         bidId: req.params?.bidId,
+//         operation: "admin_repost_with_radius",
+//         stack: err.stack,
+//       },
+//     }).catch(e => console.error("Failed to log error event:", e));
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while reposting bid with radius",
+//       error: process.env.NODE_ENV === 'development' ? err.message : "Internal server error",
+//     });
+//   } finally {
+//     // End session if it exists
+//     if (session) {
+//       session.endSession();
+//     }
+//   }
+// };

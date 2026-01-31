@@ -56,7 +56,12 @@ export const notifyShopsForBid = async (newBid, customer) => {
       return;
     }
 
-    // ---------------------- 3️⃣ FILTER BY RADIUS (≤15 miles) USING BID LOCATION ----------------------
+    // ---------------------- 3️⃣ FILTER BY RADIUS USING BID LOCATION ----------------------
+    // Use bid's radius if available, otherwise fall back to MAX_RADIUS_MILES
+    const radiusToUse = (newBid.radius && newBid.radius > 0) ? newBid.radius : MAX_RADIUS_MILES;
+    
+    console.log(`🎯 Using radius: ${radiusToUse} miles ${newBid.radius ? '(from bid)' : '(default)'}`);
+
     const nearbyShops = shops.filter((shop) => {
       let shopLat = null;
       let shopLng = null;
@@ -74,7 +79,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       }
 
       const distance = getDistanceMiles(customerLat, customerLng, shopLat, shopLng);
-      const isWithinRadius = distance <= MAX_RADIUS_MILES;
+      const isWithinRadius = distance <= radiusToUse;
 
       return isWithinRadius;
     });
@@ -137,7 +142,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
     </p>
     
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
-      <p>You received this notification because you are within ${MAX_RADIUS_MILES} miles of the bid location.</p>
+      <p>You received this notification because you are within ${radiusToUse} miles of the bid location.</p>
     </div>
   </div>
 `;
@@ -280,6 +285,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
       totalShops: nearbyShops.length,
       notificationsSent: fulfilled,
       notificationsFailed: rejected,
+      radiusUsed: `${radiusToUse} miles`,
       timestamp: new Date().toISOString()
     });
 

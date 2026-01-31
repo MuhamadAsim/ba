@@ -807,6 +807,183 @@ const formatNameInitials = (fullName) => {
 
 
 
+// export const getAvailableBidsForShops = async (req, res) => {
+//   try {
+//     await updateExpiredBids();
+
+//     const shopId = req.shopId;
+
+//     // ---------------------- 1️⃣ GET SHOP ----------------------
+//     const shop = await Shop.findById(shopId).select(
+//       "location latitude longitude subscriptionStatus isBlocked status"
+//     );
+
+//     if (!shop) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Shop not found",
+//       });
+//     }
+
+//     // ---------------------- 2️⃣ CHECK ACCESS ----------------------
+//     const blockedStatuses = [
+//       "inactive",
+//       "canceled",
+//       "incomplete_expired",
+//       "unpaid",
+//       "paused",
+//     ];
+
+//     if (blockedStatuses.includes(shop.subscriptionStatus) || shop.isBlocked) {
+//       return res.status(403).json({
+//         success: false,
+//         message: shop.isBlocked
+//           ? "Your account has been blocked by admin."
+//           : "Your subscription is not active. Please upgrade or renew to access bids.",
+//         bids: [],
+//       });
+//     }
+
+//     // ---------------------- 3️⃣ GET SHOP LOCATION ----------------------
+//     let shopLng = null;
+//     let shopLat = null;
+
+//     if (shop.location?.coordinates?.length === 2) {
+//       shopLng = shop.location.coordinates[0];
+//       shopLat = shop.location.coordinates[1];
+//     } else if (shop.latitude && shop.longitude) {
+//       shopLat = shop.latitude;
+//       shopLng = shop.longitude;
+//     }
+
+//     if (!shopLat || !shopLng) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Shop location not set",
+//       });
+//     }
+
+//     // ---------------------- 4️⃣ FETCH ACTIVE BIDS ----------------------
+//     const activeBids = await Bid.find({
+//       status: "active",
+//       location: {
+//         $nearSphere: {
+//           $geometry: {
+//             type: "Point",
+//             coordinates: [shopLng, shopLat],
+//           },
+//           $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
+//         },
+//       },
+//     })
+//       .populate({
+//         path: "user_id",
+//         select: "name email phone zip address",
+//       })
+//       .sort({ createdAt: -1 });
+
+//     const shopOffers = await Offer.find({ shopId })
+//       .populate("counterOffers.createdBy", "name")
+//       .lean();
+
+//     const offerMap = {};
+//     shopOffers.forEach((offer) => {
+//       offerMap[offer.bidId.toString()] = offer;
+//     });
+
+//     const relatedBids = await Bid.find({
+//       currentShopId: shopId,
+//       status: { $in: ["in_progress", "completed"] },
+//     })
+//       .populate({
+//         path: "user_id",
+//         select: "name email phone zip address",
+//       })
+//       .populate({
+//         path: "acceptedOffer",
+//         select:
+//           "price appointmentDate appointmentTime estimatedCompletionDays workingHours shopId",
+//       })
+//       .sort({ createdAt: -1 });
+
+//     // ---------------------- 5️⃣ MERGE & FORMAT ----------------------
+//     const allBidsMap = {};
+//     [...activeBids, ...relatedBids].forEach((bid) => {
+//       allBidsMap[bid._id.toString()] = bid.toObject();
+//     });
+
+//     const formattedBids = Object.values(allBidsMap).map((bid) => {
+//       const myOffer = offerMap[bid._id.toString()] || null;
+//       const customer = bid.user_id || {};
+
+//       let customerInfo = {};
+//       if (bid.status === "active") {
+//         customerInfo = {
+//           _id: customer._id || customer.id || "",
+//           name: formatNameInitials(customer.name || ""),
+//           zip: customer.zip || "",
+//           address: customer.address || "",
+//         };
+//       } else {
+//         customerInfo = {
+//           _id: customer._id || customer.id || "",
+//           name: customer.name || "",
+//           email: customer.email || "",
+//           phone: customer.phone || "",
+//           zip: customer.zip || "",
+//           address: customer.address || "",
+//         };
+//       }
+
+//       let appointmentData = null;
+//       if (bid.status === "in_progress" || bid.status === "completed") {
+//         if (bid.acceptedOffer) {
+//           appointmentData = {
+//             appointmentDate: bid.acceptedOffer.appointmentDate,
+//             appointmentTime: bid.acceptedOffer.appointmentTime,
+//             estimatedCompletionDays: bid.acceptedOffer.estimatedCompletionDays,
+//             workingHours: bid.acceptedOffer.workingHours,
+//           };
+//         }
+//       }
+
+//       return {
+//         ...bid,
+//         user_id: customerInfo,
+//         hasOffered: !!myOffer,
+//         myOffer,
+//         appointment: appointmentData,
+//         acceptedOffer: bid.acceptedOffer || null,
+//       };
+//     });
+
+//     // ---------------------- 6️⃣ RESPONSE ----------------------
+//     return res.status(200).json({
+//       success: true,
+//       total: formattedBids.length,
+//       radiusMiles: MAX_RADIUS_MILES,
+//       bids: formattedBids,
+//     });
+//   } catch (error) {
+//     console.error("❌ Error fetching bids for shops:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch bids",
+//       bids: [],
+//     });
+//   }
+// };
+
+
+
+
+
+
+
+
+
+
+
 export const getAvailableBidsForShops = async (req, res) => {
   try {
     await updateExpiredBids();
@@ -864,23 +1041,59 @@ export const getAvailableBidsForShops = async (req, res) => {
     }
 
     // ---------------------- 4️⃣ FETCH ACTIVE BIDS ----------------------
-    const activeBids = await Bid.find({
+    // Fetch all active bids first (we'll filter by radius after)
+    const allActiveBids = await Bid.find({
       status: "active",
-      location: {
-        $nearSphere: {
-          $geometry: {
-            type: "Point",
-            coordinates: [shopLng, shopLat],
-          },
-          $maxDistance: MAX_RADIUS_MILES * METERS_PER_MILE,
-        },
-      },
     })
       .populate({
         path: "user_id",
         select: "name email phone zip address",
       })
       .sort({ createdAt: -1 });
+
+    // Helper function to calculate distance (same as in notifyShops)
+    const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
+      const R = 3958.8;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
+
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    // Filter active bids based on their individual radius (or fall back to MAX_RADIUS_MILES)
+    const activeBids = allActiveBids.filter((bid) => {
+      // Get bid's location
+      let bidLat = null;
+      let bidLng = null;
+
+      if (bid.location?.coordinates?.length === 2) {
+        bidLng = bid.location.coordinates[0];
+        bidLat = bid.location.coordinates[1];
+      } else if (bid.latitude && bid.longitude) {
+        bidLat = bid.latitude;
+        bidLng = bid.longitude;
+      }
+
+      // Skip if bid has no location
+      if (!bidLat || !bidLng) {
+        return false;
+      }
+
+      // Use bid's radius if available, otherwise fall back to MAX_RADIUS_MILES
+      const radiusToUse = (bid.radius && bid.radius > 0) ? bid.radius : MAX_RADIUS_MILES;
+
+      // Calculate distance between shop and bid
+      const distance = getDistanceMiles(shopLat, shopLng, bidLat, bidLng);
+
+      // Check if shop is within the bid's radius
+      return distance <= radiusToUse;
+    });
 
     const shopOffers = await Offer.find({ shopId })
       .populate("counterOffers.createdBy", "name")
@@ -973,6 +1186,14 @@ export const getAvailableBidsForShops = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
 
 
 
