@@ -304,5 +304,25 @@ shopSchema.methods.syncStripeSubscription = async function (stripeSub) {
   return this.save();
 };
 
+
+
+// ================= METHODS =================
+
+// Block shop (business-level)
+shopSchema.methods.blockShop = async function (adminId, reason) {
+  this.isBlocked = true;
+  this.blockedAt = new Date();
+  this.blockedReason = reason || "Blocked by admin";
+  this.status = "blocked";
+};
+
+// Unblock shop
+shopSchema.methods.unblockShop = async function () {
+  this.isBlocked = false;
+  this.lastUnblockedAt = new Date();
+  this.blockedReason = null;
+};
+
+
 const Shop = mongoose.model("Shop", shopSchema);
 export default Shop;

@@ -3872,6 +3872,12 @@ function calculateCompletionTime(bid) {
 
 
 
+
+
+
+
+
+
 export const toggleBlockShop = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -3885,6 +3891,7 @@ export const toggleBlockShop = async (req, res) => {
     }
 
     const shop = await Shop.findById(shopId);
+
     if (!shop) {
       return res.status(404).json({
         success: false,
@@ -3892,16 +3899,11 @@ export const toggleBlockShop = async (req, res) => {
       });
     }
 
-    if (!shop.stripeSubscriptionId) {
-      return res.status(400).json({
-        success: false,
-        message: "Shop does not have a Stripe subscription",
-      });
-    }
+    const blockReason = reason || "Violation of platform policies";
 
-    const subscriptionId = shop.stripeSubscriptionId;
-
-    // ================= BLOCK SHOP =================
+    /* =====================================================
+       BLOCK SHOP
+    ===================================================== */
     if (blocked === true) {
       if (shop.isBlocked) {
         return res.status(400).json({
@@ -3910,26 +3912,75 @@ export const toggleBlockShop = async (req, res) => {
         });
       }
 
-      // Pause billing in Stripe (no future charges)
-      await stripe.subscriptions.update(subscriptionId, {
-        pause_collection: {
-          behavior: "void", // cleaner than mark_uncollectible
-        },
-      });
+      // 🟡 TRIALING → NO STRIPE
+      if (shop.subscriptionStatus === "trialing") {
+        await shop.blockShop(req.admin?._id, blockReason);
+        shop.status = "blocked";
+        await shop.save();
+      }
+      // 🟢 ACTIVE → STRIPE + LOCAL
+      else {
+        if (!shop.stripeSubscriptionId) {
+          return res.status(400).json({
+            success: false,
+            message: "Stripe subscription missing for active shop",
+          });
+        }
 
-      // Update local shop state
-      await shop.blockShop(req.admin?._id, reason);
-      shop.subscriptionStatus = "paused";
-      await shop.save();
+        await stripe.subscriptions.update(shop.stripeSubscriptionId, {
+          pause_collection: { behavior: "void" },
+        });
+
+        await shop.blockShop(req.admin?._id, blockReason);
+        shop.status = "blocked";
+        await shop.save();
+      }
+
+      /* ========= SEND BLOCK EMAIL ========= */
+      try {
+        const subject = "🚫 Shop Access Restricted";
+
+        const html = `
+          <div style="font-family: Arial; max-width:600px; margin:auto;">
+            <h2 style="color:#e74c3c;">Shop Blocked</h2>
+
+            <p>Dear <strong>${shop.ownerName || shop.businessName}</strong>,</p>
+
+            <p>Your shop <strong>${shop.businessName}</strong> has been temporarily blocked.</p>
+
+            <div style="background:#f8f9fa; padding:15px; border-left:4px solid #e74c3c;">
+              <p><strong>Reason:</strong> ${blockReason}</p>
+              <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            </div>
+
+            <p>
+              During this period, your shop will not be visible or accessible on the platform.
+            </p>
+
+            <p>
+              If you believe this is a mistake, please contact our support team.
+            </p>
+
+            <p style="margin-top:30px;font-size:12px;color:#888;">
+              This is an automated message. Please do not reply.
+            </p>
+          </div>
+        `;
+
+        await sendEmail(shop.email, subject, html);
+      } catch (emailError) {
+        console.error("❌ Failed to send block email:", emailError);
+      }
 
       return res.status(200).json({
         success: true,
-        message:
-          "Shop blocked successfully. Subscription paused and future charges stopped.",
+        message: "Shop blocked successfully",
       });
     }
 
-    // ================= UNBLOCK SHOP =================
+    /* =====================================================
+       UNBLOCK SHOP
+    ===================================================== */
     if (blocked === false) {
       if (!shop.isBlocked) {
         return res.status(400).json({
@@ -3938,39 +3989,62 @@ export const toggleBlockShop = async (req, res) => {
         });
       }
 
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      // 🟡 TRIALING → NO STRIPE
+      if (shop.subscriptionStatus === "trialing") {
+        await shop.unblockShop();
+        shop.status = "active";
+        await shop.save();
+      }
+      // 🟢 ACTIVE → STRIPE + LOCAL
+      else {
+        if (!shop.stripeSubscriptionId) {
+          return res.status(400).json({
+            success: false,
+            message: "Stripe subscription missing for active shop",
+          });
+        }
 
-      // Resume billing if paused
-      if (subscription.pause_collection) {
-        await stripe.subscriptions.update(subscriptionId, {
+        await stripe.subscriptions.update(shop.stripeSubscriptionId, {
           pause_collection: null,
         });
 
-        const currentPeriodEnd =
-          subscription.current_period_end * 1000;
-
-        // If billing period ended while blocked → start fresh
-        if (Date.now() > currentPeriodEnd) {
-          await stripe.subscriptions.update(subscriptionId, {
-            billing_cycle_anchor: "now",
-            proration_behavior: "none",
-          });
-        }
+        await shop.unblockShop();
+        shop.status = "active";
+        await shop.save();
       }
 
-      // Update local shop state
-      await shop.unblockShop();
-      shop.subscriptionStatus = "active";
-      await shop.save();
+      /* ========= OPTIONAL UNBLOCK EMAIL ========= */
+      try {
+        const subject = "✅ Shop Access Restored";
+
+        const html = `
+          <div style="font-family: Arial; max-width:600px; margin:auto;">
+            <h2 style="color:#27ae60;">Shop Unblocked</h2>
+
+            <p>Dear <strong>${shop.ownerName || shop.businessName}</strong>,</p>
+
+            <p>Your shop <strong>${shop.businessName}</strong> has been restored.</p>
+
+            <p>You can now access the platform and continue using our services.</p>
+
+            <p style="margin-top:30px;font-size:12px;color:#888;">
+              This is an automated message.
+            </p>
+          </div>
+        `;
+
+        await sendEmail(shop.email, subject, html);
+      } catch (emailError) {
+        console.error("❌ Failed to send unblock email:", emailError);
+      }
 
       return res.status(200).json({
         success: true,
-        message:
-          "Shop unblocked successfully. Subscription resumed from unblock date.",
+        message: "Shop unblocked successfully",
       });
     }
   } catch (error) {
-    console.error("❌ Error toggling shop block:", error);
+    console.error("🔥 toggleBlockShop ERROR:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update shop block status",
@@ -4665,19 +4739,10 @@ export const blockCustomer = async (req, res) => {
         await sendEmail(customer.email, subject, html);
       } catch (emailError) {
         console.error('❌ Failed to send unblock notification email:', emailError);
-        // Continue with response
       }
     }
 
-    // Log the action
-    console.log(`Customer ${action}ed:`, {
-      customerId: id,
-      customerEmail: customer.email,
-      action,
-      reason,
-      timestamp: new Date().toISOString(),
-      emailSent: action === 'block' ? 'attempted' : 'none'
-    });
+   
 
     res.status(200).json({
       success: true,
