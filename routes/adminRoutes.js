@@ -121,7 +121,7 @@ router.post(
 router.get("/shops/unverified", getUnverifiedShops);
 router.put("/shops/:shopId/accept", acceptShop);
 router.put("/shops/:shopId/reject", rejectShop);
-router.patch("/shops/:shopId/block", toggleBlockShop);
+router.patch("/shops/:shopId/toggleblock", toggleBlockShop);
 
 
 
@@ -205,8 +205,8 @@ router.put("/admins/:id/toggle-status", superAdminOnly, toggleAdminStatus);
 
 // Verification request actions (with :requestId parameter)
 router.get("/:requestId", getVerificationRequestDetails);
-router.post("/:requestId/approve", approveVerificationRequest);
-router.post("/:requestId/reject", rejectVerificationRequest);
+router.post("/:requestId/approve_request", approveVerificationRequest);
+router.post("/:requestId/reject_request", rejectVerificationRequest);
 
 
 

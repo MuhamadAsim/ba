@@ -92,7 +92,7 @@ export const createAdmin = async (req, res) => {
       email: email.toLowerCase(),
       password,
       role: role || "admin",
-      createdBy: req.admin._id,
+      createdBy: req.admin.id,
       isActive: true,
     });
 

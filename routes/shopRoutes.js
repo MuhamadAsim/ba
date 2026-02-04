@@ -80,7 +80,8 @@ router.put("/profile/:id",
   updateShopProfile
 );
 router.get("/stats", authenticateShop, getShopStats);
-router.put("/update-verified-info", ownerOnly, authenticateShop,
+
+router.put("/update-verified-info", authenticateShop,ownerOnly,
   upload.fields([
     { name: "certificateFiles", maxCount: 5 },
     { name: "insuranceCertificate", maxCount: 1 },

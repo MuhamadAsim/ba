@@ -1405,36 +1405,17 @@ export const getActivityTypes = async (req, res) => {
 
 
 
-
-
-
-
-
-
-// Fetch all unverified shops
+// Fetch shops pending admin approval
 export const getUnverifiedShops = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status = "pending" } = req.query;
+    const { page = 1, limit = 10 } = req.query;
 
     const query = {
+      // Only shops with pending_approval status
+      status: "pending_approval",
+      
+      // Not yet verified by admin
       isVerified: false,
-      status,
-
-      // EXCLUDE dummy placeholder values
-      businessName: { $nin: ["Business Name (Pending)"] },
-      legalEntityName: { $nin: ["Legal Entity (Pending)"] },
-      ownerName: { $nin: ["Owner Name (Pending)"] },
-      address: { $nin: ["Business Address (Pending)"] },
-      country: { $nin: ["US (Pending)"] },
-      phone: { $nin: ["000000000"] },
-      zipCode: { $nin: ["00000"] },
-
-      // File-based fields
-      insuranceCarrier: { $nin: ["Insurance Carrier (Pending)"] },
-      policyNumber: { $nin: ["Policy Number (Pending)"] },
-      insuranceCertificate: { $nin: ["Pending"] },
-      storeFrontPhoto: { $nin: ["Pending"] },
-      workSpacePhoto: { $nin: ["Pending"] },
     };
 
     const shops = await Shop.find(query)
@@ -1448,25 +1429,21 @@ export const getUnverifiedShops = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Unverified shops fetched successfully",
+      message: "Shops pending admin approval fetched successfully",
       data: shops,
       totalPages: Math.ceil(count / limit),
       currentPage: parseInt(page),
       totalShops: count,
     });
   } catch (error) {
-    console.error("Error fetching unverified shops:", error);
+    console.error("Error fetching shops pending approval:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch unverified shops",
+      message: "Failed to fetch shops pending approval",
       error: error.message,
     });
   }
 };
-
-
-
-
 
 // Generate random password
 const generateRandomPassword = () => {
@@ -1869,7 +1846,6 @@ export const acceptShop = async (req, res) => {
       
       ${selectedPlan ? `
       <p><strong>Plan Assigned:</strong> ${selectedPlan.name}</p>
-      <p><strong>Trial Period:</strong> ${trialDays} days (until ${new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toLocaleDateString()})</p>
       <p>During your trial period, you have access to all features of the ${selectedPlan.name} plan.</p>
       ` : `
       <p>No subscription plan has been assigned to your shop yet. Please contact support for plan assignment.</p>
@@ -1910,6 +1886,9 @@ export const acceptShop = async (req, res) => {
 
 
 
+
+
+
 export const rejectShop = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -1930,68 +1909,10 @@ export const rejectShop = async (req, res) => {
       });
     }
 
-    const {
-      email,
-      businessName,
-      stripeSubscriptionId,
-      stripeCustomerId,
-    } = shop;
+    // Store email and business name for email before deletion
+    const { email, businessName } = shop;
 
-    // ================= STRIPE CLEANUP =================
-    // Only cleanup if subscription exists in Stripe
-    if (stripeSubscriptionId) {
-      try {
-        await stripe.subscriptions.cancel(stripeSubscriptionId);
-      } catch (err) {
-        console.warn(
-          "⚠️ Subscription already cancelled or not found:",
-          err.message
-        );
-      }
-    }
-
-    // ⚠️ Delete customer only if they have no other subscriptions
-    if (stripeCustomerId) {
-      try {
-        const customer = await stripe.customers.retrieve(stripeCustomerId);
-        if (customer && !customer.deleted) {
-          // Check if customer has any active subscriptions
-          const subscriptions = await stripe.subscriptions.list({
-            customer: stripeCustomerId,
-            status: 'active',
-            limit: 1
-          });
-          
-          // Only delete customer if they have no active subscriptions
-          if (subscriptions.data.length === 0) {
-            await stripe.customers.del(stripeCustomerId);
-          }
-        }
-      } catch (err) {
-        console.warn(
-          "⚠️ Stripe customer already deleted or missing:",
-          err.message
-        );
-      }
-    }
-
-    // ================= UPDATE SHOP STATUS (SOFT DELETE APPROACH) =================
-    // Instead of deleting, mark as rejected/blocked
-    shop.status = "blocked";
-    shop.isBlocked = true;
-    shop.blockedAt = new Date();
-    shop.blockedReason = reason || "Registration rejected";
-    shop.isVerified = false;
-    
-    // Clear subscription data
-    shop.plan = null;
-    shop.stripeSubscriptionId = null;
-    shop.subscriptionStatus = "inactive";
-    shop.currentSubscription = null;
-    
-    await shop.save();
-
-    // ================= SEND EMAIL =================
+    // ================= SEND REJECTION EMAIL =================
     await sendEmail(
       email,
       "Your Shop Registration Was Rejected",
@@ -2015,15 +1936,18 @@ export const rejectShop = async (req, res) => {
       `
     );
 
+    // ================= COMPLETELY DELETE THE SHOP =================
+    await Shop.findByIdAndDelete(shopId);
+
     return res.status(200).json({
       success: true,
-      message: "Shop rejected successfully",
+      message: "Shop rejected and deleted successfully",
       data: {
-        shopId: shop._id,
-        businessName: shop.businessName,
-        status: shop.status,
-        blockedReason: shop.blockedReason,
-        blockedAt: shop.blockedAt,
+        shopId,
+        businessName,
+        email,
+        deleted: true,
+        deletedAt: new Date()
       },
     });
   } catch (error) {
@@ -3078,7 +3002,7 @@ export const getAllVerificationRequests = async (req, res) => {
 export const approveVerificationRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const adminId = req.admin._id;
+    const adminId = req.admin.id;
     const { adminNotes } = req.body;
 
     const request = await VerificationRequest.findById(requestId);
@@ -3160,7 +3084,7 @@ export const approveVerificationRequest = async (req, res) => {
 export const rejectVerificationRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const adminId = req.admin._id;
+    const adminId = req.admin.id;
     const { rejectionReason, adminNotes } = req.body;
 
     if (!rejectionReason) {
@@ -5292,3 +5216,83 @@ export const adminRepostBidWithRadius = async (req, res) => {
 //     }
 //   }
 // };
+
+
+
+
+
+
+
+
+
+
+
+
+// Controller to delete specific shops by email
+export const deleteSpecificShops = async (req, res) => {
+  try {
+    // List of emails to delete
+    const emailsToDelete = [
+      "muhammadmuneebrana0@gmail.com",
+      "muhammadasim123525@gmail.com"
+    ];
+
+    console.log("Starting deletion of shops with emails:", emailsToDelete);
+
+    // First, find the shops to be deleted
+    const shopsToDelete = await Shop.find({ email: { $in: emailsToDelete } });
+    
+    console.log(`Found ${shopsToDelete.length} shops to delete:`);
+    shopsToDelete.forEach(shop => {
+      console.log(`- ${shop.businessName} (${shop.email}) - ID: ${shop._id}`);
+    });
+
+    if (shopsToDelete.length === 0) {
+      return res.status(404).json({
+        success: true,
+        message: "No shops found with the specified emails",
+        deletedCount: 0
+      });
+    }
+
+    // Delete the shops
+    const deleteResult = await Shop.deleteMany({ email: { $in: emailsToDelete } });
+
+    console.log(`Successfully deleted ${deleteResult.deletedCount} shops`);
+
+    // Optional: Also clean up related data (orders, products, etc.)
+    try {
+      // Delete related orders
+      const shopIds = shopsToDelete.map(shop => shop._id);
+      const orderDeleteResult = await Order.deleteMany({ shopId: { $in: shopIds } });
+      console.log(`Deleted ${orderDeleteResult.deletedCount} related orders`);
+
+      // Delete related products
+      const productDeleteResult = await Product.deleteMany({ shopId: { $in: shopIds } });
+      console.log(`Deleted ${productDeleteResult.deletedCount} related products`);
+    } catch (relatedDataError) {
+      console.warn("Note: Could not delete all related data:", relatedDataError.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully deleted ${deleteResult.deletedCount} shops`,
+      deletedCount: deleteResult.deletedCount,
+      deletedShops: shopsToDelete.map(shop => ({
+        id: shop._id,
+        businessName: shop.businessName,
+        email: shop.email,
+        ownerName: shop.ownerName
+      })),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error("🔥 Error deleting shops:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete shops",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

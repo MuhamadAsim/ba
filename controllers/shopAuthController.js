@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import VerificationRequest from "../models/updateProfileModel.js";
 import Plan from "../models/planModel.js";
+import { notifySuperAdminsNewShop } from "../utils/notifySuperAdmins.js";
 import Stripe from 'stripe';
 import mongoose from 'mongoose'
 
@@ -57,65 +58,49 @@ const sendOtpEmail = async (email, otp) => {
 
 
 
-
-
-
-// ---------------------- SIGNUP (send OTP) ----------------------
 export const registerShop = async (req, res) => {
   try {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
     const { email, password } = req.body;
 
-    if (!email || !password)
-      return res.status(400).json({ message: "Email and password are required" });
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required"
+      });
+    }
 
-    // ✅ Check if email exists in Customer collection
+    // Customer email protection
     const existingCustomer = await Customer.findOne({ email });
     if (existingCustomer) {
       return res.status(400).json({
         status: "customer_exists",
-        message: "This email is already registered as a customer. Please use a different email for shop registration."
+        message: "This email is already registered as a customer."
       });
     }
 
-    // Check if shop already exists
     const existingShop = await Shop.findOne({ email });
 
+    // 🔥 YOUR RULE: delete pending shop and restart
     if (existingShop) {
-      if (existingShop.isEmailVerified) {
+      if (existingShop.status === "pending") {
+        await Shop.deleteOne({ _id: existingShop._id });
+      } else {
         return res.json({
           status: "exists",
-          message: "Account already exists. Please sign in instead."
-        });
-      } else {
-        // Update the registration method if needed
-        if (existingShop.registrationMethod !== "email_password") {
-          existingShop.registrationMethod = "email_password";
-        }
-
-        const otp = generateOtp();
-        existingShop.otp = otp;
-        existingShop.otpExpiry = Date.now() + 10 * 60 * 1000;
-        await existingShop.save();
-        await sendOtpEmail(email, otp);
-
-        return res.json({
-          status: "otp_sent",
-          message: "OTP sent to your email. Please verify your account."
+          message: "Account already exists. Please sign in."
         });
       }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOtp();
+    const now = new Date();
 
-    // Create new shop with minimal required fields
     const newShop = new Shop({
       email,
       password: hashedPassword,
       registrationMethod: "email_password",
 
-      // Required fields with placeholder values
       phone: "000000000",
       ownerPhone: "00000000",
       businessName: "Business Name (Pending)",
@@ -125,60 +110,37 @@ export const registerShop = async (req, res) => {
       country: "US",
       countryCode: "+1",
       zipCode: "00000",
-      
-      // Date fields
-      startDate: new Date(),
-      
-      // Insurance fields (required)
+
+      startDate: now,
+
       insuranceCarrier: "Insurance Carrier (Pending)",
       policyNumber: "Policy Number (Pending)",
-      policyExpiration: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+      policyExpiration: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
       insuranceCertificate: "Pending",
-      
-      // Photo fields (required)
+
       storeFrontPhoto: "Pending",
       workSpacePhoto: "Pending",
-      
-      // Optional fields
-      certificateFiles: [],
+
       services: [],
-      
-      // Location defaults
-      location: {
-        type: "Point",
-        coordinates: [0, 0],
-      },
-      latitude: null,
-      longitude: null,
-      
-      // Subscription fields - all new shops start without a plan (will be selected during registration)
-      plan: null, // Will be set during completeRegistration
-      subscriptionStatus: "inactive", // Will become "trialing" after plan selection
-      stripeCustomerId: null,
-      stripeSubscriptionId: null,
-      currentSubscription: null,
-      
-      // Status fields
+      certificateFiles: [],
+
+      location: { type: "Point", coordinates: [0, 0] },
+
       status: "pending",
       isEmailVerified: false,
       isVerified: false,
-      
-      // OTP for email verification
+
       otp,
-      otpExpiry: Date.now() + 10 * 60 * 1000, // 10 minutes
-      
-      // Policy acceptance
+      otpExpiry: now.getTime() + 10 * 60 * 1000,
+
+      otpAttempts: 1,
+      lastOtpSentAt: now,
+
       acceptedPolicy: false,
     });
 
     await newShop.save();
     await sendOtpEmail(email, otp);
-
-    console.log("✅ New shop registration initiated:", {
-      email,
-      shopId: newShop._id,
-      otpSent: true,
-    });
 
     return res.json({
       status: "otp_sent",
@@ -186,11 +148,10 @@ export const registerShop = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Signup error:", error);
-    res.status(500).json({ 
+    console.error("Signup error:", error);
+    res.status(500).json({
       status: "error",
-      message: "Server error during signup",
-      error: error.message 
+      message: "Server error during signup"
     });
   }
 };
@@ -199,53 +160,65 @@ export const registerShop = async (req, res) => {
 
 
 
-
-
-// ---------------------- VERIFY OTP ----------------------
 export const verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
     const shop = await Shop.findOne({ email });
 
-    if (!shop)
+    if (!shop) {
       return res.status(404).json({
         status: "error",
         message: "Shop not found"
       });
+    }
 
-    if (!shop.otp || !shop.otpExpiry)
+    if (shop.status !== "pending") {
+      return res.status(400).json({
+        status: "invalid",
+        message: "Registration already completed"
+      });
+    }
+
+    if (!shop.otp || !shop.otpExpiry) {
       return res.json({
         status: "invalid",
         message: "No OTP found. Please request a new one."
       });
+    }
 
-    if (shop.otp !== otp)
-      return res.json({
-        status: "invalid",
-        message: "Invalid OTP. Please check and try again."
-      });
-
-    if (shop.otpExpiry < Date.now())
+    if (shop.otpExpiry < Date.now()) {
       return res.json({
         status: "expired",
         message: "OTP expired. Please request a new one."
       });
+    }
 
-    // Verify shop email
+    if (shop.otp !== otp) {
+      return res.json({
+        status: "invalid",
+        message: "Invalid OTP"
+      });
+    }
+
+    // ✅ SUCCESS
     shop.isEmailVerified = true;
     shop.otp = undefined;
     shop.otpExpiry = undefined;
+    shop.otpAttempts = 0;
+    shop.lastOtpSentAt = null;
+
     await shop.save();
 
-    res.json({
+    return res.json({
       status: "verified",
       message: "Email verified successfully"
     });
+
   } catch (error) {
     console.error("OTP verification error:", error);
     res.status(500).json({
       status: "error",
-      message: "Server error during OTP verification"
+      message: "Server error"
     });
   }
 };
@@ -256,55 +229,44 @@ export const verifyOtp = async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ============================================
-// UNIFIED SIGNIN: Shop Owner + Staff/Manager
-// ============================================
 export const signin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
     // ============================
-    // STEP 1: Try to find user in ShopUser (Staff/Manager) first
+    // STEP 1: Staff / Manager
     // ============================
     const shopUser = await ShopUser.findOne({ email }).populate({
-      path: 'shop',
+      path: "shop",
       populate: {
-        path: 'plan', // Populate the plan details
-        model: 'Plan'
-      }
+        path: "plan",
+        model: "Plan",
+      },
     });
-    
+
     if (shopUser) {
-      // This is a staff/manager login
       return await handleStaffLogin(shopUser, password, req, res);
     }
 
     // ============================
-    // STEP 2: If not found in ShopUser, try Shop (Owner)
+    // STEP 2: Shop Owner
     // ============================
-    const shop = await Shop.findOne({ email }).populate('plan');
-    
+    const shop = await Shop.findOne({ email }).populate("plan");
+
+    // 🔥 IMPORTANT FIX (YOUR REQUIREMENT)
+    if (shop && shop.status === "pending") {
+      return res.json({
+        status: "invalid_credentials",
+        message: "Invalid email or password",
+      });
+    }
+
     if (shop) {
-      // This is an owner login
       return await handleOwnerLogin(shop, password, req, res);
     }
 
     // ============================
-    // STEP 3: User not found in either model
+    // STEP 3: Not found anywhere
     // ============================
     return res.json({
       status: "invalid_credentials",
@@ -319,6 +281,7 @@ export const signin = async (req, res) => {
     });
   }
 };
+
 
 // ============================================
 // HANDLE STAFF/MANAGER LOGIN
@@ -397,9 +360,9 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
     );
 
     // NEW: Check if plan allows sub-account creation
-    const canCreateSubAccounts = parentShop.plan && 
-                                 parentShop.plan.features && 
-                                 parentShop.plan.features.subAccounts > 0;
+    const canCreateSubAccounts = parentShop.plan &&
+      parentShop.plan.features &&
+      parentShop.plan.features.subAccounts > 0;
 
     // Get plan display name and price from populated plan
     const planDisplay = parentShop.plan ? parentShop.plan.name : "";
@@ -485,7 +448,7 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
         // Ratings - same fields as owner
         rating: parentShop.rating || 0,
         reviewCount: parentShop.reviewCount || 0,
-        
+
         // Verification - same fields as owner
         isEmailVerified: parentShop.isEmailVerified,
         isVerified: parentShop.isVerified,
@@ -676,9 +639,9 @@ const handleOwnerLogin = async (shop, password, req, res) => {
     const stripePriceId = shop.plan ? shop.plan.stripePriceId : "";
 
     // Check if plan allows sub-account creation
-    const canCreateSubAccounts = shop.plan && 
-                                 shop.plan.features && 
-                                 shop.plan.features.subAccounts > 0;
+    const canCreateSubAccounts = shop.plan &&
+      shop.plan.features &&
+      shop.plan.features.subAccounts > 0;
 
     // Prepare subscription data for frontend
     const subscriptionData = {
@@ -1219,7 +1182,7 @@ export const completeRegistration = async (req, res) => {
     const parsedBusinessHours = safeParse(businessHours, {});
 
     // 4️⃣ Update shop info
-    
+
     shop.businessName = businessName || shop.businessName;
     shop.legalEntityName = legalEntityName || shop.legalEntityName;
     shop.ownerName = ownerName || shop.ownerName;
@@ -1273,23 +1236,23 @@ export const completeRegistration = async (req, res) => {
       // Handle insurance certificate
       if (req.files.insuranceCertificate && req.files.insuranceCertificate[0]) {
         shop.insuranceCertificate = req.files.insuranceCertificate[0].path;
-      } 
+      }
       // Handle store front photo
       if (req.files.storeFrontPhoto && req.files.storeFrontPhoto[0]) {
         shop.storeFrontPhoto = req.files.storeFrontPhoto[0].path;
-      } 
+      }
 
       // Handle workspace photo
       if (req.files.workSpacePhoto && req.files.workSpacePhoto[0]) {
         shop.workSpacePhoto = req.files.workSpacePhoto[0].path;
-      } 
+      }
 
       // Handle certificate files
       if (req.files.certificateFiles && req.files.certificateFiles.length > 0) {
         shop.certificateFiles = req.files.certificateFiles.map(file => file.path);
-      } 
-    } 
- 
+      }
+    }
+
     // 5️⃣ Assign plan
     shop.plan = selectedPlan._id;
 
@@ -1319,16 +1282,16 @@ export const completeRegistration = async (req, res) => {
       periodEnd: trialEnd,
     };
 
-    
-    shop.status = "pending";
+    shop.status = "pending_approval";
     shop.isVerified = false;
     shop.acceptedPolicy = acceptPolicy ?? shop.acceptedPolicy;
     shop.policyAcceptedAt = new Date();
-   
+
     // Save the shop
     await shop.save();
-    
-   
+    await notifySuperAdminsNewShop(shop, selectedPlan);
+
+
 
     const daysRemaining = Math.ceil(
       (trialEnd - new Date()) / (1000 * 60 * 60 * 24)
@@ -1790,9 +1753,9 @@ export const googleCallbackPartner = async (req, res) => {
     const stripePriceId = shop.plan ? shop.plan.stripePriceId : "";
 
     // Check if plan allows sub-account creation (same as regular login)
-    const canCreateSubAccounts = shop.plan && 
-                                 shop.plan.features && 
-                                 shop.plan.features.subAccounts > 0;
+    const canCreateSubAccounts = shop.plan &&
+      shop.plan.features &&
+      shop.plan.features.subAccounts > 0;
 
     // =====================================
     // JWT TOKEN - EXACT same structure as handleOwnerLogin
@@ -1877,7 +1840,7 @@ export const googleCallbackPartner = async (req, res) => {
 
       rating: shop.rating || 0,
       reviewCount: shop.reviewCount || 0,
-      
+
       // Verification
       isEmailVerified: shop.isEmailVerified,
       isVerified: shop.isVerified,
@@ -1916,7 +1879,7 @@ export const googleCallbackPartner = async (req, res) => {
 
       // Additional fields
       additionalInfo: shop.additionalInfo || "",
-      
+
       // Google-specific fields (keep these separate from core structure)
       registrationMethod: shop.registrationMethod,
       googleId: shop.googleId,

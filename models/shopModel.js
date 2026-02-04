@@ -198,7 +198,7 @@ const shopSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "active", "suspended", "cancelled", "blocked"],
+      enum: ["pending", "active", "suspended", "cancelled", "blocked","pending_approval"],
       default: "pending",
     },
 
