@@ -118,11 +118,11 @@ router.post(
   superAdminOnly,
   createShopByAdmin
 );
+
 router.get("/shops/unverified", getUnverifiedShops);
 router.put("/shops/:shopId/accept", acceptShop);
 router.put("/shops/:shopId/reject", rejectShop);
 router.patch("/shops/:shopId/toggleblock", toggleBlockShop);
-
 
 
 

@@ -103,13 +103,13 @@ export const getBidHistory = async (req, res) => {
         const counterOffer = activity.offer_id.counterOffers.find(
           co => co._id.toString() === activity.counter_offer_id.toString()
         );
-        
+
         // Add counter offer details to the activity
         if (counterOffer) {
           activity.counter_offer_details = counterOffer;
         }
       }
-      
+
       return activity;
     });
 
@@ -135,7 +135,7 @@ export const getBidHistory = async (req, res) => {
       } else if (activity.counter_price) {
         counterPrice = activity.counter_price;
       }
-      
+
       if (activity.offer_id) {
         offerPrice = activity.offer_id.price;
       } else if (activity.price) {
@@ -216,7 +216,7 @@ export const getBidHistory = async (req, res) => {
         'Untitled Bid';
 
       // Get counter offer message if available
-      const counterOfferMessage = activity.counter_offer_details?.message || 
+      const counterOfferMessage = activity.counter_offer_details?.message ||
         activity.message ||
         activity.metadata?.message;
 
@@ -1168,6 +1168,24 @@ export const getAvailableBidsForShops = async (req, res) => {
         appointment: appointmentData,
         acceptedOffer: bid.acceptedOffer || null,
       };
+    });
+
+
+    // Add this before the response to see what's actually being sent
+    console.log("📤 Sending bid fields example:", {
+      id: formattedBids[0]?._id,
+      fieldsCount: Object.keys(formattedBids[0] || {}).length,
+      allFields: Object.keys(formattedBids[0] || {}),
+      hasVehicleImages: !!formattedBids[0]?.vehicleImages,
+      vehicleImagesCount: formattedBids[0]?.vehicleImages?.length || 0,
+      // Check specific fields
+      exampleFields: {
+        vehicleYear: formattedBids[0]?.vehicleYear,
+        requestCategory: formattedBids[0]?.requestCategory,
+        status: formattedBids[0]?.status,
+        user_id_type: typeof formattedBids[0]?.user_id,
+        user_id_fields: formattedBids[0]?.user_id ? Object.keys(formattedBids[0].user_id) : 'none'
+      }
     });
 
     // ---------------------- 6️⃣ RESPONSE ----------------------
@@ -2280,7 +2298,7 @@ export const getPlanDetails = async (req, res) => {
     if (shop.subscriptionStatus === 'trialing' && shop.currentSubscription?.trialEnd) {
       const trialEnd = new Date(shop.currentSubscription.trialEnd);
       const now = new Date();
-      
+
       if (now < trialEnd) {
         isInTrial = true;
         const diffTime = trialEnd.getTime() - now.getTime();
@@ -2291,7 +2309,7 @@ export const getPlanDetails = async (req, res) => {
     // Check if shop has active subscription (either trialing or active)
     const hasActiveSubscription = ['trialing', 'active'].includes(shop.subscriptionStatus);
 
- 
+
     return res.status(200).json({
       success: true,
       shop: {
@@ -2329,7 +2347,7 @@ export const getPlanDetails = async (req, res) => {
 // Helper function to get plan info
 async function getPlanInfo(shop, stripeSubscription = null) {
   let planData = null;
-  
+
   // Try to get plan from current subscription first
   if (shop.currentSubscription?.plan) {
     const plan = await Plan.findById(shop.currentSubscription.plan);
@@ -2349,7 +2367,7 @@ async function getPlanInfo(shop, stripeSubscription = null) {
       };
     }
   }
-  
+
   // Fall back to shop.plan
   if (!planData && shop.plan) {
     const plan = await Plan.findById(shop.plan);
@@ -2369,7 +2387,7 @@ async function getPlanInfo(shop, stripeSubscription = null) {
       };
     }
   }
-  
+
   // If still no plan, check if trial is active
   if (!planData && shop.isInTrial) {
     planData = {
@@ -2386,7 +2404,7 @@ async function getPlanInfo(shop, stripeSubscription = null) {
       }
     };
   }
-  
+
   // Last resort - free plan
   if (!planData) {
     planData = {
@@ -2403,7 +2421,7 @@ async function getPlanInfo(shop, stripeSubscription = null) {
       }
     };
   }
-  
+
   return planData;
 }
 
@@ -2412,16 +2430,16 @@ function getBillingDetails(shop, stripeSubscription = null) {
   // Prefer Stripe subscription data if available
   if (stripeSubscription) {
     return {
-      currentPeriodStart: stripeSubscription.current_period_start ? 
+      currentPeriodStart: stripeSubscription.current_period_start ?
         new Date(stripeSubscription.current_period_start * 1000).toISOString() : null,
-      currentPeriodEnd: stripeSubscription.current_period_end ? 
+      currentPeriodEnd: stripeSubscription.current_period_end ?
         new Date(stripeSubscription.current_period_end * 1000).toISOString() : null,
       cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end || false,
-      trialEnd: stripeSubscription.trial_end ? 
+      trialEnd: stripeSubscription.trial_end ?
         new Date(stripeSubscription.trial_end * 1000).toISOString() : null
     };
   }
-  
+
   // Fall back to shop's current subscription data
   if (shop.currentSubscription) {
     return {
@@ -2431,7 +2449,7 @@ function getBillingDetails(shop, stripeSubscription = null) {
       trialEnd: shop.currentSubscription.trialEnd?.toISOString() || null
     };
   }
-  
+
   // Return null if no billing info
   return null;
 }
@@ -2452,7 +2470,7 @@ export const getSubscriptionDetails = async (req, res) => {
     // If no Stripe customer ID, return basic info
     if (!shop.stripeCustomerId) {
       const planInfo = await getPlanInfo(shop);
-      
+
       return res.json({
         success: true,
         hasActiveSubscription: shop.hasActiveSubscription,
@@ -2472,16 +2490,16 @@ export const getSubscriptionDetails = async (req, res) => {
     let customer = null;
     let defaultPaymentMethod = null;
     let paymentMethodDetails = null;
-    
+
     try {
       customer = await stripe.customers.retrieve(shop.stripeCustomerId, {
         expand: ['subscriptions', 'invoice_settings.default_payment_method']
       });
-      
+
       // Get payment method details if available
       if (customer.invoice_settings?.default_payment_method) {
         const paymentMethod = customer.invoice_settings.default_payment_method;
-        
+
         if (paymentMethod.type === 'card') {
           defaultPaymentMethod = paymentMethod.id;
           paymentMethodDetails = {
@@ -2502,19 +2520,19 @@ export const getSubscriptionDetails = async (req, res) => {
     // Get active subscription from Stripe or use shop data
     let activeStripeSubscription = null;
     let nextInvoice = null;
-    
+
     if (customer?.subscriptions?.data) {
-      activeStripeSubscription = customer.subscriptions.data.find(sub => 
+      activeStripeSubscription = customer.subscriptions.data.find(sub =>
         ['active', 'trialing', 'past_due'].includes(sub.status)
       );
-      
+
       // Get upcoming invoice for active subscriptions
       if (activeStripeSubscription) {
         try {
           const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
             customer: shop.stripeCustomerId,
           });
-          
+
           nextInvoice = {
             amountDue: upcomingInvoice.amount_due / 100, // Convert from cents
             nextPaymentAttempt: upcomingInvoice.next_payment_attempt ?
@@ -2529,7 +2547,7 @@ export const getSubscriptionDetails = async (req, res) => {
 
     // Get plan info
     const planInfo = await getPlanInfo(shop, activeStripeSubscription);
-    
+
     // Get billing details - prefer Stripe data, fall back to shop data
     const billingDetails = getBillingDetails(shop, activeStripeSubscription);
 
@@ -2587,7 +2605,7 @@ export const getAllPlans = async (req, res) => {
       isActive: true,
       isDeleted: false,
     })
-    .sort({ sortOrder: 1, price: 1, createdAt: -1 });
+      .sort({ sortOrder: 1, price: 1, createdAt: -1 });
 
 
     // Log each plan's critical flags

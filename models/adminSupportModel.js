@@ -1,10 +1,9 @@
-// models/SupportMessage.js
 import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema({
   sender: {
     type: String,
-    enum: ["shop", "admin", "system"], // Add "system" here
+    enum: ["shop", "admin", "system", "customer"],
     required: true,
   },
   message: {
@@ -19,7 +18,7 @@ const messageSchema = new mongoose.Schema({
   }],
   readBy: [{
     type: String,
-    enum: ["shop", "admin", "system"], // Add "system" here
+    enum: ["shop", "admin", "system", "customer"],
   }],
   createdAt: {
     type: Date,
@@ -29,20 +28,41 @@ const messageSchema = new mongoose.Schema({
 
 const supportConversationSchema = new mongoose.Schema(
   {
+    // Support type: 'shop' or 'customer'
+    type: {
+      type: String,
+      enum: ["shop", "customer"],
+      required: true,
+      index: true,
+    },
+    
+    // Shop-specific fields
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shop",
-      required: true,
       index: true,
     },
     shopName: {
       type: String,
-      required: true,
     },
     shopEmail: {
       type: String,
-      required: true,
     },
+    
+    // Customer-specific fields
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      index: true,
+    },
+    customerName: {
+      type: String,
+    },
+    customerEmail: {
+      type: String,
+    },
+    
+    // Common fields
     subject: {
       type: String,
       required: true,
@@ -57,7 +77,7 @@ const supportConversationSchema = new mongoose.Schema(
     },
     lastMessageBy: {
       type: String,
-      enum: ["shop", "admin", "system"], // Add "system" here
+      enum: ["shop", "admin", "system", "customer"],
     },
     lastMessageAt: {
       type: Date,
@@ -84,23 +104,38 @@ const supportConversationSchema = new mongoose.Schema(
 
 // Indexes for faster queries
 supportConversationSchema.index({ createdAt: -1 });
-supportConversationSchema.index({ status: 1, lastMessageAt: -1 });
+supportConversationSchema.index({ type: 1, status: 1, lastMessageAt: -1 });
 supportConversationSchema.index({ shopId: 1, lastMessageAt: -1 });
+supportConversationSchema.index({ customerId: 1, lastMessageAt: -1 });
 supportConversationSchema.index({ assignedTo: 1, status: 1 });
 supportConversationSchema.index({ "messages.readBy": 1 });
 
-// Virtual for unread count for shop
-supportConversationSchema.virtual("unreadCountForShop").get(function() {
-  return this.messages.filter(
-    msg => msg.sender === "admin" && !msg.readBy.includes("shop")
-  ).length;
+// Virtual for unread count for shop/customer
+supportConversationSchema.virtual("unreadCountForUser").get(function() {
+  if (this.type === "shop") {
+    return this.messages.filter(
+      msg => msg.sender === "admin" && !msg.readBy.includes("shop")
+    ).length;
+  } else if (this.type === "customer") {
+    return this.messages.filter(
+      msg => msg.sender === "admin" && !msg.readBy.includes("customer")
+    ).length;
+  }
+  return 0;
 });
 
 // Virtual for unread count for admin
 supportConversationSchema.virtual("unreadCountForAdmin").get(function() {
-  return this.messages.filter(
-    msg => msg.sender === "shop" && !msg.readBy.includes("admin")
-  ).length;
+  if (this.type === "shop") {
+    return this.messages.filter(
+      msg => msg.sender === "shop" && !msg.readBy.includes("admin")
+    ).length;
+  } else if (this.type === "customer") {
+    return this.messages.filter(
+      msg => msg.sender === "customer" && !msg.readBy.includes("admin")
+    ).length;
+  }
+  return 0;
 });
 
 // Method to add a new message
@@ -118,7 +153,7 @@ supportConversationSchema.methods.addMessage = function(sender, message, attachm
   this.lastMessageBy = sender;
   
   // Update status
-  if (sender === "shop") {
+  if (sender === "shop" || sender === "customer") {
     this.status = "pending_reply";
   } else if (sender === "admin") {
     this.status = "open"; // Keep open when admin replies
@@ -149,6 +184,3 @@ supportConversationSchema.pre("save", function(next) {
 });
 
 export default mongoose.model("SupportConversation", supportConversationSchema);
-
-
-

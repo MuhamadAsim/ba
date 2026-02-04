@@ -7,15 +7,25 @@ import {
   sendShopReply,
   createShopConversation,
   
-  // Admin routes (you need to create these)
+  // Customer routes
+  getCustomerConversations,
+  getCustomerConversationDetails,
+  sendCustomerReply,
+  createCustomerConversation,
+  
+  // Admin routes
   getAdminConversations,
   getAdminConversationDetails,
   sendAdminReply,
   updateConversationStatus,
-  updateConversationAssignment
+  updateConversationAssignment,
+
+
+  submitPartnerApplication
 } from "../controllers/adminSupportController.js";
 import { authenticateShop } from "../middlewares/authShopMiddleware.js";
 import { authenticateAdmin } from "../middlewares/adminAuthMiddleware.js";
+import { authenticateCustomer } from "../middlewares/authCustomerMiddleware.js";
 
 const router = express.Router();
 
@@ -53,11 +63,20 @@ router.get("/shop/conversations/:conversationId", authenticateShop, getConversat
 router.post("/shop/conversations", authenticateShop, uploadAttachments, createShopConversation);
 router.post("/shop/conversations/:conversationId/messages", authenticateShop, uploadAttachments, sendShopReply);
 
+// ==================== CUSTOMER ROUTES ====================
+router.get("/customer/conversations", authenticateCustomer, getCustomerConversations);
+router.get("/customer/conversations/:conversationId", authenticateCustomer, getCustomerConversationDetails);
+router.post("/customer/conversations", authenticateCustomer, uploadAttachments, createCustomerConversation);
+router.post("/customer/conversations/:conversationId/messages", authenticateCustomer, uploadAttachments, sendCustomerReply);
+
 // ==================== ADMIN ROUTES ====================
 router.get("/admin/conversations", authenticateAdmin, getAdminConversations);
 router.get("/admin/conversations/:conversationId", authenticateAdmin, getAdminConversationDetails);
 router.post("/admin/conversations/:conversationId/messages", authenticateAdmin, uploadAttachments, sendAdminReply);
 router.put("/admin/conversations/:conversationId", authenticateAdmin, updateConversationStatus);
 router.put("/admin/conversations/:conversationId/assign", authenticateAdmin, updateConversationAssignment);
+
+router.post("/application" , submitPartnerApplication);
+
 
 export default router;
