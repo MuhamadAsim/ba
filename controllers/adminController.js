@@ -15,6 +15,8 @@ import Stripe from "stripe";
 import validator from "validator";
 import Plan from "../models/planModel.js"
 import {notifyShopsForBid} from "../utils/notifyShops.js";
+import asyncHandler from 'express-async-handler';
+
 
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -356,6 +358,7 @@ export const adminLogin = async (req, res) => {
     // Update last login time
     admin.lastLogin = new Date();
     await admin.save();
+    console.log(otp);
 
     // Send OTP email
     const subject = "Your Admin Login OTP Code";
@@ -5001,6 +5004,206 @@ export const adminRepostBidWithRadius = async (req, res) => {
 
 
 
+// @desc    Cancel a bid (admin only)
+// @route   POST /api/admin/bids/:id/cancel
+// @access  Private/Admin
+export const adminCancelBid = asyncHandler(async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.admin.id; // Authenticated admin user
+    const adminName = req.admin.name || 'Admin'; // Get admin name if available
+
+    if (!reason || reason.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a cancellation reason'
+      });
+    }
+
+    // Find the bid with offers populated
+    const bid = await Bid.findById(id)
+      .populate('offers.shopId', 'businessName email phone')
+      .populate('currentShopId', 'businessName email phone')
+      .populate('acceptedOffer.shopId', 'businessName email phone')
+      .populate('user_id', 'name email'); // Populate customer info
+
+    if (!bid) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bid not found'
+      });
+    }
+
+    // Check if bid can be canceled by admin
+    const canCancelStatuses = ['active', 'in_progress', 'pending', 'expired'];
+    if (!canCancelStatuses.includes(bid.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel bid with status: ${bid.status}`
+      });
+    }
+
+    // Update bid status and cancellation info
+    bid.status = 'canceled';
+    bid.cancelReason = reason.trim();
+    bid.canceledBy = {
+      adminId: adminId,
+      name: adminName,
+      role: 'admin'
+    };
+    bid.canceledAt = new Date();
+
+    // Reject all pending offers (don't delete them)
+    if (bid.offers && bid.offers.length > 0) {
+      bid.offers.forEach(offer => {
+        if (offer.status === 'pending') {
+          offer.status = 'rejected';
+          offer.rejectionReason = `Bid was canceled by admin: ${reason}`;
+          offer.rejectedAt = new Date();
+        }
+      });
+    }
+
+    // Clear accepted offer if exists
+    if (bid.acceptedOffer) {
+      bid.acceptedOffer.status = 'rejected';
+      bid.acceptedOffer.rejectionReason = `Bid was canceled by admin: ${reason}`;
+      bid.acceptedOffer.rejectedAt = new Date();
+    }
+
+    await bid.save();
+
+    // -------------------- CREATE ADMIN EVENT --------------------
+    await Event.create({
+      customerId: bid.user_id, // Original customer who created the bid
+      shopId: null, // This is an admin action, not shop-specific
+      bidId: bid._id,
+      type: 'bid-admin-canceled', // Different type for admin cancellation
+      message: `Admin canceled the bid "${bid.serviceDescription || bid.requestInfo?.serviceDescription}"`,
+      metadata: {
+        bidId: bid._id,
+        adminId: adminId,
+        adminName: adminName,
+        cancelReason: reason,
+        previousStatus: bid.status,
+        affectedOffers: bid.offers?.length || 0
+      }
+    });
+
+    // Get customer email and name
+    const customerEmail = bid.user_id?.email;
+    const customerName = bid.user_id?.name || 'Customer';
+    const bidDescription = bid.serviceDescription || bid.requestInfo?.serviceDescription || 'Your bid';
+    const vehicleInfo = `${bid.vehicleInfo?.vehicleYear || ''} ${bid.vehicleInfo?.vehicleMake || ''} ${bid.vehicleInfo?.vehicleModel || ''}`.trim();
+
+    // -------------------- SEND EMAIL TO CUSTOMER --------------------
+    if (customerEmail) {
+      try {
+        const customerSubject = `Your Bid Has Been Canceled - ${vehicleInfo}`;
+        const customerHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 24px;">Bid Canceled</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Your bid has been canceled by admin</p>
+            </div>
+            
+            <div style="background: white; padding: 30px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <div style="text-align: center; margin-bottom: 30px;">
+                <div style="background-color: #fee2e2; width: 60px; height: 60px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                  <span style="color: #dc2626; font-size: 24px;">✕</span>
+                </div>
+                <h2 style="color: #dc2626; margin: 0 0 10px;">Bid Canceled</h2>
+                <p style="color: #6b7280; margin: 0;">${bidDescription}</p>
+              </div>
+              
+              <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
+                <p style="margin: 0; color: #92400e; font-weight: 600;">
+                  <strong>⚠️ Important:</strong> This bid has been canceled by an administrator.
+                </p>
+              </div>
+              
+              <div style="background-color: #f8fafc; padding: 20px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
+                <h3 style="color: #334155; margin-top: 0; margin-bottom: 15px;">Bid Details</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b; width: 40%;">Vehicle:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${vehicleInfo || 'Not specified'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Service:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${bidDescription}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Cancel Reason:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${reason}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Canceled By:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${adminName} (Admin)</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Cancel Date:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${new Date().toLocaleDateString()}</td>
+                  </tr>
+                </table>
+              </div>
+              
+              <div style="background-color: #f0fdf4; padding: 15px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #10b981;">
+                <p style="margin: 0; color: #065f46;">
+                  <strong>📝 What this means:</strong> All pending offers have been automatically rejected. If you need to request this service again, please create a new bid.
+                </p>
+              </div>
+              
+              <div style="text-align: center; padding: 20px 0; border-top: 1px solid #e2e8f0;">
+                <p style="color: #64748b; margin: 0 0 15px;">Need assistance or have questions?</p>
+                <a href="mailto:support@bidawrap.com" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 500;">Contact Support</a>
+              </div>
+              
+              <div style="text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                <p style="color: #94a3b8; font-size: 12px; margin: 5px 0;">
+                  This is an automated notification from BidaWrap.
+                </p>
+                <p style="color: #94a3b8; font-size: 12px; margin: 5px 0;">
+                  Bid ID: ${bid._id}
+                </p>
+              </div>
+            </div>
+          </div>
+        `;
+
+        await sendEmail(customerEmail, customerSubject, customerHtml);
+        console.log(`Cancel notification email sent to customer: ${customerEmail}`);
+      } catch (emailError) {
+        console.error('Failed to send email to customer:', emailError);
+        // Don't fail the whole operation if email fails
+      }
+    }
+
+   
+
+    res.status(200).json({
+      success: true,
+      message: 'Bid canceled successfully by admin',
+      data: {
+        bidId: bid._id,
+        status: bid.status,
+        cancelReason: bid.cancelReason,
+        canceledAt: bid.canceledAt,
+        emailsSent: {
+          customer: !!customerEmail,
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error canceling bid as admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while canceling bid',
+      error: error.message
+    });
+  }
+});
 
 
 
@@ -5011,6 +5214,252 @@ export const adminRepostBidWithRadius = async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+// Admin: Delete an offer
+export const adminCancelBidOffer = async (req, res) => {
+  const session = await mongoose.startSession();
+  let transactionInProgress = false;
+
+  try {
+    await session.startTransaction();
+    transactionInProgress = true;
+
+    const { bidId, offerId } = req.params;
+    const { reason } = req.body;
+    const adminId = req.admin.id; // Assuming admin is authenticated
+
+    // Validate input
+    if (!reason || !reason.trim()) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Reason for deletion is required",
+      });
+    }
+
+    // Find the bid
+    const bid = await Bid.findById(bidId).session(session);
+    if (!bid) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Bid not found",
+      });
+    }
+
+    // Find the offer
+    const offer = await Offer.findById(offerId).session(session);
+    if (!offer) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    // Verify the offer belongs to the bid
+    if (offer.bidId.toString() !== bidId) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Offer does not belong to this bid",
+      });
+    }
+
+    // Check if this is the accepted offer
+    if (bid.acceptedOffer && bid.acceptedOffer.toString() === offerId) {
+      await session.abortTransaction();
+      await session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete accepted offer. Please cancel the bid first.",
+      });
+    }
+
+    // Create deletion record (optional - for audit trail)
+    const deletionRecord = {
+      deletedAt: new Date(),
+      deletedBy: {
+        type: "admin",
+        adminId: adminId,
+      },
+      deletionReason: reason.trim(),
+      originalOffer: {
+        offerId: offer._id,
+        providerId: offer.providerId,
+        amount: offer.amount,
+        status: offer.status,
+      }
+    };
+
+    // Get shop and bid details for email
+    const shop = await Shop.findById(offer.providerId).session(session);
+    const populatedBid = await Bid.findById(bidId)
+      .populate('user_id', 'name email')
+      .session(session);
+
+    // Delete the offer
+    await Offer.findByIdAndDelete(offerId).session(session);
+
+    // -------------------- CREATE ADMIN EVENT --------------------
+    await Event.create({
+      customerId: populatedBid.user_id?._id,
+      shopId: offer.providerId,
+      bidId: bidId,
+      type: 'offer-admin-canceled',
+      message: `Admin canceled an offer from shop`,
+      metadata: {
+        bidId: bidId,
+        offerId: offerId,
+        adminId: adminId,
+        cancelReason: reason.trim(),
+        offerAmount: offer.amount,
+        shopId: offer.providerId
+      }
+    });
+
+    await session.commitTransaction();
+    transactionInProgress = false;
+    await session.endSession();
+
+    // -------------------- SEND EMAIL TO SHOP --------------------
+    if (shop && shop.email) {
+      try {
+        const adminName = req.admin.name || 'Admin';
+        const vehicleInfo = `${populatedBid.vehicleInfo?.vehicleYear || ''} ${populatedBid.vehicleInfo?.vehicleMake || ''} ${populatedBid.vehicleInfo?.vehicleModel || ''}`.trim();
+        const bidDescription = populatedBid.serviceDescription || populatedBid.requestInfo?.serviceDescription || 'Service request';
+
+        const shopSubject = `Your Offer Has Been Canceled by Admin - ${vehicleInfo}`;
+        const shopHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 24px;">Offer Canceled</h1>
+              <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Your offer has been canceled by admin</p>
+            </div>
+            
+            <div style="background: white; padding: 30px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <div style="text-align: center; margin-bottom: 30px;">
+                <div style="background-color: #fee2e2; width: 60px; height: 60px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                  <span style="color: #dc2626; font-size: 24px;">✕</span>
+                </div>
+                <h2 style="color: #dc2626; margin: 0 0 10px;">Offer Canceled</h2>
+                <p style="color: #6b7280; margin: 0;">${shop.businessName || 'Your Business'}</p>
+              </div>
+              
+              <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
+                <p style="margin: 0; color: #92400e; font-weight: 600;">
+                  <strong>⚠️ Important:</strong> Your offer has been canceled by an administrator.
+                </p>
+              </div>
+              
+              <div style="background-color: #f8fafc; padding: 20px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
+                <h3 style="color: #334155; margin-top: 0; margin-bottom: 15px;">Offer Details</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b; width: 40%;">Vehicle:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${vehicleInfo || 'Not specified'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Service:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${bidDescription}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Your Offer Amount:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">$${offer.amount}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Cancel Reason:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${reason.trim()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Canceled By:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${adminName} (Admin)</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #64748b;">Cancel Date:</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">${new Date().toLocaleDateString()}</td>
+                  </tr>
+                </table>
+              </div>
+              
+              <div style="background-color: #f0fdf4; padding: 15px; border-radius: 6px; margin-bottom: 25px; border-left: 4px solid #10b981;">
+                <p style="margin: 0; color: #065f46;">
+                  <strong>📝 What this means:</strong> Your offer for this bid has been removed. If the bid is still active and you wish to submit a new offer, you can do so through your partner dashboard.
+                </p>
+              </div>
+              
+              <div style="text-align: center; padding: 20px 0; border-top: 1px solid #e2e8f0;">
+                <p style="color: #64748b; margin: 0 0 15px;">Need assistance or have questions?</p>
+                <a href="mailto:support@bidawrap.com" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: 500;">Contact Support</a>
+              </div>
+              
+              <div style="text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                <p style="color: #94a3b8; font-size: 12px; margin: 5px 0;">
+                  This is an automated notification from BidaWrap.
+                </p>
+                <p style="color: #94a3b8; font-size: 12px; margin: 5px 0;">
+                  Bid ID: ${bidId} | Offer ID: ${offerId}
+                </p>
+              </div>
+            </div>
+          </div>
+        `;
+
+        await sendEmail(shop.email, shopSubject, shopHtml);
+        console.log(`Offer cancellation email sent to shop: ${shop.email}`);
+      } catch (emailError) {
+        console.error('Failed to send email to shop:', emailError);
+        // Don't fail the whole operation if email fails
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer deleted successfully",
+      data: {
+        deletion: deletionRecord,
+        emailSent: !!(shop && shop.email)
+      }
+    });
+
+  } catch (error) {
+    // Only abort transaction if it's still in progress
+    if (session && transactionInProgress) {
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.error("Error aborting transaction:", abortError);
+      }
+    }
+    
+    // End session if it exists
+    if (session) {
+      try {
+        await session.endSession();
+      } catch (endSessionError) {
+        console.error("Error ending session:", endSessionError);
+      }
+    }
+    
+    console.error("Error deleting offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete offer",
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
 
 
 

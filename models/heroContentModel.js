@@ -33,6 +33,11 @@ const heroContentSchema = new mongoose.Schema({
   galleryCaption: {
     type: String,
     default: "Featured transformations from our network of professionals"
+  },
+  
+  cardLabel: {
+    type: String,
+    default: "Automotive Restyling & Branding Wraps" // New field added here
   }
 }, {
   timestamps: true

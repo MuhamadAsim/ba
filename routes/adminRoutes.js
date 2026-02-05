@@ -40,6 +40,8 @@ import {
   updateShopByAdmin,
   getShops,
   blockCustomer,
+  adminCancelBid,
+  adminCancelBidOffer,
 } from "../controllers/adminController.js";
 import {
   getAllStories,
@@ -50,7 +52,8 @@ import {
   deactivateStory,
   reorderStories,
   getStoriesOnly,
-  getBillboardsOnly
+  getBillboardsOnly,
+  getAllStoriesAdmin
 } from '../controllers/happyStoryController.js';
 import { getAllAdmins, createAdmin, updateAdmin, toggleAdminStatus } from "../controllers/adminAccountController.js";
 
@@ -73,6 +76,7 @@ router.put("/change-password", authenticateAdmin, changePassword);
 
 // Happy stories (public)
 router.get('/happy-stories', getAllStories);
+router.get('/happy-stories-admin', getAllStoriesAdmin);
 router.get('/happy-stories/:id', getStoryById);
 router.get('/happy-stories/type/stories', getStoriesOnly); 
 router.get('/happy-stories/type/billboards', getBillboardsOnly); 
@@ -174,6 +178,10 @@ router.get("/bids/all", getAllBids);
 router.get("/bids/stats", getBidStats);
 router.get("/bids/:bidId", getBidDetails);
 router.post("/bids/:bidId/repost",adminRepostBidWithRadius );
+router.post("/bids/:id/cancel", adminCancelBid );
+router.post("/bids/:bidId/offers/:offerId/cancel", adminCancelBidOffer );
+
+
 
 
 

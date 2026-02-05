@@ -8,8 +8,6 @@ import JoinNetworkContent from '../models/JoinNetworkContent.js';
 
 
 
-
-
 // Get hero content
 export const getHeroContent = async (req, res) => {
   try {
@@ -27,7 +25,8 @@ export const getHeroContent = async (req, res) => {
         galleryImages: ["", "", "", "", ""],
         ctaText: "Get Your Free Bid",
         badgeText: "Premium Vehicle Transformation",
-        galleryCaption: "Featured transformations from our network of professionals"
+        galleryCaption: "Featured transformations from our network of professionals",
+        cardLabel: "Automotive Restyling & Branding Wraps" // Added default cardLabel
       });
       
       return res.status(200).json({
@@ -54,6 +53,11 @@ export const getHeroContent = async (req, res) => {
       };
     }
     
+    // Ensure cardLabel exists (for backward compatibility)
+    if (!content.cardLabel) {
+      content.cardLabel = "Automotive Restyling & Branding Wraps";
+    }
+    
     res.status(200).json({
       success: true,
       data: content
@@ -67,19 +71,20 @@ export const getHeroContent = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
 // Create hero content
 export const createHeroContent = async (req, res) => {
   try {
     // Delete existing content
     await HeroContent.deleteMany({});
     
-    const newContent = await HeroContent.create(req.body);
+    // Prepare data with cardLabel field
+    const contentData = {
+      ...req.body,
+      // Ensure cardLabel has a default value if not provided
+      cardLabel: req.body.cardLabel || "Automotive Restyling & Branding Wraps"
+    };
+    
+    const newContent = await HeroContent.create(contentData);
     
     res.status(201).json({
       success: true,
@@ -93,13 +98,6 @@ export const createHeroContent = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-
 
 // Update hero content
 export const updateHeroContent = async (req, res) => {
@@ -125,14 +123,20 @@ export const updateHeroContent = async (req, res) => {
       content.galleryImages = Array(5).fill("");
     }
     
+    // Ensure cardLabel exists (for backward compatibility)
+    if (!content.cardLabel) {
+      content.cardLabel = "Automotive Restyling & Branding Wraps";
+    }
+    
     // Update text fields
-    const { heading, paragraph, ctaText, badgeText, galleryCaption } = req.body;
+    const { heading, paragraph, ctaText, badgeText, galleryCaption, cardLabel } = req.body;
     
     if (heading !== undefined) content.heading = heading;
     if (paragraph !== undefined) content.paragraph = paragraph;
     if (ctaText !== undefined) content.ctaText = ctaText;
     if (badgeText !== undefined) content.badgeText = badgeText;
     if (galleryCaption !== undefined) content.galleryCaption = galleryCaption;
+    if (cardLabel !== undefined) content.cardLabel = cardLabel; // Added cardLabel update
     
     // Also allow updating image URLs directly
     if (req.body.cardImages) {
@@ -165,10 +169,6 @@ export const updateHeroContent = async (req, res) => {
     });
   }
 };
-
-
-
-
 
 
 
