@@ -1,5 +1,6 @@
 
 import Shop from "../models/shopModel.js";
+import ShopUser from "../models/shopUserModel.js";
 import dotenv from "dotenv";
 import Bid from "../models/bidModel.js";
 import Offer from "../models/offerModel.js";
@@ -1307,8 +1308,6 @@ const createShopSnapshot = (shop) => {
 
 
 
-
-
 // Make Offer
 export const makeOffer = async (req, res) => {
   try {
@@ -1323,7 +1322,50 @@ export const makeOffer = async (req, res) => {
       workingHours
     } = req.body;
 
-    const shopId = req.user?._id || req.shopId;
+    console.log(req.body);
+
+    let shopId = null;
+    let shopUser = null;
+    
+    // 🔄 Determine shop ID (support both main shop and sub-account)
+    const userId = req.user?._id || req.shopId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required." });
+    }
+
+    // 1️⃣ FIRST: Check if userId exists in Shop model (main account)
+    const shopAccount = await Shop.findById(userId);
+    
+    if (shopAccount) {
+      // ✅ This is a MAIN SHOP account (original flow)
+      shopId = shopAccount._id;
+    } else {
+      // ❌ Not a main shop, check if it's a SUB-ACCOUNT
+      // Make sure ShopUser is imported at the top: import ShopUser from "./models/ShopUser.js"
+      shopUser = await ShopUser.findById(userId);
+      
+      if (!shopUser) {
+        return res.status(404).json({ message: "Account not found." });
+      }
+      
+      if (!shopUser.isActive) {
+        return res.status(403).json({ message: "Your account is deactivated." });
+      }
+      
+      // Check if sub-account has permission to manage bids
+      if (!shopUser.permissions.manageBids) {
+        return res.status(403).json({ 
+          message: "You don't have permission to make offers. Contact your shop admin." 
+        });
+      }
+      
+      // ✅ Get shopId from sub-account's shop reference
+      shopId = shopUser.shop;
+    }
+    
+    console.log("Shop ID:", shopId, "From sub-account:", shopUser ? "Yes" : "No");
+
     const offerMessage = message || note || "";
 
     // 1️⃣ Validate input
@@ -1342,7 +1384,7 @@ export const makeOffer = async (req, res) => {
 
     const customerId = bid.user_id;
 
-    // 3️⃣ Verify shop + subscription + bid limit
+    // 3️⃣ Verify shop + subscription + bid limit (ORIGINAL LOGIC - UNCHANGED)
     const shop = await Shop.findById(shopId).populate("plan");
     if (!shop) {
       return res.status(404).json({ message: "Shop not found or not authorized." });
@@ -1389,6 +1431,11 @@ export const makeOffer = async (req, res) => {
       price,
       message: offerMessage,
       status: "pending",
+      // Only add these fields if it's from a sub-account
+      ...(shopUser && { 
+        createdBy: shopUser._id,
+        createdByType: "shop_user"
+      }),
       ...(appointmentDate && { appointmentDate: new Date(appointmentDate) }),
       ...(appointmentTime && { appointmentTime }),
       ...(estimatedCompletionDays && { estimatedCompletionDays }),
@@ -1404,7 +1451,7 @@ export const makeOffer = async (req, res) => {
     shop.bidUsage.usedThisPeriod += 1;
     await shop.save();
 
-    // 8️⃣ Log activity
+    // 8️⃣ Log activity (ENHANCED to track sub-account)
     try {
       const activityLog = new BidActivity({
         shop_id: shopId,
@@ -1413,6 +1460,8 @@ export const makeOffer = async (req, res) => {
         activity_type: 'offer_made',
         price: price,
         message: offerMessage,
+        // NEW: Track which user made the offer
+        ...(shopUser && { shop_user_id: shopUser._id }),
         bid_snapshot: createBidSnapshot(bid),
         customer_snapshot: createCustomerSnapshot(bid?.user_id),
         shop_snapshot: createShopSnapshot(shop),
@@ -1426,6 +1475,14 @@ export const makeOffer = async (req, res) => {
             estimatedCompletionDays,
             workingHours
           },
+          // NEW: Include user info if from sub-account
+          ...(shopUser && {
+            madeByUser: {
+              userId: shopUser._id,
+              email: shopUser.email,
+              role: shopUser.role
+            }
+          })
         },
         ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
         user_agent: req.headers['user-agent']
@@ -1435,7 +1492,7 @@ export const makeOffer = async (req, res) => {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
     }
 
-    // 9️⃣ Create Event
+    // 9️⃣ Create Event (ENHANCED to track sub-account)
     const event = new Event({
       type: "new-offer",
       bidId,
@@ -1449,12 +1506,20 @@ export const makeOffer = async (req, res) => {
         appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
         appointmentTime,
         estimatedCompletionDays,
-        workingHours
+        workingHours,
+        // NEW: Include user info if from sub-account
+        ...(shopUser && {
+          madeByUser: {
+            userId: shopUser._id,
+            email: shopUser.email,
+            role: shopUser.role
+          }
+        })
       }
     });
     await event.save();
 
-    // 10️⃣ Notify customer
+    // 🔟 Notify customer
     notifyNewOffer(offer, bidId, shopId, price, offerMessage, {
       price,
       hasAppointment: !!(appointmentDate || appointmentTime),
@@ -1471,7 +1536,15 @@ export const makeOffer = async (req, res) => {
         : "Offer submitted successfully.",
       data: {
         ...offer.toObject(),
-        hasAppointment: !!(appointmentDate || appointmentTime)
+        hasAppointment: !!(appointmentDate || appointmentTime),
+        // NEW: Include user info if from sub-account
+        ...(shopUser && {
+          madeByUser: {
+            userId: shopUser._id,
+            email: shopUser.email,
+            role: shopUser.role
+          }
+        })
       },
     });
 
@@ -1484,9 +1557,6 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 
@@ -1819,6 +1889,199 @@ export const getNearbyShops = async (req, res) => {
 
 
 
+// -------------------- REJECT COUNTER OFFER --------------------
+export const rejectCounterOffer = async (req, res) => {
+  try {
+    const { counterId } = req.params;
+    const { bidId } = req.body;
+    
+    let shopId = req.shop?._id || req.user?._id;
+    let shopUser = null;
+    
+    // 🔄 Handle sub-account case
+    if (!shopId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    // Check if this is a sub-account (ShopUser)
+    const possibleShopUser = await ShopUser.findById(shopId);
+    if (possibleShopUser) {
+      // This is a sub-account
+      shopUser = possibleShopUser;
+      
+      if (!shopUser.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is deactivated.",
+        });
+      }
+      
+      // Check if sub-account has permission to manage bids
+      if (!shopUser.permissions.manageBids) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You don't have permission to manage bids. Contact your shop admin." 
+        });
+      }
+      
+      // Use the parent shop ID
+      shopId = shopUser.shop;
+    }
+
+    // ------------------ FIND OFFER ------------------
+    const offer = await Offer.findOne({
+      bidId,
+      shopId,
+      "counterOffers._id": counterId,
+    });
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Counter offer not found or you don't have permission",
+      });
+    }
+
+    const counterOffer = offer.counterOffers.id(counterId);
+
+    if (!counterOffer) {
+      return res.status(404).json({
+        success: false,
+        message: "Counter offer not found",
+      });
+    }
+
+    if (counterOffer.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Counter offer has already been ${counterOffer.status}`,
+      });
+    }
+
+    // ------------------ UPDATE COUNTER OFFER ------------------
+    counterOffer.status = "rejected";
+    counterOffer.respondedAt = new Date();
+    await offer.save();
+
+    // ------------------ GET BID AND CUSTOMER DATA FOR ACTIVITY LOG ------------------
+    const bid = await Bid.findById(bidId).populate('user_id');
+    const customerId = bid?.user_id?._id || bid?.user_id;
+
+    // Get shop details for snapshot
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+      });
+    }
+
+    // ------------------ LOG ACTIVITY TO BidLogsModel ------------------
+    try {
+      const activityLog = new BidActivity({
+        shop_id: shopId,
+        customer_id: customerId,
+        bid_id: bidId,
+        activity_type: 'counter_offer_rejected',
+        price: offer.price, // Original offer price
+        counter_price: counterOffer.counterPrice, // Rejected counter offer price
+        message: counterOffer.message || `Rejected counter offer of ${counterOffer.counterPrice}`,
+        // Track which user rejected the counter offer
+        ...(shopUser && { shop_user_id: shopUser._id }),
+        bid_snapshot: createBidSnapshot(bid),
+        customer_snapshot: createCustomerSnapshot(bid?.user_id),
+        shop_snapshot: createShopSnapshot(shop),
+        offer_id: offer._id,
+        counter_offer_id: counterId,
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'],
+        metadata: {
+          original_price: offer.price,
+          counter_price: counterOffer.counterPrice,
+          rejection_reason: counterOffer.rejectionReason || 'Not specified',
+          responded_at: counterOffer.respondedAt,
+          // Include user info if from sub-account
+          ...(shopUser && {
+            rejectedByUser: {
+              userId: shopUser._id,
+              email: shopUser.email,
+              role: shopUser.role
+            }
+          })
+        }
+      });
+
+      await activityLog.save();
+    } catch (activityError) {
+      console.error("⚠️ Failed to log activity (non-critical):", activityError);
+      // Don't fail the main operation if activity logging fails
+    }
+
+    // ------------------ CREATE EVENT (EXISTING CODE) ------------------
+    await Event.create({
+      userId: offer.userId,           // Who created the original bid
+      shopId: shopId,                 // Shop rejecting the counter offer
+      bidId: bidId,
+      type: "counter-offer-rejected", // New activity type
+      message: `Rejected counter offer of Rs ${counterOffer.counterPrice}`,
+      metadata: {
+        offerId: offer._id,
+        counterOfferId: counterOffer._id,
+        previousPrice: offer.price,
+        counterPrice: counterOffer.counterPrice,
+        // Include user info if from sub-account
+        ...(shopUser && {
+          rejectedByUser: {
+            userId: shopUser._id,
+            email: shopUser.email,
+            role: shopUser.role
+          }
+        })
+      },
+    });
+
+    // ------------------ RESPONSE ------------------
+    res.json({
+      success: true,
+      message: "Counter offer rejected. Your original offer remains active.",
+      offer: {
+        id: offer._id,
+        price: offer.price,
+        status: offer.status,
+        counterOffer: {
+          id: counterOffer._id,
+          status: counterOffer.status,
+          price: counterOffer.counterPrice,
+          respondedAt: counterOffer.respondedAt,
+        },
+      },
+      // Include user info if from sub-account
+      ...(shopUser && {
+        rejectedBy: {
+          userId: shopUser._id,
+          email: shopUser.email,
+          role: shopUser.role
+        }
+      })
+    });
+  } catch (error) {
+    console.error("Error rejecting counter offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reject counter offer",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
 
 
 
@@ -1827,7 +2090,42 @@ export const acceptCounterOffer = async (req, res) => {
   try {
     const { counterId } = req.params;
     const { bidId } = req.body;
-    const shopId = req.shop._id;
+    
+    let shopId = req.shop?._id || req.user?._id;
+    let shopUser = null;
+    
+    // 🔄 Handle sub-account case
+    if (!shopId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    // Check if this is a sub-account (ShopUser)
+    const possibleShopUser = await ShopUser.findById(shopId);
+    if (possibleShopUser) {
+      // This is a sub-account
+      shopUser = possibleShopUser;
+      
+      if (!shopUser.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is deactivated.",
+        });
+      }
+      
+      // Check if sub-account has permission to manage bids
+      if (!shopUser.permissions.manageBids) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You don't have permission to manage bids. Contact your shop admin." 
+        });
+      }
+      
+      // Use the parent shop ID
+      shopId = shopUser.shop;
+    }
 
     // 🔹 Load shop with plan and subscription info
     const shop = await Shop.findById(shopId).populate("plan");
@@ -1950,15 +2248,27 @@ export const acceptCounterOffer = async (req, res) => {
         price: originalPrice,
         counter_price: counterOffer.counterPrice,
         message: counterOffer.message,
+        // Track which user accepted the counter offer
+        ...(shopUser && { shop_user_id: shopUser._id }),
         bid_snapshot: createBidSnapshot(bid),
         customer_snapshot: createCustomerSnapshot(bid?.user_id),
-        shop_snapshot: createShopSnapshot(req.shop),
+        shop_snapshot: createShopSnapshot(shop),
         offer_id: offer._id,
         counter_offer_id: counterId,
+        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'],
         metadata: {
           original_price: originalPrice,
           accepted_price: counterOffer.counterPrice,
           price_difference: counterOffer.counterPrice - originalPrice,
+          // Include user info if from sub-account
+          ...(shopUser && {
+            acceptedByUser: {
+              userId: shopUser._id,
+              email: shopUser.email,
+              role: shopUser.role
+            }
+          })
         },
       });
 
@@ -1979,6 +2289,16 @@ export const acceptCounterOffer = async (req, res) => {
       shopId,
       customerId: bid.user_id,
       message: `Counter offer accepted (${counterOffer.counterPrice})`,
+      metadata: {
+        // Include user info if from sub-account
+        ...(shopUser && {
+          acceptedByUser: {
+            userId: shopUser._id,
+            email: shopUser.email,
+            role: shopUser.role
+          }
+        })
+      }
     });
 
     return res.json({
@@ -1988,6 +2308,14 @@ export const acceptCounterOffer = async (req, res) => {
         used: shop.bidUsage.usedThisPeriod,
         limit: bidsLimit,
       },
+      // Include user info if from sub-account
+      ...(shopUser && {
+        acceptedBy: {
+          userId: shopUser._id,
+          email: shopUser.email,
+          role: shopUser.role
+        }
+      })
     });
   } catch (error) {
     console.error("Error accepting counter offer:", error);
@@ -2003,138 +2331,46 @@ export const acceptCounterOffer = async (req, res) => {
 
 
 
-
-
-
-
-// -------------------- REJECT COUNTER OFFER --------------------
-export const rejectCounterOffer = async (req, res) => {
-  try {
-    const { counterId } = req.params;
-    const { bidId } = req.body;
-    const shopId = req.shop._id; // From auth middleware
-
-    // ------------------ FIND OFFER ------------------
-    const offer = await Offer.findOne({
-      bidId,
-      shopId,
-      "counterOffers._id": counterId,
-    });
-
-    if (!offer) {
-      return res.status(404).json({
-        success: false,
-        message: "Counter offer not found or you don't have permission",
-      });
-    }
-
-    const counterOffer = offer.counterOffers.id(counterId);
-
-    if (!counterOffer) {
-      return res.status(404).json({
-        success: false,
-        message: "Counter offer not found",
-      });
-    }
-
-    if (counterOffer.status !== "pending") {
-      return res.status(400).json({
-        success: false,
-        message: `Counter offer has already been ${counterOffer.status}`,
-      });
-    }
-
-    // ------------------ UPDATE COUNTER OFFER ------------------
-    counterOffer.status = "rejected";
-    counterOffer.respondedAt = new Date();
-    await offer.save();
-
-    // ------------------ GET BID AND CUSTOMER DATA FOR ACTIVITY LOG ------------------
-    const bid = await Bid.findById(bidId).populate('user_id');
-    const customerId = bid?.user_id?._id || bid?.user_id;
-
-    // ------------------ LOG ACTIVITY TO BidLogsModel ------------------
-    try {
-      const activityLog = new BidActivity({
-        shop_id: shopId,
-        customer_id: customerId,
-        bid_id: bidId,
-        activity_type: 'counter_offer_rejected',
-        price: offer.price, // Original offer price
-        counter_price: counterOffer.counterPrice, // Rejected counter offer price
-        message: counterOffer.message || `Rejected counter offer of ${counterOffer.counterPrice}`,
-        bid_snapshot: createBidSnapshot(bid),
-        customer_snapshot: createCustomerSnapshot(bid?.user_id),
-        shop_snapshot: createShopSnapshot(req.shop), // Shop data from auth middleware
-        offer_id: offer._id,
-        counter_offer_id: counterId,
-        ip_address: req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
-        user_agent: req.headers['user-agent'],
-        metadata: {
-          original_price: offer.price,
-          counter_price: counterOffer.counterPrice,
-          rejection_reason: counterOffer.rejectionReason || 'Not specified',
-          responded_at: counterOffer.respondedAt
-        }
-      });
-
-      await activityLog.save();
-    } catch (activityError) {
-      console.error("⚠️ Failed to log activity (non-critical):", activityError);
-      // Don't fail the main operation if activity logging fails
-    }
-
-    // ------------------ CREATE EVENT (EXISTING CODE) ------------------
-    await Activity.create({
-      userId: offer.userId,           // Who created the original bid
-      shopId: shopId,                 // Shop rejecting the counter offer
-      bidId: bidId,
-      type: "counter-offer-rejected", // New activity type
-      message: `Rejected counter offer of Rs ${counterOffer.counterPrice}`,
-      metadata: {
-        offerId: offer._id,
-        counterOfferId: counterOffer._id,
-        previousPrice: offer.price,
-        counterPrice: counterOffer.counterPrice,
-      },
-    });
-
-    // ------------------ RESPONSE ------------------
-    res.json({
-      success: true,
-      message: "Counter offer rejected. Your original offer remains active.",
-      offer: {
-        id: offer._id,
-        price: offer.price,
-        status: offer.status,
-        counterOffer: {
-          id: counterOffer._id,
-          status: counterOffer.status,
-          price: counterOffer.counterPrice,
-          respondedAt: counterOffer.respondedAt,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error rejecting counter offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to reject counter offer",
-      error: error.message,
-    });
-  }
-};
-
-
-
-
-
-
 // -------------------- MARK BID AS COMPLETED --------------------
 export const markBidCompleted = async (req, res) => {
   try {
     const { bidId } = req.params;
-    const shopId = req.shop._id; // From auth middleware
+    
+    let shopId = req.shop?._id || req.user?._id;
+    let shopUser = null;
+    
+    // 🔄 Handle sub-account case
+    if (!shopId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    // Check if this is a sub-account (ShopUser)
+    const possibleShopUser = await ShopUser.findById(shopId);
+    if (possibleShopUser) {
+      // This is a sub-account
+      shopUser = possibleShopUser;
+      
+      if (!shopUser.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is deactivated.",
+        });
+      }
+      
+      // Check if sub-account has permission to manage bids
+      if (!shopUser.permissions.manageBids) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You don't have permission to manage bids. Contact your shop admin." 
+        });
+      }
+      
+      // Use the parent shop ID
+      shopId = shopUser.shop;
+    }
 
     // Find the bid with populated user data
     const bid = await Bid.findById(bidId).populate('user_id');
@@ -2190,6 +2426,8 @@ export const markBidCompleted = async (req, res) => {
         bid_id: bidId,
         activity_type: 'bid_completed',
         price: acceptedOffer.price,
+        // Track which user completed the bid
+        ...(shopUser && { shop_user_id: shopUser._id }),
         bid_snapshot: createBidSnapshot(bid),
         customer_snapshot: createCustomerSnapshot(bid.user_id),
         shop_snapshot: createShopSnapshot(shop),
@@ -2198,7 +2436,15 @@ export const markBidCompleted = async (req, res) => {
         user_agent: req.headers['user-agent'],
         metadata: {
           previous_status: previousStatus,
-          completed_at: bid.completedAt
+          completed_at: bid.completedAt,
+          // Include user info if from sub-account
+          ...(shopUser && {
+            completedByUser: {
+              userId: shopUser._id,
+              email: shopUser.email,
+              role: shopUser.role
+            }
+          })
         }
       });
 
@@ -2222,7 +2468,15 @@ export const markBidCompleted = async (req, res) => {
         bidId: bid._id,
         offerId: acceptedOffer._id,
         price: acceptedOffer.price,
-        completedAt: bid.completedAt
+        completedAt: bid.completedAt,
+        // Include user info if from sub-account
+        ...(shopUser && {
+          completedByUser: {
+            userId: shopUser._id,
+            email: shopUser.email,
+            role: shopUser.role
+          }
+        })
       },
     });
 
@@ -2235,6 +2489,14 @@ export const markBidCompleted = async (req, res) => {
         completedAt: bid.completedAt,
         serviceDescription: bid.serviceDescription
       },
+      // Include user info if from sub-account
+      ...(shopUser && {
+        completedBy: {
+          userId: shopUser._id,
+          email: shopUser.email,
+          role: shopUser.role
+        }
+      })
     });
   } catch (error) {
     console.error("Error marking bid as completed:", error);

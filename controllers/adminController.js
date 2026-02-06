@@ -5221,7 +5221,6 @@ export const adminCancelBid = asyncHandler(async (req, res) => {
 
 
 
-
 // Admin: Delete an offer
 export const adminCancelBidOffer = async (req, res) => {
   const session = await mongoose.startSession();
@@ -5233,12 +5232,18 @@ export const adminCancelBidOffer = async (req, res) => {
 
     const { bidId, offerId } = req.params;
     const { reason } = req.body;
-    const adminId = req.admin.id; // Assuming admin is authenticated
+    const adminId = req.admin.id;
+    const adminName = req.admin.name || 'Admin';
+
+    console.log(`[ADMIN CANCEL OFFER] Starting - Admin: ${adminId} (${adminName})`);
+    console.log(`[ADMIN CANCEL OFFER] Bid ID: ${bidId}, Offer ID: ${offerId}`);
+    console.log(`[ADMIN CANCEL OFFER] Reason: ${reason}`);
 
     // Validate input
     if (!reason || !reason.trim()) {
       await session.abortTransaction();
       await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Validation failed: Reason required`);
       return res.status(400).json({
         success: false,
         message: "Reason for deletion is required",
@@ -5250,27 +5255,45 @@ export const adminCancelBidOffer = async (req, res) => {
     if (!bid) {
       await session.abortTransaction();
       await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Bid not found: ${bidId}`);
       return res.status(404).json({
         success: false,
         message: "Bid not found",
       });
     }
 
-    // Find the offer
-    const offer = await Offer.findById(offerId).session(session);
+    // Find the offer WITH POPULATION
+    const offer = await Offer.findById(offerId)
+      .populate('shopId', 'email businessName') // Fixed: populate shopId, not providerId
+      .session(session);
+      
     if (!offer) {
       await session.abortTransaction();
       await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Offer not found: ${offerId}`);
       return res.status(404).json({
         success: false,
         message: "Offer not found",
       });
     }
 
+    // Debug: Log offer structure
+    console.log(`[ADMIN CANCEL OFFER] Offer structure:`, {
+      _id: offer._id,
+      shopId: offer.shopId,
+      shopIdType: typeof offer.shopId,
+      shopIdIsObject: offer.shopId && typeof offer.shopId === 'object',
+      shopIdEmail: offer.shopId?.email,
+      shopIdBusinessName: offer.shopId?.businessName,
+      price: offer.price,
+      bidId: offer.bidId
+    });
+
     // Verify the offer belongs to the bid
     if (offer.bidId.toString() !== bidId) {
       await session.abortTransaction();
       await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Offer ${offerId} doesn't belong to bid ${bidId}`);
       return res.status(400).json({
         success: false,
         message: "Offer does not belong to this bid",
@@ -5281,41 +5304,93 @@ export const adminCancelBidOffer = async (req, res) => {
     if (bid.acceptedOffer && bid.acceptedOffer.toString() === offerId) {
       await session.abortTransaction();
       await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Cannot delete accepted offer: ${offerId}`);
       return res.status(400).json({
         success: false,
         message: "Cannot delete accepted offer. Please cancel the bid first.",
       });
     }
 
-    // Create deletion record (optional - for audit trail)
+    // Check if shopId exists on offer
+    if (!offer.shopId) {
+      await session.abortTransaction();
+      await session.endSession();
+      console.log(`[ADMIN CANCEL OFFER] Offer has no shopId: ${offerId}`);
+      return res.status(400).json({
+        success: false,
+        message: "Offer has no associated shop",
+      });
+    }
+
+    // Get shop ID - handle both populated and unpopulated cases
+    let shopId = null;
+    let shopEmail = null;
+    let shopName = null;
+    
+    if (offer.shopId) {
+      if (typeof offer.shopId === 'object' && offer.shopId._id) {
+        // Already populated from the query
+        shopId = offer.shopId._id;
+        shopEmail = offer.shopId.email;
+        shopName = offer.shopId.businessName;
+        console.log(`[ADMIN CANCEL OFFER] Shop populated from offer: ${shopName} (${shopEmail})`);
+      } else if (mongoose.Types.ObjectId.isValid(offer.shopId)) {
+        // It's an ObjectId (not populated)
+        shopId = offer.shopId;
+        console.log(`[ADMIN CANCEL OFFER] Shop ID (unpopulated): ${shopId}`);
+      }
+    }
+
+    // Create deletion record
     const deletionRecord = {
       deletedAt: new Date(),
       deletedBy: {
         type: "admin",
         adminId: adminId,
+        adminName: adminName
       },
       deletionReason: reason.trim(),
       originalOffer: {
         offerId: offer._id,
-        providerId: offer.providerId,
-        amount: offer.amount,
+        shopId: shopId,
+        price: offer.price,
         status: offer.status,
       }
     };
 
-    // Get shop and bid details for email
-    const shop = await Shop.findById(offer.providerId).session(session);
+    // Get shop details if not already populated
+    let shop = null;
+    if (shopId && (!shopEmail || !shopName)) {
+      shop = await Shop.findById(shopId).session(session);
+      if (shop) {
+        shopEmail = shop.email;
+        shopName = shop.businessName;
+        console.log(`[ADMIN CANCEL OFFER] Shop fetched from database: ${shopName}, Email: ${shopEmail || 'No email'}`);
+      } else {
+        console.log(`[ADMIN CANCEL OFFER] Shop not found in database for ID: ${shopId}`);
+      }
+    } else if (shopId) {
+      // Already have populated shop info from the offer query
+      shop = {
+        _id: shopId,
+        email: shopEmail,
+        businessName: shopName
+      };
+    }
+
+    // Get bid details for email
     const populatedBid = await Bid.findById(bidId)
       .populate('user_id', 'name email')
       .session(session);
 
     // Delete the offer
     await Offer.findByIdAndDelete(offerId).session(session);
+    console.log(`[ADMIN CANCEL OFFER] Offer deleted from database`);
 
     // -------------------- CREATE ADMIN EVENT --------------------
     await Event.create({
       customerId: populatedBid.user_id?._id,
-      shopId: offer.providerId,
+      shopId: shopId,
       bidId: bidId,
       type: 'offer-admin-canceled',
       message: `Admin canceled an offer from shop`,
@@ -5323,22 +5398,31 @@ export const adminCancelBidOffer = async (req, res) => {
         bidId: bidId,
         offerId: offerId,
         adminId: adminId,
+        adminName: adminName,
         cancelReason: reason.trim(),
-        offerAmount: offer.amount,
-        shopId: offer.providerId
+        offerPrice: offer.price,
+        shopId: shopId,
+        shopName: shopName
       }
     });
+    console.log(`[ADMIN CANCEL OFFER] Event created`);
 
     await session.commitTransaction();
     transactionInProgress = false;
     await session.endSession();
+    console.log(`[ADMIN CANCEL OFFER] Transaction committed successfully`);
 
     // -------------------- SEND EMAIL TO SHOP --------------------
-    if (shop && shop.email) {
+    let emailSent = false;
+    
+    if (shopEmail && shopName) {
       try {
-        const adminName = req.admin.name || 'Admin';
         const vehicleInfo = `${populatedBid.vehicleInfo?.vehicleYear || ''} ${populatedBid.vehicleInfo?.vehicleMake || ''} ${populatedBid.vehicleInfo?.vehicleModel || ''}`.trim();
         const bidDescription = populatedBid.serviceDescription || populatedBid.requestInfo?.serviceDescription || 'Service request';
+
+        console.log(`[ADMIN CANCEL OFFER] Preparing email for shop: ${shopEmail}`);
+        console.log(`[ADMIN CANCEL OFFER] Vehicle: ${vehicleInfo}`);
+        console.log(`[ADMIN CANCEL OFFER] Service: ${bidDescription}`);
 
         const shopSubject = `Your Offer Has Been Canceled by Admin - ${vehicleInfo}`;
         const shopHtml = `
@@ -5354,7 +5438,7 @@ export const adminCancelBidOffer = async (req, res) => {
                   <span style="color: #dc2626; font-size: 24px;">✕</span>
                 </div>
                 <h2 style="color: #dc2626; margin: 0 0 10px;">Offer Canceled</h2>
-                <p style="color: #6b7280; margin: 0;">${shop.businessName || 'Your Business'}</p>
+                <p style="color: #6b7280; margin: 0;">${shopName || 'Your Business'}</p>
               </div>
               
               <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
@@ -5376,7 +5460,7 @@ export const adminCancelBidOffer = async (req, res) => {
                   </tr>
                   <tr>
                     <td style="padding: 8px 0; color: #64748b;">Your Offer Amount:</td>
-                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">$${offer.amount}</td>
+                    <td style="padding: 8px 0; color: #0f172a; font-weight: 500;">$${offer.price || 'N/A'}</td>
                   </tr>
                   <tr>
                     <td style="padding: 8px 0; color: #64748b;">Cancel Reason:</td>
@@ -5416,30 +5500,62 @@ export const adminCancelBidOffer = async (req, res) => {
           </div>
         `;
 
-        await sendEmail(shop.email, shopSubject, shopHtml);
-        console.log(`Offer cancellation email sent to shop: ${shop.email}`);
+        console.log(`[ADMIN CANCEL OFFER] Attempting to send email to: ${shopEmail}`);
+        console.log(`[ADMIN CANCEL OFFER] Email subject: ${shopSubject}`);
+        
+        await sendEmail(shopEmail, shopSubject, shopHtml);
+        emailSent = true;
+        
+        console.log(`[ADMIN CANCEL OFFER] ✅ Email sent successfully to: ${shopEmail}`);
+        
       } catch (emailError) {
-        console.error('Failed to send email to shop:', emailError);
-        // Don't fail the whole operation if email fails
+        console.error('[ADMIN CANCEL OFFER] ❌ Failed to send email to shop:', emailError);
+        console.error('[ADMIN CANCEL OFFER] Email error details:', {
+          to: shopEmail,
+          error: emailError.message,
+          stack: emailError.stack
+        });
       }
+    } else {
+      console.log(`[ADMIN CANCEL OFFER] No email sent - Shop email not available`);
+      console.log(`[ADMIN CANCEL OFFER] Shop info:`, {
+        shopId: shopId,
+        shopEmail: shopEmail,
+        shopName: shopName
+      });
     }
+
+    console.log(`[ADMIN CANCEL OFFER] Operation completed successfully`);
+    console.log(`[ADMIN CANCEL OFFER] Email sent: ${emailSent}`);
 
     res.status(200).json({
       success: true,
       message: "Offer deleted successfully",
       data: {
         deletion: deletionRecord,
-        emailSent: !!(shop && shop.email)
+        emailSent: emailSent,
+        shopEmail: shopEmail,
+        shopName: shopName,
+        shopId: shopId
       }
     });
 
   } catch (error) {
+    console.error(`[ADMIN CANCEL OFFER] ❌ Error in main try block:`, error);
+    console.error(`[ADMIN CANCEL OFFER] Error details:`, {
+      message: error.message,
+      stack: error.stack,
+      bidId: bidId,
+      offerId: offerId
+    });
+    
     // Only abort transaction if it's still in progress
     if (session && transactionInProgress) {
       try {
         await session.abortTransaction();
+        console.log(`[ADMIN CANCEL OFFER] Transaction aborted due to error`);
       } catch (abortError) {
-        console.error("Error aborting transaction:", abortError);
+        console.error("[ADMIN CANCEL OFFER] Error aborting transaction:", abortError);
       }
     }
     
@@ -5447,229 +5563,23 @@ export const adminCancelBidOffer = async (req, res) => {
     if (session) {
       try {
         await session.endSession();
+        console.log(`[ADMIN CANCEL OFFER] Session ended`);
       } catch (endSessionError) {
-        console.error("Error ending session:", endSessionError);
+        console.error("[ADMIN CANCEL OFFER] Error ending session:", endSessionError);
       }
     }
     
-    console.error("Error deleting offer:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete offer",
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      debugInfo: {
+        bidId: bidId,
+        offerId: offerId
+      }
     });
   }
 };
-
-
-
-// export const adminRepostBidWithRadius = async (req, res) => {
-//   let session = null;
-//   try {
-//     const { bidId } = req.params;
-//     const { radius } = req.body;
-//     const adminId = req.admin.id; // Assuming admin is authenticated via req.user
-
-//     // Validate radius
-//     if (!radius || radius < 1 || radius > 100) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Radius must be between 1 and 100 miles"
-//       });
-//     }
-
-//     // Get the admin details
-//     const admin = await Admin.findById(adminId);
-//     if (!admin) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Admin not found"
-//       });
-//     }
-
-//     // Find the old bid
-//     const oldBid = await Bid.findById(bidId);
-//     if (!oldBid) return res.status(404).json({
-//       success: false,
-//       message: "Bid not found"
-//     });
-
-//     // Get customer details
-//     const customer = await Customer.findById(oldBid.user_id);
-//     if (!customer) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Customer not found"
-//       });
-//     }
-
-//     // Only allow reposting for active or expired bids
-//     if (oldBid.status === 'completed' || oldBid.status === 'in_progress') {
-//       return res.status(400).json({
-//         success: false,
-//         message: `Cannot repost bids with status: ${oldBid.status}`,
-//         data: {
-//           currentStatus: oldBid.status,
-//           allowedStatuses: ['active', 'expired']
-//         }
-//       });
-//     }
-
-//     // Start transaction
-//     session = await mongoose.startSession();
-//     session.startTransaction();
-
-//     // 1. Delete all offers associated with the old bid
-//     const deletedOffers = await Offer.deleteMany({ bidId: oldBid._id }).session(session);
-//     console.log(`🗑️ Deleted ${deletedOffers.deletedCount} offers for bid ${oldBid._id}`);
-
-//     // 2. Create event for the repost
-//     await Event.create([{
-//       customerId: oldBid.user_id,
-//       shopId: null,
-//       bidId: oldBid._id,
-//       type: "admin-bid-reposted",
-//       title: "Bid Reposted by Admin",
-//       message: `Admin ${admin.name || admin.email} reposted your bid with a ${radius}-mile radius`,
-//       metadata: {
-//         isAdminRepost: true,
-//         adminId: adminId,
-//         adminName: admin.name || admin.email,
-//         radius: radius,
-//         repostedAt: new Date(),
-//         previousStatus: oldBid.status,
-//         previousRadius: oldBid.radius || null,
-//         previousOffersCount: oldBid.offers?.length || 0,
-//         deletedOffersCount: deletedOffers.deletedCount
-//       },
-//     }], { session });
-
-//     // 3. Update the old bid to mark it as reposted with radius
-//     const updateData = {
-//       status: 'active',
-//       radius: radius,
-//       repostedBy: adminId,
-//       repostedAt: new Date(),
-//       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
-//       updatedAt: new Date()
-//     };
-
-//     // If bid was expired, reset expiration
-//     if (oldBid.status === 'expired') {
-//       updateData.expiredAt = null;
-//       updateData.expirationStatus = 'active';
-//     }
-
-//     await Bid.findByIdAndUpdate(oldBid._id, updateData, { session });
-
-//     // 4. Create notification for the customer
-//     await Event.create([{
-//       user: oldBid.user_id,
-//       type: "bid_reposted",
-//       title: "Bid Reposted",
-//       message: `Your bid has been reposted by admin with a ${radius}-mile radius`,
-//       metadata: {
-//         bidId: oldBid._id,
-//         radius: radius,
-//         previousRadius: oldBid.radius || null,
-//         repostedBy: admin.name || admin.email,
-//         vehicleInfo: `${oldBid.vehicleYear} ${oldBid.vehicleMake} ${oldBid.vehicleModel}`,
-//         serviceType: oldBid.requestCategory
-//       },
-//       read: false
-//     }], { session });
-
-//     // Commit transaction
-//     await session.commitTransaction();
-
-//     // Get the updated bid with radius
-//     const updatedBid = await Bid.findById(oldBid._id);
-
-//     // ------------------------------------
-//     // 🚀 NOTIFY SHOPS USING EXISTING FUNCTION
-//     // ------------------------------------
-//     notifyShopsForBid(updatedBid, customer).catch(error => {
-//       console.error("Shop notification with radius failed (non-critical):", error);
-//       Event.create({
-//         customerId: oldBid.user_id,
-//         shopId: null,
-//         bidId: oldBid._id,
-//         type: "system-error",
-//         title: "Shop Notification Failed",
-//         message: `Failed to notify shops within ${radius} miles: ${error.message}`,
-//         metadata: {
-//           bidId: oldBid._id,
-//           radius: radius,
-//           error: error.message,
-//         },
-//       }).catch(e => console.error("Failed to log notification error:", e));
-//     });
-
-//     // 🎯 IMMEDIATE RESPONSE TO ADMIN
-//     res.status(200).json({
-//       success: true,
-//       message: `✅ Bid reposted successfully with ${radius}-mile radius`,
-//       data: {
-//         bidId: updatedBid._id,
-//         status: updatedBid.status,
-//         radius: updatedBid.radius,
-//         previousRadius: oldBid.radius || null,
-//         repostedBy: admin.name || admin.email,
-//         repostedAt: updatedBid.repostedAt,
-//         dueDate: updatedBid.dueDate,
-//         vehicleInfo: `${updatedBid.vehicleYear} ${updatedBid.vehicleMake} ${updatedBid.vehicleModel}`,
-//         serviceDescription: updatedBid.serviceDescription,
-//         coordinates: {
-//           latitude: updatedBid.latitude,
-//           longitude: updatedBid.longitude
-//         },
-//         deletedOffersCount: deletedOffers.deletedCount,
-//         previousStatus: oldBid.status
-//       },
-//       note: `Shops within ${radius} miles are being notified with plan-based delays. ${deletedOffers.deletedCount} previous offer(s) deleted.`
-//     });
-
-//   } catch (err) {
-//     // Abort transaction if it exists
-//     if (session) {
-//       await session.abortTransaction();
-//     }
-
-//     console.error("❌ Error in admin repost bid with radius:", err);
-
-//     // Log error event
-//     Event.create({
-//       customerId: null,
-//       shopId: null,
-//       bidId: req.params?.bidId || null,
-//       type: "system-error",
-//       title: "Admin Bid Repost Failed",
-//       message: `Error in admin repost with radius: ${err.message}`,
-//       metadata: {
-//         error: err.message,
-//         bidId: req.params?.bidId,
-//         operation: "admin_repost_with_radius",
-//         stack: err.stack,
-//       },
-//     }).catch(e => console.error("Failed to log error event:", e));
-
-//     res.status(500).json({
-//       success: false,
-//       message: "Server error while reposting bid with radius",
-//       error: process.env.NODE_ENV === 'development' ? err.message : "Internal server error",
-//     });
-//   } finally {
-//     // End session if it exists
-//     if (session) {
-//       session.endSession();
-//     }
-//   }
-// };
-
-
-
-
-
 
 
 
