@@ -16,26 +16,26 @@ const bidSchema = new mongoose.Schema(
 
     requestCategory: { type: String, trim: true },
     serviceDescription: { type: String, trim: true },
-    
+
     // Color Wrap & PPF fields
     desiredFinish: { type: String, trim: true },
     hasExistingWrap: { type: String, trim: true },
     wrapCoverage: { type: String, trim: true },
     wrapType: { type: String, trim: true },
     desiredColor: { type: String, trim: true },
-    
+
     // Business Wrap fields
     brandingWrapCoverage: { type: String, trim: true },
     hasDesign: { type: String, trim: true },
     hasLogo: { type: String, trim: true },
     artworkFiles: [{ type: String }],
     exampleFiles: [{ type: String }],
-    
+
     // Window Tinting fields
     hasExistingTint: { type: String, trim: true },
     tintCoverage: { type: String, trim: true },
     tintType: { type: String, trim: true },
-    
+
     // Ceramic Coating fields
     paintFinish: { type: String, trim: true },
     coatingPackage: { type: String, trim: true },
@@ -44,7 +44,7 @@ const bidSchema = new mongoose.Schema(
     coverageGlassTrims: { type: Boolean, default: false },
     coverageWheelsBrakes: { type: Boolean, default: false },
     coatingPhotos: [{ type: String }],
-    
+
     // PPF fields
     ppfCoverage: { type: String, trim: true },
     addCeramicCoating: { type: String, trim: true },
@@ -67,7 +67,7 @@ const bidSchema = new mongoose.Schema(
     latitude: { type: Number },
     longitude: { type: Number },
     country: { type: String, trim: true },
-    
+
     // GeoJSON location field for geospatial queries
     location: {
       type: {
@@ -113,7 +113,25 @@ const bidSchema = new mongoose.Schema(
       ref: "Shop",
       default: null,
     },
-    
+
+    radius: {
+      type: Number,
+      min: 1,
+      max: 100,
+      default: null
+    },
+
+    repostedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+
+    repostedAt: {
+      type: Date,
+      default: null
+    },
+
     reviewed: {
       type: Boolean,
       default: false,
