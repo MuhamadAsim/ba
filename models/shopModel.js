@@ -173,6 +173,8 @@ const shopSchema = new mongoose.Schema(
       instagram: String,
       facebook: String,
       linkedin: String,
+      youtube: String,
+      tiktok: String,
     },
 
     additionalInfo: String,

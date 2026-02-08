@@ -1305,10 +1305,7 @@ const createShopSnapshot = (shop) => {
 
 
 
-
-
-
-// Make Offer
+// Make Offer with File Upload Support
 export const makeOffer = async (req, res) => {
   try {
     const {
@@ -1322,7 +1319,37 @@ export const makeOffer = async (req, res) => {
       workingHours
     } = req.body;
 
-    console.log(req.body);
+    console.log("========================================");
+    console.log("🚀 makeOffer Controller - START");
+    console.log("========================================");
+    
+    console.log("📦 Offer request body:", req.body);
+    console.log("📁 Uploaded files count:", req.files?.length || 0);
+    console.log("📁 req.files structure:", req.files);
+    console.log("📁 req.file (singular):", req.file);
+    console.log("📁 req.body.attachments:", req.body.attachments);
+    
+    if (req.files && req.files.length > 0) {
+      console.log("🔍 File details:");
+      req.files.forEach((file, index) => {
+        console.log(`  File ${index + 1}:`, {
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          filename: file.filename,
+          path: file.path,
+          url: file.url,
+          secure_url: file.secure_url,
+          public_id: file.public_id,
+          fieldname: file.fieldname,
+          encoding: file.encoding,
+          destination: file.destination,
+          buffer: file.buffer ? `Buffer(${file.buffer.length} bytes)` : 'No buffer',
+          // Show all keys in the file object
+          allKeys: Object.keys(file)
+        });
+      });
+    }
 
     let shopId = null;
     let shopUser = null;
@@ -1330,7 +1357,10 @@ export const makeOffer = async (req, res) => {
     // 🔄 Determine shop ID (support both main shop and sub-account)
     const userId = req.user?._id || req.shopId;
     
+    console.log("👤 User ID from request:", userId);
+    
     if (!userId) {
+      console.error("❌ No user ID found in request");
       return res.status(401).json({ message: "Authentication required." });
     }
 
@@ -1340,21 +1370,25 @@ export const makeOffer = async (req, res) => {
     if (shopAccount) {
       // ✅ This is a MAIN SHOP account (original flow)
       shopId = shopAccount._id;
+      console.log("🏪 Shop account found:", shopAccount.businessName);
     } else {
+      console.log("👤 Not a main shop, checking for sub-account...");
       // ❌ Not a main shop, check if it's a SUB-ACCOUNT
-      // Make sure ShopUser is imported at the top: import ShopUser from "./models/ShopUser.js"
       shopUser = await ShopUser.findById(userId);
       
       if (!shopUser) {
+        console.error("❌ No shop or sub-account found for user ID:", userId);
         return res.status(404).json({ message: "Account not found." });
       }
       
       if (!shopUser.isActive) {
+        console.error("❌ Sub-account is deactivated");
         return res.status(403).json({ message: "Your account is deactivated." });
       }
       
       // Check if sub-account has permission to manage bids
       if (!shopUser.permissions.manageBids) {
+        console.error("❌ Sub-account doesn't have permission to manage bids");
         return res.status(403).json({ 
           message: "You don't have permission to make offers. Contact your shop admin." 
         });
@@ -1362,38 +1396,52 @@ export const makeOffer = async (req, res) => {
       
       // ✅ Get shopId from sub-account's shop reference
       shopId = shopUser.shop;
+      console.log("👥 Sub-account found, shop ID:", shopId);
     }
     
-    console.log("Shop ID:", shopId, "From sub-account:", shopUser ? "Yes" : "No");
+    console.log("🏪 Final Shop ID:", shopId, "From sub-account:", shopUser ? "Yes" : "No");
 
     const offerMessage = message || note || "";
+    console.log("💬 Offer message:", offerMessage);
 
     // 1️⃣ Validate input
     if (!bidId || !price) {
+      console.error("❌ Missing required fields - bidId:", bidId, "price:", price);
       return res.status(400).json({ message: "Bid ID and price are required." });
     }
 
     // 2️⃣ Verify the bid exists
+    console.log("🔍 Looking for bid:", bidId);
     const bid = await Bid.findById(bidId).populate('user_id');
     if (!bid) {
+      console.error("❌ Bid not found:", bidId);
       return res.status(404).json({ message: "Bid not found." });
     }
     if (bid.status !== "active") {
+      console.error("❌ Bid is not active. Status:", bid.status);
       return res.status(400).json({ message: "Cannot make an offer on this bid." });
     }
 
     const customerId = bid.user_id;
+    console.log("👤 Customer ID:", customerId?._id);
 
     // 3️⃣ Verify shop + subscription + bid limit (ORIGINAL LOGIC - UNCHANGED)
+    console.log("🔍 Looking for shop:", shopId);
     const shop = await Shop.findById(shopId).populate("plan");
     if (!shop) {
+      console.error("❌ Shop not found:", shopId);
       return res.status(404).json({ message: "Shop not found or not authorized." });
     }
+
+    console.log("🏪 Shop found:", shop.businessName);
+    console.log("📋 Shop subscription status:", shop.subscriptionStatus);
+    console.log("🚫 Shop is blocked:", shop.isBlocked);
 
     // 🔒 Subscription check
     const allowedStatuses = ["active", "trialing", "past_due"];
     const blockedStatuses = ["inactive", "canceled", "incomplete_expired", "unpaid", "paused"];
     if (shop.isBlocked || blockedStatuses.includes(shop.subscriptionStatus)) {
+      console.error("❌ Shop subscription issue - Blocked:", shop.isBlocked, "Status:", shop.subscriptionStatus);
       return res.status(403).json({
         message: shop.isBlocked
           ? "Your account has been blocked by admin."
@@ -1403,6 +1451,7 @@ export const makeOffer = async (req, res) => {
 
     // Ensure shop has a plan
     if (!shop.plan) {
+      console.error("❌ No plan found for shop");
       return res.status(403).json({
         message: "No active subscription plan found for this shop.",
       });
@@ -1411,26 +1460,73 @@ export const makeOffer = async (req, res) => {
     // Enforce monthly bid limit
     const bidsLimit = shop.plan.features?.bidsPerMonth ?? 0;
     const usedBids = shop.bidUsage?.usedThisPeriod ?? 0;
+    
+    console.log("📊 Bid limit check - Limit:", bidsLimit, "Used:", usedBids);
 
     if (bidsLimit !== -1 && usedBids >= bidsLimit) {
+      console.error("❌ Bid limit reached");
       return res.status(403).json({
         message: "You have reached your monthly bid limit. Upgrade your plan to continue.",
       });
     }
 
     // 4️⃣ Check for duplicate offers
+    console.log("🔍 Checking for duplicate offers...");
     const existingOffer = await Offer.findOne({ bidId, shopId });
     if (existingOffer) {
+      console.error("❌ Duplicate offer found:", existingOffer._id);
       return res.status(400).json({ message: "You have already made an offer for this bid." });
     }
 
-    // 5️⃣ Create new offer
-    const offer = new Offer({
+    // 5️⃣ Process uploaded files if any
+    let uploadedAttachments = [];
+    if (req.files && req.files.length > 0) {
+      console.log("🔄 Processing uploaded files...");
+      try {
+        // req.files contains Cloudinary response from multer-storage-cloudinary
+        console.log("📁 req.files structure for processing:", req.files);
+        
+        uploadedAttachments = req.files.map(file => {
+          console.log("📄 Processing file:", file.originalname);
+          
+          // Debug what properties are available
+          console.log("   Available properties:", Object.keys(file));
+          
+          const attachment = {
+            originalName: file.originalname,
+            url: file.path || file.url || file.secure_url, // Cloudinary URL
+            publicId: file.filename || file.public_id, // Cloudinary public_id
+            fileType: file.mimetype || file.content_type,
+            size: file.size,
+            uploadedAt: new Date()
+          };
+          
+          console.log("   Processed attachment:", attachment);
+          return attachment;
+        });
+        
+        console.log(`✅ Processed ${uploadedAttachments.length} file attachments`);
+        console.log("📎 Final attachments array:", uploadedAttachments);
+      } catch (fileError) {
+        console.error("❌ Error processing uploaded files:", fileError);
+        console.error("❌ Error stack:", fileError.stack);
+        // Don't fail the entire offer if file processing fails
+        // Continue without attachments
+      }
+    } else {
+      console.log("📭 No files uploaded or req.files is empty");
+    }
+
+    // 6️⃣ Create new offer with attachments
+    console.log("📝 Creating new offer...");
+    const offerData = {
       bidId,
       shopId,
       price,
       message: offerMessage,
       status: "pending",
+      // Add file attachments if any
+      ...(uploadedAttachments.length > 0 && { attachments: uploadedAttachments }),
       // Only add these fields if it's from a sub-account
       ...(shopUser && { 
         createdBy: shopUser._id,
@@ -1440,18 +1536,27 @@ export const makeOffer = async (req, res) => {
       ...(appointmentTime && { appointmentTime }),
       ...(estimatedCompletionDays && { estimatedCompletionDays }),
       ...(workingHours && workingHours.start && workingHours.end && { workingHours }),
-    });
+    };
+    
+    console.log("📄 Offer data to save:", offerData);
+    
+    const offer = new Offer(offerData);
     await offer.save();
+    
+    console.log("✅ Offer saved successfully. Offer ID:", offer._id);
+    console.log("🔍 Saved offer details:", offer.toObject());
 
-    // 6️⃣ Link offer to bid
+    // 7️⃣ Link offer to bid
     bid.offers.push(offer._id);
     await bid.save();
+    console.log("🔗 Offer linked to bid");
 
-    // 7️⃣ Increment bid usage
+    // 8️⃣ Increment bid usage
     shop.bidUsage.usedThisPeriod += 1;
     await shop.save();
+    console.log("📈 Bid usage incremented");
 
-    // 8️⃣ Log activity (ENHANCED to track sub-account)
+    // 9️⃣ Log activity (ENHANCED to track sub-account and attachments)
     try {
       const activityLog = new BidActivity({
         shop_id: shopId,
@@ -1462,6 +1567,11 @@ export const makeOffer = async (req, res) => {
         message: offerMessage,
         // NEW: Track which user made the offer
         ...(shopUser && { shop_user_id: shopUser._id }),
+        // NEW: Track if there are attachments
+        ...(uploadedAttachments.length > 0 && { 
+          hasAttachments: true,
+          attachmentCount: uploadedAttachments.length 
+        }),
         bid_snapshot: createBidSnapshot(bid),
         customer_snapshot: createCustomerSnapshot(bid?.user_id),
         shop_snapshot: createShopSnapshot(shop),
@@ -1475,6 +1585,17 @@ export const makeOffer = async (req, res) => {
             estimatedCompletionDays,
             workingHours
           },
+          // NEW: Include file attachment info
+          ...(uploadedAttachments.length > 0 && {
+            attachments: {
+              count: uploadedAttachments.length,
+              files: uploadedAttachments.map(att => ({
+                name: att.originalName,
+                type: att.fileType,
+                size: att.size
+              }))
+            }
+          }),
           // NEW: Include user info if from sub-account
           ...(shopUser && {
             madeByUser: {
@@ -1488,11 +1609,12 @@ export const makeOffer = async (req, res) => {
         user_agent: req.headers['user-agent']
       });
       await activityLog.save();
+      console.log("📝 Activity logged");
     } catch (activityError) {
       console.error("⚠️ Failed to log activity (non-critical):", activityError);
     }
 
-    // 9️⃣ Create Event (ENHANCED to track sub-account)
+    // 🔟 Create Event (ENHANCED to track sub-account and attachments)
     const event = new Event({
       type: "new-offer",
       bidId,
@@ -1507,6 +1629,12 @@ export const makeOffer = async (req, res) => {
         appointmentTime,
         estimatedCompletionDays,
         workingHours,
+        // NEW: Include file attachment info
+        ...(uploadedAttachments.length > 0 && {
+          hasAttachments: true,
+          attachmentCount: uploadedAttachments.length,
+          attachmentTypes: uploadedAttachments.map(att => att.fileType)
+        }),
         // NEW: Include user info if from sub-account
         ...(shopUser && {
           madeByUser: {
@@ -1518,25 +1646,44 @@ export const makeOffer = async (req, res) => {
       }
     });
     await event.save();
+    console.log("📅 Event created");
 
-    // 🔟 Notify customer
+    // 1️⃣1️⃣ Notify customer (ENHANCED with attachment info)
     notifyNewOffer(offer, bidId, shopId, price, offerMessage, {
       price,
       hasAppointment: !!(appointmentDate || appointmentTime),
       appointmentDate,
       appointmentTime,
       estimatedCompletionDays,
-      workingHours
+      workingHours,
+      // NEW: Include attachment info in notification
+      ...(uploadedAttachments.length > 0 && {
+        hasAttachments: true,
+        attachmentCount: uploadedAttachments.length
+      })
     });
+    console.log("🔔 Customer notified");
 
-    return res.status(201).json({
+    // 1️⃣2️⃣ Prepare response message based on what was included
+    let successMessage = "Offer submitted successfully.";
+    if (appointmentDate || appointmentTime) {
+      successMessage = "Offer with appointment details submitted successfully.";
+    }
+    if (uploadedAttachments.length > 0) {
+      successMessage = `Offer with ${uploadedAttachments.length} file${uploadedAttachments.length > 1 ? 's' : ''} submitted successfully.`;
+    }
+    if ((appointmentDate || appointmentTime) && uploadedAttachments.length > 0) {
+      successMessage = `Offer with appointment details and ${uploadedAttachments.length} file${uploadedAttachments.length > 1 ? 's' : ''} submitted successfully.`;
+    }
+
+    const responseData = {
       success: true,
-      message: appointmentDate || appointmentTime
-        ? "Offer with appointment details submitted successfully."
-        : "Offer submitted successfully.",
+      message: successMessage,
       data: {
         ...offer.toObject(),
         hasAppointment: !!(appointmentDate || appointmentTime),
+        hasAttachments: uploadedAttachments.length > 0,
+        attachmentCount: uploadedAttachments.length,
         // NEW: Include user info if from sub-account
         ...(shopUser && {
           madeByUser: {
@@ -1546,19 +1693,66 @@ export const makeOffer = async (req, res) => {
           }
         })
       },
-    });
+    };
+    
+    console.log("========================================");
+    console.log("✅ makeOffer Controller - SUCCESS");
+    console.log("📤 Response data:", responseData);
+    console.log("========================================");
+
+    return res.status(201).json(responseData);
 
   } catch (error) {
-    console.error("💥 Server error in makeOffer:", error);
+    console.error("========================================");
+    console.error("💥 makeOffer Controller - ERROR");
+    console.error("========================================");
+    console.error("❌ Error details:", error);
+    console.error("❌ Error name:", error.name);
+    console.error("❌ Error message:", error.message);
+    console.error("❌ Error stack:", error.stack);
+    console.error("========================================");
+    
+    // Handle multer/file upload errors specifically
+    if (error.name === 'MulterError') {
+      console.error("📁 MulterError detected. Code:", error.code);
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          success: false,
+          message: "File size too large. Maximum size is 10MB per file."
+        });
+      }
+      if (error.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({
+          success: false,
+          message: "Too many files. Maximum 7 files allowed."
+        });
+      }
+      if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          success: false,
+          message: "Unexpected file field. Please use 'attachments' field for file uploads."
+        });
+      }
+    }
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      console.error("❌ Mongoose ValidationError");
+      console.error("❌ Validation errors:", error.errors);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Server error while creating offer.",
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
-
-
 
 
 

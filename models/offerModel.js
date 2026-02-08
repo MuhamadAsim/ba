@@ -16,6 +16,34 @@ const counterOfferSchema = new mongoose.Schema(
   { _id: true }
 );
 
+// Attachment schema for file uploads
+const attachmentSchema = new mongoose.Schema({
+  originalName: {
+    type: String,
+    required: true
+  },
+  url: {
+    type: String,
+    required: true
+  },
+  publicId: {
+    type: String,
+    required: true
+  },
+  fileType: {
+    type: String,
+    required: true
+  },
+  size: {
+    type: Number,
+    required: true
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: true });
+
 // In your Offer model (backend)
 const offerSchema = new mongoose.Schema(
   {
@@ -39,7 +67,7 @@ const offerSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "accepted", "rejected","canceled"],
+      enum: ["pending", "accepted", "rejected", "canceled"],
       default: "pending",
     },
     
@@ -63,10 +91,31 @@ const offerSchema = new mongoose.Schema(
     },
     // --- End Appointment Fields ---
     
+    // --- Attachments for file uploads ---
+    attachments: [attachmentSchema],
+    
     // --- New field for counter offers ---
     counterOffers: [counterOfferSchema],
+    
+    // --- Sub-account tracking ---
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ShopUser",
+      default: null
+    },
+    createdByType: {
+      type: String,
+      enum: ["shop", "shop_user"],
+      default: "shop"
+    }
   },
   { timestamps: true }
 );
+
+// Indexes for better query performance
+offerSchema.index({ bidId: 1, shopId: 1 }, { unique: true }); // Prevent duplicate offers
+offerSchema.index({ shopId: 1, status: 1 });
+offerSchema.index({ bidId: 1, status: 1 });
+offerSchema.index({ createdAt: -1 });
 
 export default mongoose.model("Offer", offerSchema);

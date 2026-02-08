@@ -430,6 +430,8 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
         instagramLink: parentShop.socialMedia?.instagram || "",
         facebookLink: parentShop.socialMedia?.facebook || "",
         linkedinLink: parentShop.socialMedia?.linkedin || "",
+        tiktokLink: shop.socialMedia?.tiktok || "", // Add this
+        youtubeLink: shop.socialMedia?.youtube || "", // Add this
 
         // New fields from registration - same fields as owner
         financingOffered: parentShop.financingOffered || false,
@@ -723,6 +725,8 @@ const handleOwnerLogin = async (shop, password, req, res) => {
         instagramLink: shop.socialMedia?.instagram || "",
         facebookLink: shop.socialMedia?.facebook || "",
         linkedinLink: shop.socialMedia?.linkedin || "",
+        tiktokLink: shop.socialMedia?.tiktok || "", // Add this
+        youtubeLink: shop.socialMedia?.youtube || "", // Add this
 
         // New fields from registration
         financingOffered: shop.financingOffered || false,
@@ -1088,10 +1092,8 @@ const sendPasswordResetEmail = async (email, otp) => {
 
 
 
-
 // ---------------------- COMPLETE REGISTRATION (CLEAN TRIAL FLOW) ----------------------
 export const completeRegistration = async (req, res) => {
-
   try {
     const {
       businessName,
@@ -1118,7 +1120,7 @@ export const completeRegistration = async (req, res) => {
       facebookLink,
       linkedinLink,
       additionalInfo,
-      plan, // Plan ObjectId
+      plan,
       financingOffered,
       acceptedPayments,
       yearsExperience,
@@ -1128,8 +1130,12 @@ export const completeRegistration = async (req, res) => {
       facebookInput,
       linkedinInput,
       acceptPolicy,
+      // Add TikTok and YouTube fields:
+      tiktokLink,
+      youtubeLink,
+      tiktokInput,
+      youtubeInput,
     } = req.body;
-
 
     // 1️⃣ Find shop
     const shop = await Shop.findOne({ email });
@@ -1167,7 +1173,6 @@ export const completeRegistration = async (req, res) => {
       });
     }
 
-
     // 3️⃣ Helpers
     const safeParse = (val, fallback) => {
       try {
@@ -1182,7 +1187,6 @@ export const completeRegistration = async (req, res) => {
     const parsedBusinessHours = safeParse(businessHours, {});
 
     // 4️⃣ Update shop info
-
     shop.businessName = businessName || shop.businessName;
     shop.legalEntityName = legalEntityName || shop.legalEntityName;
     shop.ownerName = ownerName || shop.ownerName;
@@ -1223,10 +1227,14 @@ export const completeRegistration = async (req, res) => {
     shop.policyNumber = policyNumber || shop.policyNumber;
     shop.policyExpiration = policyExpiration || shop.policyExpiration;
 
+    // Update socialMedia object to include TikTok and YouTube
     shop.socialMedia = {
       instagram: instagramInput || instagramLink || "",
       facebook: facebookInput || facebookLink || "",
       linkedin: linkedinInput || linkedinLink || "",
+      // Add TikTok and YouTube:
+      tiktok: tiktokInput || tiktokLink || "",
+      youtube: youtubeInput || youtubeLink || "",
     };
 
     shop.additionalInfo = additionalInfo || shop.additionalInfo;
@@ -1291,8 +1299,6 @@ export const completeRegistration = async (req, res) => {
     await shop.save();
     await notifySuperAdminsNewShop(shop, selectedPlan);
 
-
-
     const daysRemaining = Math.ceil(
       (trialEnd - new Date()) / (1000 * 60 * 60 * 24)
     );
@@ -1346,16 +1352,6 @@ export const completeRegistration = async (req, res) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
 export const updateShopProfile = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1374,6 +1370,18 @@ export const updateShopProfile = async (req, res) => {
     const certificateFiles = files.certificateFiles
       ? files.certificateFiles.map((f) => f.path)
       : shop.certificateFiles || [];
+
+    // DEBUG: Log all incoming request body data
+    console.log("📥 Incoming update request body:", {
+      body: req.body,
+      hasInstagramLink: !!req.body.instagramLink,
+      hasFacebookLink: !!req.body.facebookLink,
+      hasLinkedinLink: !!req.body.linkedinLink,
+      hasTiktokLink: !!req.body.tiktokLink, // Debug TikTok
+      hasYoutubeLink: !!req.body.youtubeLink, // Debug YouTube
+      tiktokLinkValue: req.body.tiktokLink || "EMPTY",
+      youtubeLinkValue: req.body.youtubeLink || "EMPTY",
+    });
 
     // Parse JSON fields safely
     let parsedServices = [];
@@ -1426,11 +1434,28 @@ export const updateShopProfile = async (req, res) => {
     }
 
     // ✅ FIX: Handle social media links correctly (from flat fields to nested object)
+    // DEBUG: Log before creating socialMedia object
+    console.log("🔍 Creating socialMedia object with values:", {
+      instagram: req.body.instagramLink || shop.socialMedia?.instagram || "",
+      facebook: req.body.facebookLink || shop.socialMedia?.facebook || "",
+      linkedin: req.body.linkedinLink || shop.socialMedia?.linkedin || "",
+      tiktok: req.body.tiktokLink || shop.socialMedia?.tiktok || "",
+      youtube: req.body.youtubeLink || shop.socialMedia?.youtube || "",
+      shopTiktok: shop.socialMedia?.tiktok || "NO SHOP TIKTOK",
+      shopYoutube: shop.socialMedia?.youtube || "NO SHOP YOUTUBE",
+    });
+
+    // Add TikTok and YouTube fields:
     const socialMedia = {
       instagram: req.body.instagramLink || shop.socialMedia?.instagram || "",
       facebook: req.body.facebookLink || shop.socialMedia?.facebook || "",
       linkedin: req.body.linkedinLink || shop.socialMedia?.linkedin || "",
+      tiktok: req.body.tiktokLink || shop.socialMedia?.tiktok || "", // Add this
+      youtube: req.body.youtubeLink || shop.socialMedia?.youtube || "", // Add this
     };
+
+    // DEBUG: Log socialMedia object
+    console.log("✅ Final socialMedia object:", socialMedia);
 
     // Merge all updates
     const updatedData = {
@@ -1449,28 +1474,59 @@ export const updateShopProfile = async (req, res) => {
     };
 
     // ✅ Remove flat social media fields to avoid conflicts
+    // Add TikTok and YouTube to delete list:
     delete updatedData.instagramLink;
     delete updatedData.facebookLink;
     delete updatedData.linkedinLink;
+    delete updatedData.tiktokLink; // Add this
+    delete updatedData.youtubeLink; // Add this
 
-    const updatedShop = await Shop.findByIdAndUpdate(id, { $set: updatedData }, { new: true });
+    // DEBUG: Log data before update
+    console.log("📤 Data to update database:", {
+      socialMediaInUpdate: updatedData.socialMedia,
+      tiktokValue: updatedData.socialMedia.tiktok,
+      youtubeValue: updatedData.socialMedia.youtube,
+      otherFields: Object.keys(updatedData).filter(key => !['socialMedia', '_id'].includes(key))
+    });
+
+    const updatedShop = await Shop.findByIdAndUpdate(
+      id, 
+      { $set: updatedData }, 
+      { new: true }
+    );
+
+    // DEBUG: Log after update
+    console.log("✅ Shop updated successfully:", {
+      shopId: updatedShop._id,
+      updatedSocialMedia: updatedShop.socialMedia,
+      updatedTiktok: updatedShop.socialMedia?.tiktok || "EMPTY IN DB",
+      updatedYoutube: updatedShop.socialMedia?.youtube || "EMPTY IN DB",
+    });
 
     res.status(200).json({
       message: "Shop profile updated successfully",
       shop: {
         ...updatedShop._doc,
         // Add flat social media fields for frontend compatibility
+        // Add TikTok and YouTube:
         instagramLink: updatedShop.socialMedia?.instagram || "",
         facebookLink: updatedShop.socialMedia?.facebook || "",
         linkedinLink: updatedShop.socialMedia?.linkedin || "",
+        tiktokLink: updatedShop.socialMedia?.tiktok || "", // Add this
+        youtubeLink: updatedShop.socialMedia?.youtube || "", // Add this
       },
     });
   } catch (error) {
     console.error("🔥 Update shop profile error:", error);
+    console.error("🔥 Error details:", {
+      message: error.message,
+      stack: error.stack,
+      requestBody: req.body,
+      requestFiles: req.files,
+    });
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
 
 
 
@@ -1727,7 +1783,6 @@ export const googleCallbackPartner = async (req, res) => {
         subscriptionMessage = `You have ${trialDaysRemaining} days left in your trial`;
       }
     } else if (subscriptionStatus === "past_due") {
-      // Payment failed
       shouldBlockAccess = true;
       subscriptionMessage = "Your payment is past due. Please update your payment method";
     } else if (subscriptionStatus === "canceled") {
@@ -1823,6 +1878,8 @@ export const googleCallbackPartner = async (req, res) => {
       instagramLink: shop.socialMedia?.instagram || "",
       facebookLink: shop.socialMedia?.facebook || "",
       linkedinLink: shop.socialMedia?.linkedin || "",
+      tiktokLink: shop.socialMedia?.tiktok || "", // Add this
+      youtubeLink: shop.socialMedia?.youtube || "", // Add this
 
       // New fields from registration
       financingOffered: shop.financingOffered || false,
@@ -2041,10 +2098,7 @@ export const submitVerificationRequest = async (req, res) => {
       });
     }
 
-    // Shop can submit a new request if:
-    // 1. They have no previous requests, OR
-    // 2. Their previous request was approved/rejected (not pending)
-
+  
     // Create new verification request
     const verificationRequest = new VerificationRequest({
       shopId,

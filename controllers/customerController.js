@@ -309,7 +309,7 @@ export const getUserBidsWithOffers = async (req, res) => {
 export const getBidOffers = async (req, res) => {
   try {
     const { bidId } = req.params;
-    const customerId = req.customer._id; // authenticated customer
+    const customerId = req.customer._id;
 
     // 1️⃣ Ensure the bid belongs to this customer
     const bid = await Bid.findOne({ _id: bidId, user_id: customerId });
@@ -317,15 +317,29 @@ export const getBidOffers = async (req, res) => {
       return res.status(404).json({ message: "Bid not found or unauthorized" });
     }
 
-    // 2️⃣ Fetch all offers for this bid - INCLUDE APPOINTMENT FIELDS
+    // 2️⃣ Fetch all offers for this bid - REMOVE .select() to get ALL fields
     const offers = await Offer.find({ bidId })
       .populate({
         path: "shopId",
-        select:
-          "businessName email phone address serviceArea website socialMedia profilePic storeFrontPhoto workSpacePhoto plan",
+        select: "businessName email phone address serviceArea website socialMedia profilePic storeFrontPhoto workSpacePhoto plan",
       })
-      .select('price message status appointmentDate appointmentTime estimatedCompletionDays workingHours createdAt')
+      .populate({
+        path: "createdBy",
+        select: "name email role",
+        model: "ShopUser"
+      })
+      // REMOVE this line: .select('price message status appointmentDate appointmentTime estimatedCompletionDays workingHours attachments createdAt createdBy createdByType')
       .sort({ createdAt: 1 });
+
+    console.log("🔍 Offers fetched from database:", offers.length);
+    offers.forEach((offer, index) => {
+      console.log(`Offer ${index + 1}:`, {
+        id: offer._id,
+        hasAttachments: offer.attachments ? true : false,
+        attachmentsCount: offer.attachments?.length || 0,
+        attachments: offer.attachments
+      });
+    });
 
     if (!offers.length) {
       return res.status(200).json({
@@ -363,7 +377,7 @@ export const getBidOffers = async (req, res) => {
       };
     });
 
-    // 5️⃣ Build final response WITH APPOINTMENT FIELDS
+    // 5️⃣ Build final response WITH APPOINTMENT FIELDS & ATTACHMENTS
     const formattedOffers = offers.map((offer) => {
       const shopId = offer.shopId?._id?.toString();
       const shopRating = ratingsMap[shopId] || {
@@ -373,6 +387,34 @@ export const getBidOffers = async (req, res) => {
 
       // Check if offer has appointment details
       const hasAppointmentDetails = !!(offer.appointmentDate || offer.appointmentTime);
+      
+      // Check if offer has attachments
+      const hasAttachments = offer.attachments && offer.attachments.length > 0;
+      
+      // Categorize attachments by type for easier frontend handling
+      let categorizedAttachments = {};
+      if (hasAttachments) {
+        categorizedAttachments = {
+          images: offer.attachments.filter(att => att.fileType?.startsWith('image/')),
+          documents: offer.attachments.filter(att => 
+            att.fileType.includes('pdf') || 
+            att.fileType.includes('msword') || 
+            att.fileType.includes('wordprocessingml')
+          ),
+          others: offer.attachments.filter(att => 
+            !att.fileType?.startsWith('image/') && 
+            !att.fileType?.includes('pdf') && 
+            !att.fileType?.includes('msword') && 
+            !att.fileType?.includes('wordprocessingml')
+          )
+        };
+      }
+
+      console.log(`Formatted Offer ${offer._id}:`, {
+        hasAttachments,
+        attachmentCount: offer.attachments?.length || 0,
+        categorizedAttachments
+      });
 
       return {
         _id: offer._id,
@@ -386,8 +428,19 @@ export const getBidOffers = async (req, res) => {
         appointmentTime: offer.appointmentTime || null,
         estimatedCompletionDays: offer.estimatedCompletionDays || null,
         workingHours: offer.workingHours || null,
-        hasAppointment: hasAppointmentDetails, // Helper flag for frontend
+        hasAppointment: hasAppointmentDetails,
 
+        // ⭐ Attachment Fields - Include in response
+        attachments: offer.attachments || [],
+        hasAttachments: hasAttachments,
+        attachmentCount: hasAttachments ? offer.attachments.length : 0,
+        categorizedAttachments: hasAttachments ? categorizedAttachments : null,
+        
+        // ⭐ Sub-account information (if offer was made by sub-account)
+        createdBy: offer.createdBy || null,
+        createdByType: offer.createdByType || "shop",
+        
+        // ⭐ Shop information
         shopId: {
           _id: offer.shopId?._id,
           businessName: offer.shopId?.businessName,
@@ -401,27 +454,34 @@ export const getBidOffers = async (req, res) => {
           storeFrontPhoto: offer.shopId?.storeFrontPhoto || "",
           workSpacePhoto: offer.shopId?.workSpacePhoto || "",
           plan: offer.shopId?.plan || "basic",
-
         },
-        shopRating, // ⭐ Send rating info here
+        shopRating,
       };
     });
 
-    // 6️⃣ Add statistics about appointments (optional but useful)
+    // 6️⃣ Add statistics about offers
     const offersWithAppointments = formattedOffers.filter(o => o.hasAppointment).length;
-    const appointmentStats = {
+    const offersWithAttachments = formattedOffers.filter(o => o.hasAttachments).length;
+    
+    const stats = {
       totalOffers: formattedOffers.length,
       offersWithAppointments,
+      offersWithAttachments,
       percentageWithAppointments: formattedOffers.length > 0
         ? Math.round((offersWithAppointments / formattedOffers.length) * 100)
         : 0,
+      percentageWithAttachments: formattedOffers.length > 0
+        ? Math.round((offersWithAttachments / formattedOffers.length) * 100)
+        : 0,
     };
+
+    console.log("📊 Final statistics:", stats);
 
     res.status(200).json({
       success: true,
       count: formattedOffers.length,
       offers: formattedOffers,
-      stats: appointmentStats, // Optional: include appointment statistics
+      stats: stats,
     });
 
   } catch (error) {
@@ -433,6 +493,8 @@ export const getBidOffers = async (req, res) => {
     });
   }
 };
+
+
 
 
 

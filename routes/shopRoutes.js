@@ -81,7 +81,7 @@ router.put("/profile/:id",
 );
 router.get("/stats", authenticateShop, getShopStats);
 
-router.put("/update-verified-info", authenticateShop,ownerOnly,
+router.put("/update-verified-info", authenticateShop, ownerOnly,
   upload.fields([
     { name: "certificateFiles", maxCount: 5 },
     { name: "insuranceCertificate", maxCount: 1 },
@@ -96,8 +96,12 @@ router.get("/my-requests", authenticateShop, ownerOnly, getMyVerificationRequest
 // bids
 router.get("/available-bids", authenticateShop, getAvailableBidsForShops);
 router.post("/bids/:bidId/complete", authenticateShop, markBidCompleted);
-router.post("/offers", authenticateShop, makeOffer);
-router.get("/bid-history", authenticateShop, getBidHistory);
+// In your routes file (e.g., shopRoutes.js)
+router.post("/offers",
+  authenticateShop,
+  upload.array("attachments", 5), // Allow up to 10 files
+  makeOffer
+); router.get("/bid-history", authenticateShop, getBidHistory);
 router.get("/bid-history/summary", authenticateShop, getBidHistorySummary);
 router.get("/bid-history/:bidId", authenticateShop, getBidActivities);
 
