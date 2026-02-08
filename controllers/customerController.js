@@ -1070,7 +1070,6 @@ export const counterOffer = async (req, res) => {
 
 
 
-
 export const getShopProfile = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -1084,7 +1083,7 @@ export const getShopProfile = async (req, res) => {
 
     // Map the shop document to the frontend format
     const shopData = {
-      _id: shop._id, // ✅ Important: Include the _id for rating fetch
+      _id: shop._id,
       businessName: shop.businessName || "",
       ownerName: shop.ownerName || "",
       email: shop.email || "",
@@ -1099,6 +1098,8 @@ export const getShopProfile = async (req, res) => {
       instagramLink: shop.socialMedia?.instagram || "",
       facebookLink: shop.socialMedia?.facebook || "",
       linkedinLink: shop.socialMedia?.linkedin || "",
+      tiktokLink: shop.socialMedia?.tiktok || "", // ✅
+      youtubeLink: shop.socialMedia?.youtube || "", // ✅ CHANGED from "youtube" to "youtubeLink"
       bio: shop.additionalInfo || "",
       legalEntityName: shop.legalEntityName || "",
       address: shop.address || "",
@@ -1110,7 +1111,7 @@ export const getShopProfile = async (req, res) => {
       storeFrontPhoto: shop.storeFrontPhoto || "",
       workSpacePhoto: shop.workSpacePhoto || "",
 
-      // ✅ ADDED: New fields required for the preview component
+      // New fields
       financingOffered: shop.financingOffered || false,
       acceptedPayments: shop.acceptedPayments || [],
       yearsExperience: shop.yearsExperience || "",
@@ -1124,7 +1125,6 @@ export const getShopProfile = async (req, res) => {
         sunday: { open: "", close: "", closed: false }
       },
 
-      // Optional: Include rating and review count if needed
       rating: shop.rating || 0,
       reviewCount: shop.reviewCount || 0,
     };
@@ -1135,7 +1135,6 @@ export const getShopProfile = async (req, res) => {
     res.status(500).json({ status: "error", message: "Server error" });
   }
 };
-
 
 
 export const submitReview = async (req, res) => {

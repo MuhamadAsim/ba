@@ -61,7 +61,7 @@ router.post("/offers/:offerId/counter", authenticateCustomer, counterOffer);
 router.get("/shop-info/:shopId", authenticateCustomer, getShopProfile);
 router.post("/:bidId/review", authenticateCustomer, submitReview);
 router.get("/:bidId/review-status", authenticateCustomer, checkReviewStatus);
-router.get("/:shopId/shop-summary", getShopRatingSummary);
+router.get("/:shopId/rating-summary", getShopRatingSummary);
 
 
 
