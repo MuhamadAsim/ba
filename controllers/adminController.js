@@ -1461,8 +1461,6 @@ const generateRandomPassword = () => {
 };
 
 
-
-
 // Admin creates a shop directly
 export const createShopByAdmin = async (req, res) => {
   try {
@@ -1471,6 +1469,7 @@ export const createShopByAdmin = async (req, res) => {
       legalEntityName,
       ownerName,
       email,
+      notificationEmail, // 👈 NEW FIELD
       countryCode,
       phone,
       website,
@@ -1489,8 +1488,12 @@ export const createShopByAdmin = async (req, res) => {
       policyExpiration,
       instagramLink,
       facebookLink,
+      tiktokLink, // 👈 NEW FIELD
+      youtubeLink, // 👈 NEW FIELD
       linkedinLink,
       additionalInfo,
+      adminEmail, // Optional: admin email from form (for tracking)
+      adminRole, // Optional: admin role from form (for tracking)
     } = req.body;
 
     // Get uploaded file URLs from multer
@@ -1529,7 +1532,6 @@ export const createShopByAdmin = async (req, res) => {
       });
     }
 
-
     // Generate random password
     const randomPassword = generateRandomPassword();
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
@@ -1538,12 +1540,17 @@ export const createShopByAdmin = async (req, res) => {
     const perpetualTrialStartDate = new Date();
     const perpetualTrialEndDate = new Date('2099-12-31T23:59:59.999Z');
 
+    // Determine which email to use for notifications
+    // Use notificationEmail if provided, otherwise fallback to account email
+    const finalNotificationEmail = notificationEmail?.trim() || email;
+
     // Prepare shop data
     const shopData = {
       businessName,
       legalEntityName,
       ownerName,
       email,
+      notificationEmail: finalNotificationEmail, // 👈 Use the determined notification email
       password: hashedPassword,
       countryCode: countryCode || '+1',
       phone,
@@ -1569,6 +1576,8 @@ export const createShopByAdmin = async (req, res) => {
       socialMedia: {
         instagram: instagramLink || '',
         facebook: facebookLink || '',
+        tiktok: tiktokLink || '', // 👈 NEW FIELD
+        youtube: youtubeLink || '', // 👈 NEW FIELD
         linkedin: linkedinLink || ''
       },
       additionalInfo: additionalInfo || '',
@@ -1631,7 +1640,7 @@ export const createShopByAdmin = async (req, res) => {
 
       // Billing information (optional for Founder shops)
       billingDetails: {
-        billingEmail: email,
+        billingEmail: finalNotificationEmail, // 👈 Use notification email for billing too
         companyName: businessName,
         address: {
           street: address,
@@ -1640,15 +1649,29 @@ export const createShopByAdmin = async (req, res) => {
           postalCode: zipCode || '',
           country: country
         }
+      },
+
+      // Track admin who created this shop (optional)
+      createdByAdmin: {
+        adminId: req.admin?._id,
+        adminEmail: adminEmail || req.admin?.email,
+        adminRole: adminRole || req.admin?.role,
+        createdAt: new Date()
       }
     };
 
     // Create the shop
     const shop = await Shop.create(shopData);
 
-
     // Send welcome email with login credentials
     const emailSubject = `🎉 Welcome to Our Platform - Your Founder Shop Account is Ready!`;
+    
+    // Determine email recipients
+    const emailRecipients = [email];
+    if (notificationEmail && notificationEmail !== email) {
+      emailRecipients.push(finalNotificationEmail);
+    }
+
     const emailBody = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
         <div style="text-align: center; margin-bottom: 30px;">
@@ -1657,8 +1680,10 @@ export const createShopByAdmin = async (req, res) => {
         </div>
         
         <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-          <h2 style="color: #374151; margin-top: 0;">Your Login Credentials</h2>
-          <p><strong>📧 Email:</strong> ${email}</p>
+          <h2 style="color: #374151; margin-top: 0;">Your Account Details</h2>
+          <p><strong>🏢 Business:</strong> ${businessName}</p>
+          <p><strong>📧 Login Email:</strong> ${email}</p>
+          <p><strong>🔔 Notification Email:</strong> ${finalNotificationEmail}</p>
           <p><strong>🔐 Temporary Password:</strong> ${randomPassword}</p>
           <p style="color: #EF4444; font-weight: bold; background-color: #FEF2F2; padding: 10px; border-radius: 5px;">
             ⚠️ Important: Please change your password after your first login.
@@ -1676,6 +1701,7 @@ export const createShopByAdmin = async (req, res) => {
             </div>
           </div>
           <p><strong>✅ Status:</strong> Active (Lifetime Founder Access)</p>
+          <p><strong>📧 Notification Email:</strong> ${finalNotificationEmail}</p>
           <p><strong>⏰ Access Period:</strong> <span style="color: #059669; font-weight: bold;">UNLIMITED</span></p>
           <p><strong>💰 Monthly Cost:</strong> <span style="color: #059669; font-weight: bold;">$0 - Complimentary Forever</span></p>
           <p><strong>📅 Expiration:</strong> <span style="color: #059669; font-weight: bold;">Never</span></p>
@@ -1693,7 +1719,7 @@ export const createShopByAdmin = async (req, res) => {
           
           <p style="background-color: #fff; padding: 15px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #f59e0b;">
             <strong>🎁 Special Note:</strong> As a Founder member, you have lifetime access to all platform features. 
-            This account will never expire and will never be charged.
+            This account will never expire and will never be charged. Important notifications will be sent to: <strong>${finalNotificationEmail}</strong>
           </p>
         </div>
         
@@ -1726,12 +1752,38 @@ export const createShopByAdmin = async (req, res) => {
       </div>
     `;
 
-    // Send email (wrap in try-catch to not fail the whole process if email fails)
+    // Send email to all recipients (wrap in try-catch to not fail the whole process if email fails)
     try {
-      await sendEmail(email, emailSubject, emailBody);
+      // Send to all email recipients
+      for (const recipient of emailRecipients) {
+        await sendEmail(recipient, emailSubject, emailBody);
+      }
+      console.log(`✅ Welcome email sent to: ${emailRecipients.join(', ')}`);
     } catch (emailError) {
       console.error('❌ Failed to send welcome email:', emailError);
       // Don't fail the whole request if email fails
+    }
+
+    // Also send a copy to the admin who created the shop (optional)
+    try {
+      if (req.admin?.email) {
+        const adminEmailSubject = `✅ Shop Created: ${businessName}`;
+        const adminEmailBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #059669;">✅ Shop Successfully Created</h2>
+            <p><strong>Shop:</strong> ${businessName}</p>
+            <p><strong>Owner:</strong> ${ownerName}</p>
+            <p><strong>Login Email:</strong> ${email}</p>
+            <p><strong>Notification Email:</strong> ${finalNotificationEmail}</p>
+            <p><strong>Temporary Password:</strong> ${randomPassword}</p>
+            <p><strong>Plan:</strong> ${founderPlan.name} (Founder - Lifetime)</p>
+            <p><strong>Created at:</strong> ${new Date().toLocaleString()}</p>
+          </div>
+        `;
+        await sendEmail(req.admin.email, adminEmailSubject, adminEmailBody);
+      }
+    } catch (adminEmailError) {
+      console.error('❌ Failed to send admin notification:', adminEmailError);
     }
 
     // Populate the plan before sending response
@@ -1747,7 +1799,11 @@ export const createShopByAdmin = async (req, res) => {
       data: {
         shop: shopResponse,
         temporaryPassword: randomPassword, // Only returned in this response for admin reference
-        credentialsSent: true,
+        emailDetails: {
+          loginEmail: email,
+          notificationEmail: finalNotificationEmail,
+          credentialsSentTo: emailRecipients
+        },
         subscriptionDetails: {
           plan: founderPlan.name,
           planId: founderPlan._id,
@@ -1770,7 +1826,6 @@ export const createShopByAdmin = async (req, res) => {
     });
   }
 };
-
 
 
 
@@ -2682,7 +2737,6 @@ export const getShopsForMap = async (req, res) => {
     });
   }
 };
-
 // Get single shop details by ID
 export const getShopById = async (req, res) => {
   try {
@@ -2707,6 +2761,18 @@ export const getShopById = async (req, res) => {
         message: "Shop not found",
       });
     }
+
+    // Ensure socialMedia object exists with all fields
+    const socialMedia = shop.socialMedia || {};
+    
+    // Create complete social media object with all possible fields
+    const completeSocialMedia = {
+      instagram: socialMedia.instagram || "",
+      facebook: socialMedia.facebook || "",
+      linkedin: socialMedia.linkedin || "",
+      youtube: socialMedia.youtube || "", // 👈 Ensure YouTube exists
+      tiktok: socialMedia.tiktok || "", // 👈 Ensure TikTok exists
+    };
 
     // Manually populate plan if it's an ObjectId
     let planData = null;
@@ -2809,6 +2875,13 @@ export const getShopById = async (req, res) => {
     const shopData = {
       // Basic Information
       ...shop,
+      
+      // ✅ Ensure notificationEmail is included (it might be undefined in old shops)
+      notificationEmail: shop.notificationEmail || shop.email,
+      
+      // ✅ Include the complete social media object
+      socialMedia: completeSocialMedia,
+      
       plan: planName, // Return plan as string for backward compatibility
 
       // CRITICAL: Ensure subscriptionStatus is correct for frontend
@@ -2876,7 +2949,6 @@ export const getShopById = async (req, res) => {
     });
   }
 };
-
 
 
 // Suspend or activate a shop
@@ -4170,12 +4242,8 @@ export const extendShopTrial = async (req, res) => {
 
 
 
-
-
-
 export const updateShopByAdmin = async (req, res) => {
   try {
- 
     // Get ID from body._id OR body.shopId (frontend sends shopId)
     const id = req.body._id || req.body.shopId;
 
@@ -4330,6 +4398,7 @@ export const updateShopByAdmin = async (req, res) => {
     // Parse and add text fields (REMOVED 'plan' - not editable on frontend)
     const textFields = [
       'businessName', 'legalEntityName', 'ownerName', 'email',
+      'notificationEmail', // 👈 NEW FIELD
       'countryCode', 'phone', 'ownerPhone', 'website',
       'address', 'country', 'zipCode',
       'vinylFilms', 'certificates', 'yearsExperience',
@@ -4413,7 +4482,7 @@ export const updateShopByAdmin = async (req, res) => {
       }
     }
 
-    // Parse social media
+    // Parse social media - UPDATED TO INCLUDE YOUTUBE AND TIKTOK
     if (req.body.socialMedia !== undefined) {
       const parsedSocial = parseField(req.body.socialMedia);
       if (parsedSocial && typeof parsedSocial === 'object') {
@@ -4421,9 +4490,32 @@ export const updateShopByAdmin = async (req, res) => {
           instagram: parsedSocial.instagram || shop.socialMedia?.instagram || "",
           facebook: parsedSocial.facebook || shop.socialMedia?.facebook || "",
           linkedin: parsedSocial.linkedin || shop.socialMedia?.linkedin || "",
+          youtube: parsedSocial.youtube || shop.socialMedia?.youtube || "", // 👈 NEW
+          tiktok: parsedSocial.tiktok || shop.socialMedia?.tiktok || "",   // 👈 NEW
         };
       }
     }
+
+    // Handle individual social media fields from FormData
+    // This handles when social media fields are sent as individual fields like "socialMedia[instagram]"
+    const socialMediaFields = ['instagram', 'facebook', 'linkedin', 'youtube', 'tiktok'];
+    socialMediaFields.forEach(socialField => {
+      const fieldKey = `socialMedia[${socialField}]`;
+      if (req.body[fieldKey] !== undefined) {
+        // Initialize socialMedia object if it doesn't exist in updates yet
+        if (!updates.socialMedia) {
+          updates.socialMedia = {
+            instagram: shop.socialMedia?.instagram || "",
+            facebook: shop.socialMedia?.facebook || "",
+            linkedin: shop.socialMedia?.linkedin || "",
+            youtube: shop.socialMedia?.youtube || "", // 👈 NEW
+            tiktok: shop.socialMedia?.tiktok || "",   // 👈 NEW
+          };
+        }
+        // Update the specific social media field
+        updates.socialMedia[socialField] = req.body[fieldKey];
+      }
+    });
 
     // Parse boolean fields
     if (req.body.financingOffered !== undefined) {
@@ -4442,7 +4534,22 @@ export const updateShopByAdmin = async (req, res) => {
       updates.acceptedPolicy = parseBoolean(req.body.acceptedPolicy);
     }
 
+    // Update location coordinates if both latitude and longitude are provided
+    if (updates.latitude !== undefined && updates.longitude !== undefined) {
+      updates.location = {
+        type: 'Point',
+        coordinates: [updates.longitude, updates.latitude]
+      };
+    } else if (req.body.latitude !== undefined && req.body.longitude !== undefined) {
+      // If updates object doesn't have them but req.body does
+      updates.location = {
+        type: 'Point',
+        coordinates: [parseFloat(req.body.longitude), parseFloat(req.body.latitude)]
+      };
+    }
+
     // Log what we're updating
+    console.log(`📝 Updating shop ${id} with fields:`);
     Object.keys(updates).forEach(key => {
       console.log(`  ${key}:`, updates[key]);
     });
@@ -4502,9 +4609,6 @@ export const updateShopByAdmin = async (req, res) => {
     });
   }
 };
-
-
-
 
 
 

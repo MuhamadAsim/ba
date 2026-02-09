@@ -14,6 +14,14 @@ const shopSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    notificationEmail: {
+      type: String,
+      lowercase: true,//
+      trim: true,
+      default: function () {
+        return this.email; // Default to the login email
+      }
+    },
 
     registrationMethod: {
       type: String,
@@ -200,7 +208,7 @@ const shopSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "active", "suspended", "cancelled", "blocked","pending_approval"],
+      enum: ["pending", "active", "suspended", "cancelled", "blocked", "pending_approval"],
       default: "pending",
     },
 

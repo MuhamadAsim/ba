@@ -49,7 +49,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // 5) Email Body (HTML) with Direct Dashboard Link
     // ------------------------------------
     const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
-    
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
@@ -100,19 +100,19 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // ------------------------------------
     if (customer.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-      
+
       // Clean the phone number - remove ALL non-numeric characters
       const cleanedPhone = customer.phone.replace(/\D/g, '');
-      
+
       console.log(`📱 SMS Details for customer ${customer.name}:`, {
         originalPhone: customer.phone,
         cleanedPhone: cleanedPhone,
         phoneLength: cleanedPhone.length
       });
-      
+
       // Check if the phone number already has country code
       let fullPhone;
-      
+
       if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
         // Already has US country code
         fullPhone = `+${cleanedPhone}`;
@@ -126,7 +126,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
         return;
       }
-      
+
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
         console.error(`❌ Invalid phone number format: ${fullPhone}`);
@@ -159,7 +159,7 @@ Check your email for details and to respond to this offer.
           errorMessage: twilioError.message,
           phoneNumber: fullPhone
         });
-        
+
         // Check for common Twilio errors
         if (twilioError.code === 21211) {
           console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
@@ -170,7 +170,7 @@ Check your email for details and to respond to this offer.
     } else {
       console.log(`ℹ️ No SMS sent to customer ${customer.name} - missing phone or Twilio credentials`);
     }
-    
+
   } catch (err) {
     console.error("❌ notifyNewOffer FAILED:", err.message);
   }

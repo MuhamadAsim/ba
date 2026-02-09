@@ -317,10 +317,10 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
       });
     }
 
-    const parentShop = shopUser.shop;
+    const shop = shopUser.shop;
 
     // Check if parent shop is blocked
-    if (parentShop.isBlocked === true || parentShop.status === "blocked") {
+    if (shop.isBlocked === true || shop.status === "blocked") {
       return res.json({
         status: "blocked",
         message: "The shop account has been blocked. Please contact the shop owner.",
@@ -328,7 +328,7 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
     }
 
     // Check if parent shop is verified
-    if (!parentShop.isVerified) {
+    if (!shop.isVerified) {
       return res.json({
         status: "not_approved",
         message: "The shop account is pending admin approval.",
@@ -337,7 +337,7 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
 
     // Check if parent shop has active subscription (for staff access)
     // Using the new subscription system with virtuals
-    if (!parentShop.hasActiveSubscription) {
+    if (!shop.hasActiveSubscription) {
       return res.json({
         status: "subscription_required",
         message: "The shop's subscription is inactive. Please contact the shop owner.",
@@ -352,7 +352,7 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
     const token = jwt.sign(
       {
         userId: shopUser._id,
-        shopId: parentShop._id,
+        shopId: shop._id,
         email: shopUser.email,
         role: shopUser.role, // "staff" or "manager"
         userType: "staff", // Identifier to distinguish from owner
@@ -364,14 +364,14 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
     );
 
     // NEW: Check if plan allows sub-account creation
-    const canCreateSubAccounts = parentShop.plan &&
-      parentShop.plan.features &&
-      parentShop.plan.features.subAccounts > 0;
+    const canCreateSubAccounts = shop.plan &&
+      shop.plan.features &&
+      shop.plan.features.subAccounts > 0;
 
     // Get plan display name and price from populated plan
-    const planDisplay = parentShop.plan ? parentShop.plan.name : "";
-    const planPrice = parentShop.plan ? parentShop.plan.price : 0;
-    const stripePriceId = parentShop.plan ? parentShop.plan.stripePriceId : "";
+    const planDisplay = shop.plan ? shop.plan.name : "";
+    const planPrice = shop.plan ? shop.plan.price : 0;
+    const stripePriceId = shop.plan ? shop.plan.stripePriceId : "";
 
     // Return staff/manager data (NO subscription details)
     res.json({
@@ -390,58 +390,59 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
       },
       shop: {
         // Make sure this matches the owner structure exactly
-        id: parentShop._id,
-        email: parentShop.email,
-        businessName: parentShop.businessName,
-        ownerName: parentShop.ownerName,
-        plan: parentShop.plan ? parentShop.plan._id.toString() : "", // Keep as string ID for compatibility
+        id: shop._id,
+        email: shop.email,
+        notificationEmail: shop.notificationEmail || shop.email, // ADD THIS
+        businessName: shop.businessName,
+        ownerName: shop.ownerName,
+        plan: shop.plan ? shop.plan._id.toString() : "", // Keep as string ID for compatibility
         planDisplay: planDisplay,
         planPrice: planPrice,
         stripePriceId: stripePriceId,
-        avatar: parentShop.profilePic || "",
+        avatar: shop.profilePic || "",
 
         // Contact - same fields as owner
-        countryCode: parentShop.countryCode,
-        phone: parentShop.phone,
-        ownerPhone: parentShop.ownerPhone,
-        website: parentShop.website,
-        country: parentShop.country,
-        zipCode: parentShop.zipCode,
-        latitude: parentShop.latitude,
-        longitude: parentShop.longitude,
-        address: parentShop.address,
+        countryCode: shop.countryCode,
+        phone: shop.phone,
+        ownerPhone: shop.ownerPhone,
+        website: shop.website,
+        country: shop.country,
+        zipCode: shop.zipCode,
+        latitude: shop.latitude,
+        longitude: shop.longitude,
+        address: shop.address,
 
         // Services - same fields as owner
-        services: parentShop.services,
-        vinylFilms: parentShop.vinylFilms,
-        certificates: parentShop.certificates,
-        certificateFiles: parentShop.certificateFiles,
-        startDate: parentShop.startDate?.toISOString?.() || parentShop.startDate,
-        bio: parentShop.additionalInfo || "",
+        services: shop.services,
+        vinylFilms: shop.vinylFilms,
+        certificates: shop.certificates,
+        certificateFiles: shop.certificateFiles,
+        startDate: shop.startDate?.toISOString?.() || shop.startDate,
+        bio: shop.additionalInfo || "",
 
         // Photos - same fields as owner
-        workSpacePhoto: parentShop.workSpacePhoto,
-        storeFrontPhoto: parentShop.storeFrontPhoto,
+        workSpacePhoto: shop.workSpacePhoto,
+        storeFrontPhoto: shop.storeFrontPhoto,
 
         // Legal - same fields as owner
-        legalEntityName: parentShop.legalEntityName,
-        insuranceCarrier: parentShop.insuranceCarrier,
-        policyNumber: parentShop.policyNumber,
-        policyExpiration: parentShop.policyExpiration,
-        insuranceCertificate: parentShop.insuranceCertificate,
+        legalEntityName: shop.legalEntityName,
+        insuranceCarrier: shop.insuranceCarrier,
+        policyNumber: shop.policyNumber,
+        policyExpiration: shop.policyExpiration,
+        insuranceCertificate: shop.insuranceCertificate,
 
         // Social media - same fields as owner
-        instagramLink: parentShop.socialMedia?.instagram || "",
-        facebookLink: parentShop.socialMedia?.facebook || "",
-        linkedinLink: parentShop.socialMedia?.linkedin || "",
-        tiktokLink: parentShop.socialMedia?.tiktok || "", // FIXED: Changed shop to parentShop
-        youtubeLink: parentShop.socialMedia?.youtube || "", // FIXED: Changed shop to parentShop
+        instagramLink: shop.socialMedia?.instagram || "",
+        facebookLink: shop.socialMedia?.facebook || "",
+        linkedinLink: shop.socialMedia?.linkedin || "",
+        tiktokLink: shop.socialMedia?.tiktok || "", // FIXED: Changed shop to shop
+        youtubeLink: shop.socialMedia?.youtube || "", // FIXED: Changed shop to shop
 
         // New fields from registration - same fields as owner
-        financingOffered: parentShop.financingOffered || false,
-        acceptedPayments: parentShop.acceptedPayments || [],
-        yearsExperience: parentShop.yearsExperience || "",
-        businessHours: parentShop.businessHours || {
+        financingOffered: shop.financingOffered || false,
+        acceptedPayments: shop.acceptedPayments || [],
+        yearsExperience: shop.yearsExperience || "",
+        businessHours: shop.businessHours || {
           monday: { open: "", close: "", closed: false },
           tuesday: { open: "", close: "", closed: false },
           wednesday: { open: "", close: "", closed: false },
@@ -452,47 +453,47 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
         },
 
         // Ratings - same fields as owner
-        rating: parentShop.rating || 0,
-        reviewCount: parentShop.reviewCount || 0,
+        rating: shop.rating || 0,
+        reviewCount: shop.reviewCount || 0,
 
         // Verification - same fields as owner
-        isEmailVerified: parentShop.isEmailVerified,
-        isVerified: parentShop.isVerified,
-        verifiedAt: parentShop.verifiedAt?.toISOString?.() || null,
-        acceptedPolicy: parentShop.acceptedPolicy,
-        policyAcceptedAt: parentShop.policyAcceptedAt?.toISOString?.() || null,
-        status: parentShop.status,
-        isBlocked: parentShop.isBlocked,
-        blockedAt: parentShop.blockedAt,
-        blockedReason: parentShop.blockedReason,
+        isEmailVerified: shop.isEmailVerified,
+        isVerified: shop.isVerified,
+        verifiedAt: shop.verifiedAt?.toISOString?.() || null,
+        acceptedPolicy: shop.acceptedPolicy,
+        policyAcceptedAt: shop.policyAcceptedAt?.toISOString?.() || null,
+        status: shop.status,
+        isBlocked: shop.isBlocked,
+        blockedAt: shop.blockedAt,
+        blockedReason: shop.blockedReason,
 
         // Subscription fields - same fields as owner (but with parent shop's data)
-        subscriptionStatus: parentShop.subscriptionStatus,
-        stripeCustomerId: parentShop.stripeCustomerId,
-        stripeSubscriptionId: parentShop.stripeSubscriptionId,
-        hasActiveSubscription: parentShop.hasActiveSubscription,
-        isInTrial: parentShop.isInTrial,
-        trialDaysRemaining: parentShop.trialDaysRemaining,
+        subscriptionStatus: shop.subscriptionStatus,
+        stripeCustomerId: shop.stripeCustomerId,
+        stripeSubscriptionId: shop.stripeSubscriptionId,
+        hasActiveSubscription: shop.hasActiveSubscription,
+        isInTrial: shop.isInTrial,
+        trialDaysRemaining: shop.trialDaysRemaining,
 
         // Current subscription details
-        currentSubscription: parentShop.currentSubscription ? {
-          planName: parentShop.plan?.name || "",
-          amount: parentShop.plan?.price || 0,
-          currency: parentShop.plan?.currency || "USD",
-          interval: parentShop.plan?.interval || "month",
-          currentPeriodStart: parentShop.currentSubscription.currentPeriodStart,
-          currentPeriodEnd: parentShop.currentSubscription.currentPeriodEnd,
-          trialStart: parentShop.currentSubscription.trialStart,
-          trialEnd: parentShop.currentSubscription.trialEnd,
-          cancelAtPeriodEnd: parentShop.currentSubscription.cancelAtPeriodEnd,
-          stripeSubscriptionId: parentShop.stripeSubscriptionId
+        currentSubscription: shop.currentSubscription ? {
+          planName: shop.plan?.name || "",
+          amount: shop.plan?.price || 0,
+          currency: shop.plan?.currency || "USD",
+          interval: shop.plan?.interval || "month",
+          currentPeriodStart: shop.currentSubscription.currentPeriodStart,
+          currentPeriodEnd: shop.currentSubscription.currentPeriodEnd,
+          trialStart: shop.currentSubscription.trialStart,
+          trialEnd: shop.currentSubscription.trialEnd,
+          cancelAtPeriodEnd: shop.currentSubscription.cancelAtPeriodEnd,
+          stripeSubscriptionId: shop.stripeSubscriptionId
         } : null,
 
         // NEW: Sub-account permission flag
         canCreateSubAccounts: canCreateSubAccounts,
 
         // Additional fields if they exist
-        additionalInfo: parentShop.additionalInfo || "",
+        additionalInfo: shop.additionalInfo || "",
       },
     });
 
@@ -691,6 +692,7 @@ const handleOwnerLogin = async (shop, password, req, res) => {
       shop: {
         id: shop._id,
         email: shop.email,
+        notificationEmail: shop.notificationEmail || shop.email, // ADD THIS
         businessName: shop.businessName,
         ownerName: shop.ownerName,
         plan: shop.plan ? shop.plan._id.toString() : "", // Keep as string ID for compatibility
@@ -1108,6 +1110,7 @@ export const completeRegistration = async (req, res) => {
       legalEntityName,
       ownerName,
       email,
+      notificationEmail, // Added this field
       countryCode,
       zipCode,
       latitude,
@@ -1160,7 +1163,18 @@ export const completeRegistration = async (req, res) => {
       status: shop.status
     });
 
-    // 2️⃣ Validate plan
+    // 2️⃣ Validate notification email if provided
+    if (notificationEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(notificationEmail)) {
+        return res.status(400).json({
+          status: "error",
+          message: "Invalid notification email format"
+        });
+      }
+    }
+
+    // 3️⃣ Validate plan
     if (!plan) {
       return res.status(400).json({
         status: "error",
@@ -1181,7 +1195,7 @@ export const completeRegistration = async (req, res) => {
       });
     }
 
-    // 3️⃣ Helpers
+    // 4️⃣ Helpers
     const safeParse = (val, fallback) => {
       try {
         return typeof val === "string" ? JSON.parse(val) : val ?? fallback;
@@ -1194,7 +1208,7 @@ export const completeRegistration = async (req, res) => {
     const parsedAcceptedPayments = safeParse(acceptedPayments, []);
     const parsedBusinessHours = safeParse(businessHours, {});
 
-    // 4️⃣ Update shop info
+    // 5️⃣ Update shop info
     shop.businessName = businessName || shop.businessName;
     shop.legalEntityName = legalEntityName || shop.legalEntityName;
     shop.ownerName = ownerName || shop.ownerName;
@@ -1206,6 +1220,9 @@ export const completeRegistration = async (req, res) => {
     shop.zipCode = zipCode || shop.zipCode;
     shop.country = country || shop.country;
     shop.services = parsedServices.length ? parsedServices : shop.services;
+    
+    // Add notification email - prioritize provided value, fallback to login email
+    shop.notificationEmail = notificationEmail || email || shop.notificationEmail;
 
     shop.financingOffered =
       typeof financingOffered === "string"
@@ -1269,10 +1286,10 @@ export const completeRegistration = async (req, res) => {
       }
     }
 
-    // 5️⃣ Assign plan
+    // 6️⃣ Assign plan
     shop.plan = selectedPlan._id;
 
-    // 6️⃣ Start TRIAL (NO STRIPE)
+    // 7️⃣ Start TRIAL (NO STRIPE)
     const trialDays = selectedPlan.trialDays || 30;
     const trialStart = new Date();
     const trialEnd = new Date(trialStart);
@@ -1291,7 +1308,7 @@ export const completeRegistration = async (req, res) => {
       cancelAtPeriodEnd: false,
     };
 
-    // 7️⃣ Initialize bid usage for TRIAL
+    // 8️⃣ Initialize bid usage for TRIAL
     shop.bidUsage = {
       usedThisPeriod: 0,
       periodStart: trialStart,
@@ -1331,7 +1348,8 @@ export const completeRegistration = async (req, res) => {
         verificationStatus: {
           isVerified: shop.isVerified,
           status: shop.status
-        }
+        },
+        notificationEmail: shop.notificationEmail // Return the notification email in response
       },
     });
   } catch (error) {
@@ -1347,12 +1365,6 @@ export const completeRegistration = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
 
 
 
@@ -1387,9 +1399,28 @@ export const updateShopProfile = async (req, res) => {
       hasLinkedinLink: !!req.body.linkedinLink,
       hasTiktokLink: !!req.body.tiktokLink, // Debug TikTok
       hasYoutubeLink: !!req.body.youtubeLink, // Debug YouTube
+      hasNotificationEmail: !!req.body.notificationEmail, // Debug notification email
+      notificationEmailValue: req.body.notificationEmail || "EMPTY",
       tiktokLinkValue: req.body.tiktokLink || "EMPTY",
       youtubeLinkValue: req.body.youtubeLink || "EMPTY",
     });
+
+    // ✅ Handle notification email - use provided email or fallback to shop email
+    let notificationEmail = req.body.notificationEmail;
+    if (!notificationEmail || notificationEmail.trim() === '') {
+      // If no notification email provided, use the shop's current notification email or login email
+      notificationEmail = shop.notificationEmail || shop.email;
+      console.log("📧 Using fallback notification email:", notificationEmail);
+    } else {
+      // Validate notification email format if provided
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(notificationEmail.trim())) {
+        return res.status(400).json({
+          message: "Invalid notification email format",
+        });
+      }
+      notificationEmail = notificationEmail.trim().toLowerCase();
+    }
 
     // Parse JSON fields safely
     let parsedServices = [];
@@ -1468,6 +1499,7 @@ export const updateShopProfile = async (req, res) => {
     // Merge all updates
     const updatedData = {
       ...req.body,
+      notificationEmail, // ✅ ADD notification email to update
       services: parsedServices,
       businessHours: parsedBusinessHours,
       acceptedPayments: parsedAcceptedPayments,
@@ -1488,13 +1520,16 @@ export const updateShopProfile = async (req, res) => {
     delete updatedData.linkedinLink;
     delete updatedData.tiktokLink; // Add this
     delete updatedData.youtubeLink; // Add this
+    // Keep notificationEmail in the data since we added it above
 
     // DEBUG: Log data before update
     console.log("📤 Data to update database:", {
+      notificationEmail: updatedData.notificationEmail,
+      shopEmail: shop.email,
       socialMediaInUpdate: updatedData.socialMedia,
       tiktokValue: updatedData.socialMedia.tiktok,
       youtubeValue: updatedData.socialMedia.youtube,
-      otherFields: Object.keys(updatedData).filter(key => !['socialMedia', '_id'].includes(key))
+      otherFields: Object.keys(updatedData).filter(key => !['socialMedia', '_id', 'notificationEmail'].includes(key))
     });
 
     const updatedShop = await Shop.findByIdAndUpdate(
@@ -1506,6 +1541,7 @@ export const updateShopProfile = async (req, res) => {
     // DEBUG: Log after update
     console.log("✅ Shop updated successfully:", {
       shopId: updatedShop._id,
+      notificationEmail: updatedShop.notificationEmail,
       updatedSocialMedia: updatedShop.socialMedia,
       updatedTiktok: updatedShop.socialMedia?.tiktok || "EMPTY IN DB",
       updatedYoutube: updatedShop.socialMedia?.youtube || "EMPTY IN DB",
@@ -1522,6 +1558,8 @@ export const updateShopProfile = async (req, res) => {
         linkedinLink: updatedShop.socialMedia?.linkedin || "",
         tiktokLink: updatedShop.socialMedia?.tiktok || "", // Add this
         youtubeLink: updatedShop.socialMedia?.youtube || "", // Add this
+        // Ensure notificationEmail is included in response
+        notificationEmail: updatedShop.notificationEmail || updatedShop.email,
       },
     });
   } catch (error) {
@@ -1535,7 +1573,6 @@ export const updateShopProfile = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
 
 
 
@@ -1844,6 +1881,7 @@ export const googleCallbackPartner = async (req, res) => {
     const shopData = {
       id: shop._id,
       email: shop.email,
+      notificationEmail: shop.notificationEmail || shop.email, // ADD THIS
       businessName: shop.businessName,
       ownerName: shop.ownerName,
       plan: shop.plan ? shop.plan._id.toString() : "", // Keep as string ID for compatibility
