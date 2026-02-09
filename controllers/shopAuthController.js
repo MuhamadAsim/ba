@@ -229,6 +229,9 @@ export const verifyOtp = async (req, res) => {
 
 
 
+
+
+
 export const signin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -281,6 +284,7 @@ export const signin = async (req, res) => {
     });
   }
 };
+
 
 
 // ============================================
@@ -430,8 +434,8 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
         instagramLink: parentShop.socialMedia?.instagram || "",
         facebookLink: parentShop.socialMedia?.facebook || "",
         linkedinLink: parentShop.socialMedia?.linkedin || "",
-        tiktokLink: shop.socialMedia?.tiktok || "", // Add this
-        youtubeLink: shop.socialMedia?.youtube || "", // Add this
+        tiktokLink: parentShop.socialMedia?.tiktok || "", // FIXED: Changed shop to parentShop
+        youtubeLink: parentShop.socialMedia?.youtube || "", // FIXED: Changed shop to parentShop
 
         // New fields from registration - same fields as owner
         financingOffered: parentShop.financingOffered || false,
@@ -500,6 +504,10 @@ const handleStaffLogin = async (shopUser, password, req, res) => {
     });
   }
 };
+
+
+
+
 
 // ============================================
 // HANDLE OWNER LOGIN (UPDATED FOR NEW MODEL)
