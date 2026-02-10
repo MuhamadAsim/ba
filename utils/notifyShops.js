@@ -46,7 +46,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       status: "active",
       isEmailVerified: true,
       isVerified: true,
-    }).select("email notificationEmail phone countryCode businessName ownerName location latitude longitude plan")
+    }).select("email phone countryCode businessName ownerName location latitude longitude plan")
       .populate({
         path: 'plan',
         select: 'features name'
@@ -143,7 +143,6 @@ export const notifyShopsForBid = async (newBid, customer) => {
     
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
       <p>You received this notification because you are within ${radiusToUse} miles of the bid location.</p>
-      <p><small>If you'd like to change your notification email, update it in your shop settings.</small></p>
     </div>
   </div>
 `;
@@ -162,9 +161,6 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
     const notificationPromises = [];
 
     for (const shop of nearbyShops) {
-      // Determine which email to use for notifications
-      const notificationEmail = shop.notificationEmail || shop.email;
-      
       // Get notification delay from plan (in minutes), default to 0 if no plan
       let notificationDelayMinutes = 0;
       
@@ -177,9 +173,8 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
 
       const sendNotifications = async () => {
         try {
-          // EMAIL - Use notificationEmail instead of shop.email
-          await sendEmail(notificationEmail, subject, emailHTML);
-          console.log(`📧 Bid notification email sent to shop ${shop.businessName}: ${notificationEmail} (${shop.notificationEmail ? 'notificationEmail field' : 'main email field'})`);
+          // EMAIL
+          await sendEmail(shop.email, subject, emailHTML);
 
           // SMS - WITH DETAILED LOGGING AND VALIDATION
           if (shop.phone) {
@@ -208,8 +203,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
               fullPhone: fullPhone,
               shopPlan: shop.plan?.name || 'No plan',
               notificationDelay: `${notificationDelayMinutes} minutes`,
-              smsTextLength: smsText.length,
-              notificationEmail: notificationEmail
+              smsTextLength: smsText.length
             });
 
             // Validate phone number format (E.164 format for Twilio)
@@ -229,8 +223,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
               console.log(`✅ SMS sent to ${shop.businessName}:`, {
                 messageId: message.sid,
                 to: fullPhone,
-                delayApplied: `${notificationDelayMinutes} minutes`,
-                notificationEmail: notificationEmail
+                delayApplied: `${notificationDelayMinutes} minutes`
               });
 
             } catch (twilioError) {
@@ -240,8 +233,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
                 moreInfo: twilioError.moreInfo,
                 phoneNumber: fullPhone,
                 twilioFromNumber: process.env.TWILIO_PHONE_NUMBER,
-                delayApplied: `${notificationDelayMinutes} minutes`,
-                notificationEmail: notificationEmail
+                delayApplied: `${notificationDelayMinutes} minutes`
               });
 
               // Check for common Twilio errors
@@ -260,9 +252,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
           console.error(`❌ Notification error for shop ${shop.businessName}:`, {
             error: err.message,
             stack: err.stack,
-            delayApplied: `${notificationDelayMinutes} minutes`,
-            notificationEmail: notificationEmail,
-            mainEmail: shop.email
+            delayApplied: `${notificationDelayMinutes} minutes`
           });
         }
       };
@@ -272,7 +262,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
         notificationPromises.push(
           new Promise(resolve => {
             setTimeout(async () => {
-              console.log(`⏰ Delayed notification for ${shop.businessName} (${notificationDelayMinutes} minutes delay) - Email: ${notificationEmail}`);
+              console.log(`⏰ Delayed notification for ${shop.businessName} (${notificationDelayMinutes} minutes delay)`);
               await sendNotifications();
               resolve();
             }, notificationDelayMinutes * 60 * 1000); // Convert minutes to milliseconds
@@ -296,12 +286,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
       notificationsSent: fulfilled,
       notificationsFailed: rejected,
       radiusUsed: `${radiusToUse} miles`,
-      timestamp: new Date().toISOString(),
-      emailsSentTo: nearbyShops.map(shop => ({
-        business: shop.businessName,
-        email: shop.notificationEmail || shop.email,
-        usesNotificationEmail: !!shop.notificationEmail
-      }))
+      timestamp: new Date().toISOString()
     });
 
     // Log any rejected promises

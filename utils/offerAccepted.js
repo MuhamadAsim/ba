@@ -7,8 +7,8 @@ import twilio from "twilio";
 
 export const offerAccepted = async ({ shopId, customerId, subject, message, bid, offer }) => {
   try {
-    // Fetch shop - include notificationEmail in select
-    const shop = await Shop.findById(shopId).select("email notificationEmail phone countryCode businessName ownerName plan");
+    // Fetch shop
+    const shop = await Shop.findById(shopId).select("email phone countryCode businessName ownerName plan");
     if (!shop) {
       return;
     }
@@ -16,10 +16,6 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     // Fetch customer (optional)
     const customer = await Customer.findById(customerId).select("name email");
     const customerName = customer?.name || "Customer";
-
-    // Determine which email to use for notifications
-    const notificationEmail = shop.notificationEmail || shop.email;
-    console.log(`📧 Notification email set to: ${notificationEmail} (from ${shop.notificationEmail ? 'notificationEmail field' : 'main email field'})`);
 
     // Direct link for shop dashboard
     const shopDashboardLink = "https://bidawrap.com/partner/dashboard/bids";
@@ -69,14 +65,13 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
 
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
           <p>This notification was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
-          ${shop.notificationEmail ? `<p><small>Notification email: ${shop.notificationEmail} (main email: ${shop.email})</small></p>` : ""}
         </div>
       </div>
     `;
 
     // ---------------------- SENDGRID EMAIL ----------------------
-    await sendEmail(notificationEmail, subject, html);
-    console.log(`📧 Offer accepted notification email sent to shop: ${notificationEmail} (Business: ${shop.businessName})`);
+    await sendEmail(shop.email, subject, html);
+    console.log(`📧 Offer accepted notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
     if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {

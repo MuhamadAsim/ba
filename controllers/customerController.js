@@ -1086,7 +1086,7 @@ export const getShopProfile = async (req, res) => {
       _id: shop._id,
       businessName: shop.businessName || "",
       ownerName: shop.ownerName || "",
-      email: shop.email || "",
+      email: shop.notificationEmail || shop.email || "",
       countryCode: shop.countryCode || "",
       phone: shop.phone || "",
       website: shop.website || "",

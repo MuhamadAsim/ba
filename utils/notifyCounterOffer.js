@@ -10,15 +10,11 @@ export const notifyCounterOffer = async (offer, counterData) => {
     const shopId = offer.shopId;
     const customerId = offer.bidId.user_id;
 
-    // Fetch shop - ADDED notificationEmail
-    const shop = await Shop.findById(shopId).select("email notificationEmail phone countryCode businessName ownerName plan");
+    // Fetch shop - ADDED countryCode and plan
+    const shop = await Shop.findById(shopId).select("email phone countryCode businessName ownerName plan");
     if (!shop) {
       return;
     }
-
-    // Determine which email to use for notifications
-    const notificationEmail = shop.notificationEmail || shop.email;
-    console.log(`📧 Counter offer notification email set to: ${notificationEmail} (from ${shop.notificationEmail ? 'notificationEmail field' : 'main email field'})`);
 
     // Fetch customer
     const customer = await Customer.findById(customerId).select("name email");
@@ -73,14 +69,13 @@ export const notifyCounterOffer = async (offer, counterData) => {
 
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
           <p>This counter-offer was sent to <strong>${shop.businessName}</strong> (${shop.ownerName || ''}).</p>
-          ${shop.notificationEmail ? `<p><small>Notification email: ${shop.notificationEmail} (main email: ${shop.email})</small></p>` : ""}
         </div>
       </div>
     `;
 
     // ---------------------- EMAIL ----------------------
-    await sendEmail(notificationEmail, subject, html);
-    console.log(`📧 Counter offer notification email sent to shop: ${notificationEmail} (Business: ${shop.businessName})`);
+    await sendEmail(shop.email, subject, html);
+    console.log(`📧 Counter offer notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
     if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
@@ -108,8 +103,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
         cleanedPhone: cleanedPhone,
         countryCode: countryCode,
         fullPhone: fullPhone,
-        shopPlan: shop.plan,
-        notificationEmail: notificationEmail
+        shopPlan: shop.plan
       });
 
       // Validate phone number format (E.164 format for Twilio)
@@ -143,8 +137,7 @@ Check your email for details and to respond to this counter offer.
         console.error(`❌ Twilio SMS Error for shop ${shop.businessName}:`, {
           errorCode: twilioError.code,
           errorMessage: twilioError.message,
-          phoneNumber: fullPhone,
-          notificationEmail: notificationEmail
+          phoneNumber: fullPhone
         });
         
         // Check for common Twilio errors
