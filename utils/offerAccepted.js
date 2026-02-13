@@ -74,7 +74,7 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     console.log(`📧 Offer accepted notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
-    if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+    if (shop.ownerPhone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
       // Create SMS text WITHOUT link
@@ -90,7 +90,7 @@ Check your email for details and to manage this bid.
       `;
 
       // Clean the phone number - remove all non-numeric characters
-      const cleanedPhone = shop.phone.replace(/\D/g, '');
+      const cleanedPhone = shop.ownerPhone.replace(/\D/g, '');
       
       // Get country code (default to +1 if not provided)
       let countryCode = shop.countryCode || "+1";
@@ -107,7 +107,7 @@ Check your email for details and to manage this bid.
       const fullPhone = `+${countryCodeNumber}${cleanedPhone}`;
       
       console.log(`📱 SMS Details for ${shop.businessName}:`, {
-        originalPhone: shop.phone,
+        originalPhone: shop.ownerPhone,
         cleanedPhone: cleanedPhone,
         countryCode: countryCode,
         fullPhone: fullPhone,

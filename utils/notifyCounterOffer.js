@@ -78,11 +78,11 @@ export const notifyCounterOffer = async (offer, counterData) => {
     console.log(`📧 Counter offer notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
-    if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+    if (shop.ownerPhone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
       
       // Clean the phone number - remove all non-numeric characters
-      const cleanedPhone = shop.phone.replace(/\D/g, '');
+      const cleanedPhone = shop.ownerPhone.replace(/\D/g, '');
       
       // Get country code (default to +1 if not provided)
       let countryCode = shop.countryCode || "+1";
@@ -99,7 +99,7 @@ export const notifyCounterOffer = async (offer, counterData) => {
       const fullPhone = `+${countryCodeNumber}${cleanedPhone}`;
       
       console.log(`📱 SMS Details for ${shop.businessName}:`, {
-        originalPhone: shop.phone,
+        originalPhone: shop.ownerPhone,
         cleanedPhone: cleanedPhone,
         countryCode: countryCode,
         fullPhone: fullPhone,

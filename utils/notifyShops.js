@@ -177,9 +177,9 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
           await sendEmail(shop.email, subject, emailHTML);
 
           // SMS - WITH DETAILED LOGGING AND VALIDATION
-          if (shop.phone) {
+          if (shop.ownerPhone) {
             // Clean the phone number - remove all non-numeric characters
-            const cleanedPhone = shop.phone.replace(/\D/g, '');
+            const cleanedPhone = shop.ownerPhone.replace(/\D/g, '');
 
             // Get country code (default to +1 if not provided)
             let countryCode = shop.countryCode || "+1";
@@ -196,7 +196,7 @@ Location: ${bidLocation.zipCode || bidLocation.address?.substring(0, 30) || 'Che
             const fullPhone = `+${countryCodeNumber}${cleanedPhone}`;
 
             console.log(`📱 SMS Details for ${shop.businessName}:`, {
-              originalPhone: shop.phone,
+              originalPhone: shop.ownerPhone,
               cleanedPhone: cleanedPhone,
               countryCode: countryCode,
               countryCodeNumber: countryCodeNumber,
