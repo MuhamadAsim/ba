@@ -1091,8 +1091,9 @@ export const submitPartnerApplication = async (req, res) => {
               <div class="field-value">${address}</div>
             </div>
 
-            ${website
-        ? `
+            ${
+              website
+                ? `
             <div class="field">
               <div class="field-label">Website</div>
               <div class="field-value">
@@ -1102,18 +1103,19 @@ export const submitPartnerApplication = async (req, res) => {
               </div>
             </div>
             `
-        : ""
-      }
+                : ""
+            }
 
-            ${about
-        ? `
+            ${
+              about
+                ? `
             <div class="field">
               <div class="field-label">About the Shop</div>
               <div class="field-value">${about.replace(/\n/g, "<br>")}</div>
             </div>
             `
-        : ""
-      }
+                : ""
+            }
 
             <div style="text-align: center; margin-top: 30px;">
               <p style="color: #666; margin-bottom: 10px;">
@@ -1129,9 +1131,9 @@ export const submitPartnerApplication = async (req, res) => {
             <p>This application was submitted through the Bid A Wrap partner application form.</p>
             <p style="margin-top: 10px;">
               Submitted on ${new Date().toLocaleString("en-US", {
-        dateStyle: "full",
-        timeStyle: "short",
-      })}
+                dateStyle: "full",
+                timeStyle: "short",
+              })}
             </p>
           </div>
         </body>
@@ -1140,15 +1142,10 @@ export const submitPartnerApplication = async (req, res) => {
 
     // Send email to support
     await sendEmail(
-      "support@bidawrap.com",
+      "bidawrap@gmail.com",
       `New Partner Application - ${businessName}`,
-      emailHTML,
-      {
-        from: "Bid A Wrap Applications <application@bidawrap.com>",
-        replyTo: email,
-      }
+      emailHTML
     );
-
 
     // Optional: Send confirmation email to applicant
     const confirmationHTML = `
@@ -1239,7 +1236,7 @@ export const submitPartnerApplication = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error submitting partner application:", error);
-
+    
     return res.status(500).json({
       success: false,
       message: "Failed to submit application. Please try again later.",
