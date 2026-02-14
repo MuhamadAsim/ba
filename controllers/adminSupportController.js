@@ -10,7 +10,7 @@ export const createShopConversation = async (req, res) => {
   try {
     const { subject, message } = req.body;
     const files = req.files || [];
-    
+
     if (!subject || (!message && files.length === 0)) {
       return res.status(400).json({
         success: false,
@@ -20,7 +20,7 @@ export const createShopConversation = async (req, res) => {
 
     // Upload files to Cloudinary
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -34,10 +34,10 @@ export const createShopConversation = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -91,7 +91,7 @@ export const sendShopReply = async (req, res) => {
     const { conversationId } = req.params;
     const { message } = req.body;
     const files = req.files || [];
-    
+
     if (!message && files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -100,7 +100,7 @@ export const sendShopReply = async (req, res) => {
     }
 
     const conversation = await SupportConversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -118,7 +118,7 @@ export const sendShopReply = async (req, res) => {
 
     // Upload files to Cloudinary
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -132,10 +132,10 @@ export const sendShopReply = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -155,11 +155,11 @@ export const sendShopReply = async (req, res) => {
       attachments,
       readBy: ["shop"]
     });
-    
+
     conversation.lastMessageAt = new Date();
     conversation.lastMessageBy = "shop";
     conversation.status = "pending_reply";
-    
+
     await conversation.save();
 
     res.json({
@@ -181,20 +181,20 @@ export const sendShopReply = async (req, res) => {
 export const getShopConversations = async (req, res) => {
   try {
     const { status } = req.query;
-    let query = { 
+    let query = {
       type: "shop",
-      shopId: req.shop._id 
+      shopId: req.shop._id
     };
-    
+
     if (status && status !== "all") {
       query.status = status === "pending" ? "pending_reply" : status;
     }
-    
+
     const conversations = await SupportConversation.find(query)
       .sort({ lastMessageAt: -1 })
       .select("subject status messages lastMessageAt lastMessageBy createdAt updatedAt priority tags")
       .lean();
-    
+
     // Add unread count for each conversation
     const conversationsWithCount = conversations.map(conv => ({
       ...conv,
@@ -202,12 +202,12 @@ export const getShopConversations = async (req, res) => {
         msg => msg.sender === "admin" && !msg.readBy.includes("shop")
       ).length
     }));
-    
+
     res.json({
       success: true,
       data: conversationsWithCount
     });
-    
+
   } catch (error) {
     console.error("Error fetching conversations:", error);
     res.status(500).json({
@@ -221,37 +221,37 @@ export const getShopConversations = async (req, res) => {
 export const getConversationDetails = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    
+
     const conversation = await SupportConversation.findOne({
       _id: conversationId,
       type: "shop",
       shopId: req.shop._id
     });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: "Conversation not found"
       });
     }
-    
+
     // Mark admin messages as read by shop
     const unreadMessages = conversation.messages.filter(
       msg => msg.sender === "admin" && !msg.readBy.includes("shop")
     );
-    
+
     if (unreadMessages.length > 0) {
       unreadMessages.forEach(msg => {
         msg.readBy.push("shop");
       });
       await conversation.save();
     }
-    
+
     res.json({
       success: true,
       data: conversation
     });
-    
+
   } catch (error) {
     console.error("Error fetching conversation details:", error);
     res.status(500).json({
@@ -267,11 +267,11 @@ export const createCustomerConversation = async (req, res) => {
   try {
     const { subject, message } = req.body;
     const files = req.files || [];
-    
+
     // Add console.log to debug
     console.log("req.customer:", req.customer);
     console.log("req.user:", req.user);
-    
+
     if (!subject || (!message && files.length === 0)) {
       return res.status(400).json({
         success: false,
@@ -289,7 +289,7 @@ export const createCustomerConversation = async (req, res) => {
 
     // Upload files to Cloudinary
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -303,10 +303,10 @@ export const createCustomerConversation = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -361,7 +361,7 @@ export const sendCustomerReply = async (req, res) => {
     const { conversationId } = req.params;
     const { message } = req.body;
     const files = req.files || [];
-    
+
     if (!message && files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -370,7 +370,7 @@ export const sendCustomerReply = async (req, res) => {
     }
 
     const conversation = await SupportConversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -388,7 +388,7 @@ export const sendCustomerReply = async (req, res) => {
 
     // Upload files to Cloudinary
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -402,10 +402,10 @@ export const sendCustomerReply = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -425,11 +425,11 @@ export const sendCustomerReply = async (req, res) => {
       attachments,
       readBy: ["customer"]
     });
-    
+
     conversation.lastMessageAt = new Date();
     conversation.lastMessageBy = "customer";
     conversation.status = "pending_reply";
-    
+
     await conversation.save();
 
     res.json({
@@ -451,20 +451,20 @@ export const sendCustomerReply = async (req, res) => {
 export const getCustomerConversations = async (req, res) => {
   try {
     const { status } = req.query;
-    let query = { 
+    let query = {
       type: "customer",
       customerId: req.customer._id
     };
-    
+
     if (status && status !== "all") {
       query.status = status === "pending" ? "pending_reply" : status;
     }
-    
+
     const conversations = await SupportConversation.find(query)
       .sort({ lastMessageAt: -1 })
       .select("subject status messages lastMessageAt lastMessageBy createdAt updatedAt priority tags")
       .lean();
-    
+
     // Add unread count for each conversation
     const conversationsWithCount = conversations.map(conv => ({
       ...conv,
@@ -472,12 +472,12 @@ export const getCustomerConversations = async (req, res) => {
         msg => msg.sender === "admin" && !msg.readBy.includes("customer")
       ).length
     }));
-    
+
     res.json({
       success: true,
       data: conversationsWithCount
     });
-    
+
   } catch (error) {
     console.error("Error fetching customer conversations:", error);
     res.status(500).json({
@@ -494,37 +494,37 @@ export const getCustomerConversations = async (req, res) => {
 export const getCustomerConversationDetails = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    
+
     const conversation = await SupportConversation.findOne({
       _id: conversationId,
       type: "customer",
       customerId: req.customer._id
     });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: "Conversation not found"
       });
     }
-    
+
     // Mark admin messages as read by customer
     const unreadMessages = conversation.messages.filter(
       msg => msg.sender === "admin" && !msg.readBy.includes("customer")
     );
-    
+
     if (unreadMessages.length > 0) {
       unreadMessages.forEach(msg => {
         msg.readBy.push("customer");
       });
       await conversation.save();
     }
-    
+
     res.json({
       success: true,
       data: conversation
     });
-    
+
   } catch (error) {
     console.error("Error fetching customer conversation details:", error);
     res.status(500).json({
@@ -544,17 +544,17 @@ export const getAdminConversations = async (req, res) => {
   try {
     const { status, type } = req.query;
     let query = {};
-    
+
     // Filter by type if specified
     if (type && ["shop", "customer"].includes(type)) {
       query.type = type;
     }
-    
+
     // Filter by status if specified
     if (status && status !== "all") {
       query.status = status === "pending" ? "pending_reply" : status;
     }
-    
+
     const conversations = await SupportConversation.find(query)
       .sort({ lastMessageAt: -1 })
       .populate("shopId", "businessName email avatar")
@@ -562,20 +562,20 @@ export const getAdminConversations = async (req, res) => {
       .populate("assignedTo", "name email")
       .select("type subject status messages lastMessageAt lastMessageBy createdAt updatedAt priority tags shopId shopName shopEmail customerId customerName customerEmail assignedTo")
       .lean();
-    
+
     // Add unread count for admin for each conversation
     const conversationsWithCount = conversations.map(conv => ({
       ...conv,
-      unreadCount: conv.type === "shop" 
+      unreadCount: conv.type === "shop"
         ? conv.messages.filter(msg => msg.sender === "shop" && !msg.readBy.includes("admin")).length
         : conv.messages.filter(msg => msg.sender === "customer" && !msg.readBy.includes("admin")).length
     }));
-    
+
     res.json({
       success: true,
       data: conversationsWithCount
     });
-    
+
   } catch (error) {
     console.error("Error fetching admin conversations:", error);
     res.status(500).json({
@@ -589,37 +589,37 @@ export const getAdminConversations = async (req, res) => {
 export const getAdminConversationDetails = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    
+
     const conversation = await SupportConversation.findById(conversationId)
       .populate("shopId", "businessName email avatar")
       .populate("customerId", "name email avatar")
       .populate("assignedTo", "name email");
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
         message: "Conversation not found"
       });
     }
-    
+
     // Mark messages as read by admin
     const userType = conversation.type; // "shop" or "customer"
     const unreadMessages = conversation.messages.filter(
       msg => msg.sender === userType && !msg.readBy.includes("admin")
     );
-    
+
     if (unreadMessages.length > 0) {
       unreadMessages.forEach(msg => {
         msg.readBy.push("admin");
       });
       await conversation.save();
     }
-    
+
     res.json({
       success: true,
       data: conversation
     });
-    
+
   } catch (error) {
     console.error("Error fetching conversation details:", error);
     res.status(500).json({
@@ -635,7 +635,7 @@ export const sendAdminReply = async (req, res) => {
     const { conversationId } = req.params;
     const { message, closeConversation } = req.body;
     const files = req.files || [];
-    
+
     if (!message && files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -644,7 +644,7 @@ export const sendAdminReply = async (req, res) => {
     }
 
     const conversation = await SupportConversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -654,7 +654,7 @@ export const sendAdminReply = async (req, res) => {
 
     // Upload files to Cloudinary
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -668,10 +668,10 @@ export const sendAdminReply = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -691,22 +691,22 @@ export const sendAdminReply = async (req, res) => {
       attachments,
       readBy: ["admin"] // Admin has read their own message
     });
-    
+
     conversation.lastMessageAt = new Date();
     conversation.lastMessageBy = "admin";
-    
+
     // Update status based on closeConversation flag
     if (closeConversation === "true" || closeConversation === true) {
       conversation.status = "closed";
     } else {
       conversation.status = "open";
     }
-    
+
     // Assign to this admin if not already assigned
     if (!conversation.assignedTo && req.admin && req.admin.id) {
       conversation.assignedTo = req.admin.id;
     }
-    
+
     await conversation.save();
 
     res.json({
@@ -729,7 +729,7 @@ export const updateConversationStatus = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { status } = req.body;
-    
+
     if (!status || !["open", "closed", "pending_reply"].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -738,7 +738,7 @@ export const updateConversationStatus = async (req, res) => {
     }
 
     const conversation = await SupportConversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -769,12 +769,12 @@ export const updateConversationAssignment = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { assignedTo } = req.body;
-    
+
     // If assignedTo is "self", assign to current admin
     const adminId = assignedTo === "self" ? (req.admin && req.admin.id) : assignedTo;
 
     const conversation = await SupportConversation.findById(conversationId);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -805,17 +805,17 @@ export const getAdminMessages = async (req, res) => {
   try {
     const { status } = req.query;
     let query = {};
-    
+
     if (status && status !== "all") {
       query.status = status === "pending" ? "pending_reply" : status;
     }
-    
+
     const conversations = await SupportConversation.find(query)
       .sort({ lastMessageAt: -1 })
       .populate("shopId", "shopName email")
       .select("subject status messages lastMessageAt lastMessageBy createdAt updatedAt priority tags shopId shopName shopEmail assignedTo")
       .lean();
-    
+
     // Add unread count for admin for each conversation
     const conversationsWithCount = conversations.map(conv => ({
       ...conv,
@@ -823,12 +823,12 @@ export const getAdminMessages = async (req, res) => {
         msg => msg.sender === "shop" && !msg.readBy.includes("admin")
       ).length
     }));
-    
+
     res.json({
       success: true,
       data: conversationsWithCount
     });
-    
+
   } catch (error) {
     console.error("Error fetching admin conversations:", error);
     res.status(500).json({
@@ -844,7 +844,7 @@ export const replyToMessage = async (req, res) => {
     const { id } = req.params;
     const { message } = req.body;
     const files = req.files || [];
-    
+
     if (!message && files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -853,7 +853,7 @@ export const replyToMessage = async (req, res) => {
     }
 
     const conversation = await SupportConversation.findById(id);
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -863,7 +863,7 @@ export const replyToMessage = async (req, res) => {
 
     // Upload files to Cloudinary for admin
     const attachments = [];
-    
+
     for (const file of files) {
       try {
         const result = await new Promise((resolve, reject) => {
@@ -877,10 +877,10 @@ export const replyToMessage = async (req, res) => {
               else resolve(result);
             }
           );
-          
+
           stream.end(file.buffer);
         });
-        
+
         attachments.push({
           url: result.secure_url,
           filename: file.originalname,
@@ -900,16 +900,16 @@ export const replyToMessage = async (req, res) => {
       attachments,
       readBy: ["admin"]
     });
-    
+
     conversation.lastMessageAt = new Date();
     conversation.lastMessageBy = "admin";
     conversation.status = "open";
-    
+
     // Optionally assign conversation to this admin
     if (!conversation.assignedTo && req.admin && req.admin.id) {
       conversation.assignedTo = req.admin.id;
     }
-    
+
     await conversation.save();
 
     res.json({
@@ -1091,9 +1091,8 @@ export const submitPartnerApplication = async (req, res) => {
               <div class="field-value">${address}</div>
             </div>
 
-            ${
-              website
-                ? `
+            ${website
+        ? `
             <div class="field">
               <div class="field-label">Website</div>
               <div class="field-value">
@@ -1103,19 +1102,18 @@ export const submitPartnerApplication = async (req, res) => {
               </div>
             </div>
             `
-                : ""
-            }
+        : ""
+      }
 
-            ${
-              about
-                ? `
+            ${about
+        ? `
             <div class="field">
               <div class="field-label">About the Shop</div>
               <div class="field-value">${about.replace(/\n/g, "<br>")}</div>
             </div>
             `
-                : ""
-            }
+        : ""
+      }
 
             <div style="text-align: center; margin-top: 30px;">
               <p style="color: #666; margin-bottom: 10px;">
@@ -1131,9 +1129,9 @@ export const submitPartnerApplication = async (req, res) => {
             <p>This application was submitted through the Bid A Wrap partner application form.</p>
             <p style="margin-top: 10px;">
               Submitted on ${new Date().toLocaleString("en-US", {
-                dateStyle: "full",
-                timeStyle: "short",
-              })}
+        dateStyle: "full",
+        timeStyle: "short",
+      })}
             </p>
           </div>
         </body>
@@ -1144,8 +1142,13 @@ export const submitPartnerApplication = async (req, res) => {
     await sendEmail(
       "support@bidawrap.com",
       `New Partner Application - ${businessName}`,
-      emailHTML
+      emailHTML,
+      {
+        from: "Bid A Wrap Applications <application@bidawrap.com>",
+        replyTo: email,
+      }
     );
+
 
     // Optional: Send confirmation email to applicant
     const confirmationHTML = `
@@ -1236,7 +1239,7 @@ export const submitPartnerApplication = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error submitting partner application:", error);
-    
+
     return res.status(500).json({
       success: false,
       message: "Failed to submit application. Please try again later.",
