@@ -32,6 +32,11 @@ const demoVideoSchema = new mongoose.Schema(
       required: [true, 'Target audience is required'],
       default: 'customers',
     },
+    // ADDED: Tags field for categorizing videos
+    tags: [{
+      type: String,
+      trim: true,
+    }],
     isActive: {
       type: Boolean,
       default: true,
@@ -49,6 +54,8 @@ const demoVideoSchema = new mongoose.Schema(
 // Index for faster queries
 demoVideoSchema.index({ targetAudience: 1, isActive: 1 });
 demoVideoSchema.index({ createdAt: -1 });
+// ADDED: Index for tags
+demoVideoSchema.index({ tags: 1 });
 
 // Virtual for YouTube video ID extraction
 demoVideoSchema.virtual('youtubeId').get(function() {

@@ -3,12 +3,11 @@ import asyncHandler from 'express-async-handler';
 
 
 
-
 // @desc    Get all stories
 // @route   GET /api/stories
 // @access  Public
 export const getAllStories = asyncHandler(async (req, res) => {
-  const { active, limit, page, isBillboard, type } = req.query;
+  const { active, limit, page, isBillboard, type, tag, search } = req.query;
 
   // Build query
   let query = {};
@@ -34,21 +33,43 @@ export const getAllStories = asyncHandler(async (req, res) => {
     query.isBillboard = true;
   }
 
+  // Filter by tag (similar to blogs)
+  if (tag) {
+    query.tags = { $in: [tag] };
+  }
+
+  // Search functionality (similar to blogs)
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { story: { $regex: search, $options: "i" } },
+      { tags: { $regex: search, $options: "i" } }
+    ];
+  }
+
   // Pagination
   const pageNum = parseInt(page) || 1;
-  const limitNum = parseInt(limit) || 50;
+  const limitNum = parseInt(limit) || 12; // Changed default to 12 for better grid layout
   const skip = (pageNum - 1) * limitNum;
 
   try {
-    // Execute query
+    // Get total count for pagination
+    const total = await Story.countDocuments(query);
+
+    // Execute query with pagination
     const stories = await Story.find(query)
       .sort({ order: 1, createdAt: -1 })
       .limit(limitNum)
       .skip(skip)
-      .select('-__v');
+      .select('-__v')
+      .lean(); // Use lean() for better performance
 
-    // Get total count for pagination
-    const total = await Story.countDocuments(query);
+    // Get all unique tags for filter UI (similar to blogs)
+    const allTags = await Story.distinct('tags', { 
+      isActive: true, 
+      isBillboard: false,
+      tags: { $exists: true, $ne: [] } 
+    });
 
     res.status(200).json({
       success: true,
@@ -56,7 +77,8 @@ export const getAllStories = asyncHandler(async (req, res) => {
       total,
       page: pageNum,
       pages: Math.ceil(total / limitNum),
-      data: stories
+      data: stories,
+      availableTags: allTags, // Send available tags to frontend
     });
   } catch (error) {
     console.error('Database error:', error);
@@ -67,7 +89,6 @@ export const getAllStories = asyncHandler(async (req, res) => {
     });
   }
 });
-
 
 // @desc    Get single story by ID
 // @route   GET /api/stories/:id
@@ -86,9 +107,6 @@ export const getStoryById = asyncHandler(async (req, res) => {
   });
 });
 
-
-
-
 // @desc    Create new story
 // @route   POST /api/stories
 // @access  Private/Admin
@@ -103,7 +121,8 @@ export const createStory = asyncHandler(async (req, res) => {
     isApproved, 
     verifiedPurchase,
     isBillboard,
-    isActive  // ADDED: Get isActive from request body
+    isActive,
+    tags  // ADDED: Get tags from request body
   } = req.body;
 
   // Parse isBillboard flag
@@ -113,6 +132,19 @@ export const createStory = asyncHandler(async (req, res) => {
   const isActiveFlag = isActive !== undefined 
     ? (isActive === 'true' || isActive === true)
     : true;
+
+  // Parse tags - could be JSON string or already parsed array
+  let tagsArray = []; // Removed TypeScript type annotation
+  if (tags) {
+    try {
+      // If tags is a string, try to parse it as JSON
+      tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+    } catch (error) {
+      console.error('Error parsing tags:', error);
+      // If parsing fails, treat as single tag
+      tagsArray = [tags];
+    }
+  }
 
   // Validation - adjust based on whether it's a story or billboard
   if (!name) {
@@ -169,7 +201,8 @@ export const createStory = asyncHandler(async (req, res) => {
     verifiedPurchase: verifiedPurchase === 'true' || verifiedPurchase === true,
     order: req.body.order || 0,
     isBillboard: isBillboardFlag,
-    isActive: isActiveFlag  // ADDED: Save the isActive status
+    isActive: isActiveFlag,
+    tags: tagsArray // ADDED: Save tags
   });
 
   res.status(201).json({
@@ -178,8 +211,6 @@ export const createStory = asyncHandler(async (req, res) => {
     data: newStory
   });
 });
-
-
 
 
 
@@ -203,7 +234,8 @@ export const updateStory = asyncHandler(async (req, res) => {
     isApproved, 
     verifiedPurchase,
     isBillboard,
-    isActive  // ADDED: Get isActive from request body
+    isActive,
+    tags  // ADDED: Get tags from request body
   } = req.body;
 
   const storyToUpdate = await Story.findById(id);
@@ -221,6 +253,19 @@ export const updateStory = asyncHandler(async (req, res) => {
   const isActiveFlag = isActive !== undefined 
     ? (isActive === 'true' || isActive === true)
     : storyToUpdate.isActive;
+
+  // Parse tags - could be JSON string or already parsed array
+  let tagsArray = storyToUpdate.tags || [];
+  if (tags !== undefined) {
+    try {
+      // If tags is a string, try to parse it as JSON
+      tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+    } catch (error) {
+      console.error('Error parsing tags:', error);
+      // If parsing fails, treat as single tag
+      tagsArray = [tags];
+    }
+  }
 
   // For stories (not billboards), require story text if provided
   if (!isBillboardFlag && story === '') {
@@ -261,7 +306,8 @@ export const updateStory = asyncHandler(async (req, res) => {
       isApproved: isApproved !== undefined ? (isApproved === 'true' || isApproved === true) : storyToUpdate.isApproved,
       verifiedPurchase: verifiedPurchase !== undefined ? (verifiedPurchase === 'true' || verifiedPurchase === true) : storyToUpdate.verifiedPurchase,
       isBillboard: isBillboardFlag,
-      isActive: isActiveFlag  // ADDED: Update the isActive status
+      isActive: isActiveFlag,
+      tags: tagsArray // ADDED: Update tags
     },
     { new: true, runValidators: true }
   );
@@ -368,11 +414,13 @@ export const reorderStories = asyncHandler(async (req, res) => {
   });
 });
 
+
+
 // @desc    Get only stories (not billboards)
 // @route   GET /api/stories/type/stories
 // @access  Public
 export const getStoriesOnly = asyncHandler(async (req, res) => {
-  const { active, limit, page } = req.query;
+  const { active, limit, page, tag, search } = req.query;
 
   // Build query
   let query = { isBillboard: false };
@@ -385,29 +433,61 @@ export const getStoriesOnly = asyncHandler(async (req, res) => {
     query.isActive = true;
   }
 
+  // Filter by tag (similar to blogs)
+  if (tag) {
+    query.tags = { $in: [tag] };
+  }
+
+  // Search functionality (similar to blogs)
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { story: { $regex: search, $options: "i" } },
+      { tags: { $regex: search, $options: "i" } }
+    ];
+  }
+
   // Pagination
   const pageNum = parseInt(page) || 1;
-  const limitNum = parseInt(limit) || 50;
+  const limitNum = parseInt(limit) || 12; // Changed to 12 for better grid layout
   const skip = (pageNum - 1) * limitNum;
 
-  // Execute query
-  const stories = await Story.find(query)
-    .sort({ order: 1, createdAt: -1 })
-    .limit(limitNum)
-    .skip(skip)
-    .select('-__v');
+  try {
+    // Execute query
+    const stories = await Story.find(query)
+      .sort({ order: 1, createdAt: -1 })
+      .limit(limitNum)
+      .skip(skip)
+      .select('-__v')
+      .lean();
 
-  // Get total count for pagination
-  const total = await Story.countDocuments(query);
+    // Get total count for pagination
+    const total = await Story.countDocuments(query);
 
-  res.status(200).json({
-    success: true,
-    count: stories.length,
-    total,
-    page: pageNum,
-    pages: Math.ceil(total / limitNum),
-    data: stories
-  });
+    // Get all unique tags for filter UI (from stories only)
+    const allTags = await Story.distinct('tags', { 
+      isBillboard: false,
+      isActive: true,
+      tags: { $exists: true, $ne: [] } 
+    });
+
+    res.status(200).json({
+      success: true,
+      count: stories.length,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / limitNum),
+      data: stories,
+      availableTags: allTags, // Send available tags to frontend
+    });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Database error',
+      error: error.message
+    });
+  }
 });
 
 // @desc    Get only billboards
@@ -458,13 +538,11 @@ export const getBillboardsOnly = asyncHandler(async (req, res) => {
 
 
 
-
-
 // @desc    Get all stories for admin (includes active and inactive)
-// @route   GET /api/admin/happy-stories
+// @route   GET /api/admin/happy-stories-admin
 // @access  Private/Admin
 export const getAllStoriesAdmin = asyncHandler(async (req, res) => {
-  const { limit, page, isBillboard, type } = req.query;
+  const { limit, page, isBillboard, type, tag, search } = req.query;
 
   // Build query - NO isActive filter for admin
   let query = {};
@@ -482,6 +560,20 @@ export const getAllStoriesAdmin = asyncHandler(async (req, res) => {
     query.isBillboard = true;
   }
 
+  // Filter by tag
+  if (tag) {
+    query.tags = { $in: [tag] };
+  }
+
+  // Search functionality
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { story: { $regex: search, $options: "i" } },
+      { tags: { $regex: search, $options: "i" } }
+    ];
+  }
+
   // Pagination
   const pageNum = parseInt(page) || 1;
   const limitNum = parseInt(limit) || 50;
@@ -493,10 +585,14 @@ export const getAllStoriesAdmin = asyncHandler(async (req, res) => {
       .sort({ order: 1, createdAt: -1 })
       .limit(limitNum)
       .skip(skip)
-      .select('-__v');
+      .select('-__v')
+      .lean();
 
     // Get total count for pagination
     const total = await Story.countDocuments(query);
+
+    // Get all unique tags (for admin filter UI)
+    const allTags = await Story.distinct('tags', { tags: { $exists: true, $ne: [] } });
 
     res.status(200).json({
       success: true,
@@ -504,7 +600,8 @@ export const getAllStoriesAdmin = asyncHandler(async (req, res) => {
       total,
       page: pageNum,
       pages: Math.ceil(total / limitNum),
-      data: stories
+      data: stories,
+      availableTags: allTags,
     });
   } catch (error) {
     console.error('Database error:', error);

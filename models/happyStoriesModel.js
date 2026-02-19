@@ -63,11 +63,6 @@
 
 
 
-
-// ============================================
-// MODEL: models/happStoresModel.js
-// ============================================
-
 import mongoose from 'mongoose';
 
 const storySchema = new mongoose.Schema(
@@ -107,10 +102,21 @@ const storySchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-    isBillboard: {  // Add this field inside the schema object
+    isBillboard: {
       type: Boolean,
       default: false
-    }
+    },
+    // Add tags field (similar to blogs)
+    tags: [{
+      type: String,
+      trim: true,
+    }],
+    // Optional: Add slug for SEO-friendly URLs
+    slug: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,
@@ -119,10 +125,23 @@ const storySchema = new mongoose.Schema(
   }
 );
 
+// Generate slug before saving (similar to blogs)
+storySchema.pre("save", function(next) {
+  if (this.isModified("name") && this.name) {
+    this.slug = this.name
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/[\s_-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+  next();
+});
+
 // Index for faster queries
 storySchema.index({ isActive: 1, order: 1 });
 storySchema.index({ createdAt: -1 });
-storySchema.index({ isBillboard: 1, isActive: 1 }); // Add index for billboard filtering
+storySchema.index({ isBillboard: 1, isActive: 1 });
+storySchema.index({ tags: 1 }); // Add index for tag filtering
 
 const Story = mongoose.model('Story', storySchema);
 

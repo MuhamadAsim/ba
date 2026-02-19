@@ -6,7 +6,7 @@ import videoModel from '../models/videoModel.js';
 // @access  Private/Admin
 export const getAllVideos = async (req, res) => {
   try {
-    const { targetAudience, isActive } = req.query;
+    const { targetAudience, isActive, tag } = req.query;
     
     // Build filter
     const filter = {};
@@ -16,15 +16,25 @@ export const getAllVideos = async (req, res) => {
     if (isActive !== undefined) {
       filter.isActive = isActive === 'true';
     }
+    // ADDED: Filter by tag
+    if (tag) {
+      filter.tags = { $in: [tag] };
+    }
 
     const videos = await videoModel.find(filter)
       .sort({ createdAt: -1 })
       .lean();
 
+    // ADDED: Get all unique tags for filter UI
+    const allTags = await videoModel.distinct('tags', { 
+      tags: { $exists: true, $ne: [] } 
+    });
+
     res.status(200).json({
       status: 'success',
       data: videos,
       count: videos.length,
+      availableTags: allTags, // ADDED: Send tags to frontend
     });
   } catch (error) {
     console.error('Get all videos error:', error);
@@ -71,7 +81,7 @@ export const getVideoById = async (req, res) => {
 // @access  Private/Admin
 export const createVideo = async (req, res) => {
   try {
-    const { title, description, videoUrl, targetAudience } = req.body;
+    const { title, description, videoUrl, targetAudience, tags } = req.body; // ADDED: tags
 
     // Validation
     if (!title || !videoUrl || !targetAudience) {
@@ -88,12 +98,24 @@ export const createVideo = async (req, res) => {
       });
     }
 
+    // ADDED: Parse tags - could be JSON string or array
+    let tagsArray = [];
+    if (tags) {
+      try {
+        tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (error) {
+        // If parsing fails, treat as single tag
+        tagsArray = [tags];
+      }
+    }
+
     // Create video
     const video = await videoModel.create({
       title: title.trim(),
       description: description?.trim() || '',
       videoUrl: videoUrl.trim(),
       targetAudience,
+      tags: tagsArray, // ADDED: Save tags
     });
 
     res.status(201).json({
@@ -127,7 +149,7 @@ export const createVideo = async (req, res) => {
 export const updateVideo = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, videoUrl, targetAudience, isActive } = req.body;
+    const { title, description, videoUrl, targetAudience, isActive, tags } = req.body; // ADDED: tags
 
     const video = await videoModel.findById(id);
 
@@ -152,6 +174,16 @@ export const updateVideo = async (req, res) => {
       video.targetAudience = targetAudience;
     }
     if (isActive !== undefined) video.isActive = isActive;
+    
+    // ADDED: Update tags if provided
+    if (tags !== undefined) {
+      try {
+        video.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (error) {
+        // If parsing fails, treat as single tag
+        video.tags = [tags];
+      }
+    }
 
     await video.save();
 
@@ -253,6 +285,7 @@ export const toggleVideoActive = async (req, res) => {
 export const getVideosByAudience = async (req, res) => {
   try {
     const { audience } = req.params;
+    const { tag } = req.query; // ADDED: tag query parameter
 
     if (!['customers', 'shops'].includes(audience)) {
       return res.status(400).json({
@@ -261,19 +294,34 @@ export const getVideosByAudience = async (req, res) => {
       });
     }
 
-    const videos = await videoModel.find({
+    // Build filter
+    const filter = {
       targetAudience: audience,
       isActive: true,
-    })
+    };
+    
+    // ADDED: Filter by tag if provided
+    if (tag) {
+      filter.tags = { $in: [tag] };
+    }
+
+    const videos = await videoModel.find(filter)
       .sort({ createdAt: -1 })
       .select('-__v')
       .lean();
-    
+
+    // ADDED: Get all unique tags for filter UI (only from active videos of this audience)
+    const allTags = await videoModel.distinct('tags', { 
+      targetAudience: audience,
+      isActive: true,
+      tags: { $exists: true, $ne: [] } 
+    });
 
     res.status(200).json({
       status: 'success',
       data: videos,
       count: videos.length,
+      availableTags: allTags, // ADDED: Send tags to frontend
     });
   } catch (error) {
     console.error('Get videos by audience error:', error);
@@ -318,4 +366,34 @@ export const incrementVideoView = async (req, res) => {
   }
 };
 
+// ADDED: New endpoint to get all unique tags
+// @desc    Get all unique tags from videos
+// @route   GET /api/demo-videos/tags
+// @access  Public
+export const getAllTags = async (req, res) => {
+  try {
+    const { targetAudience } = req.query;
 
+    // Build filter for tags query
+    const filter = { tags: { $exists: true, $ne: [] } };
+    
+    if (targetAudience && ['customers', 'shops'].includes(targetAudience)) {
+      filter.targetAudience = targetAudience;
+      filter.isActive = true; // Only active videos for public endpoint
+    }
+
+    const tags = await videoModel.distinct('tags', filter);
+
+    res.status(200).json({
+      status: 'success',
+      data: tags,
+    });
+  } catch (error) {
+    console.error('Get tags error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch tags',
+      error: error.message,
+    });
+  }
+};
