@@ -8,13 +8,14 @@ import twilio from "twilio";
 export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
   try {
     // ------------------------------------
-    // 1) Fetch Bid
+    // 1) Fetch Bid WITH phone number and SMS block status
     // ------------------------------------
     const bid = await Bid.findById(bidId).select(
-      "user_id serviceDescription requestCategory"
+      "user_id serviceDescription requestCategory phone firstName lastName isSmsBlocked"  // ← Added isSmsBlocked
     );
 
     if (!bid) {
+      console.error(`❌ Bid not found: ${bidId}`);
       return;
     }
 
@@ -26,6 +27,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     );
 
     if (!customer) {
+      console.error(`❌ Customer not found for bid: ${bidId}`);
       return;
     }
 
@@ -37,6 +39,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     );
 
     if (!shop) {
+      console.error(`❌ Shop not found: ${shopId}`);
       return;
     }
 
@@ -49,7 +52,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // 5) Email Body (HTML) with Direct Dashboard Link
     // ------------------------------------
     const customerDashboardLink = "https://bidawrap.com/dashboard/bids";
-    
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
@@ -96,23 +99,34 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     console.log(`📧 Offer notification email sent to customer: ${customer.email}`);
 
     // ------------------------------------
-    // 7) SMS NOTIFICATION (Twilio) - NO LINK
+    // 7) SMS NOTIFICATION (Twilio) - WITH BLOCKING CHECK
     // ------------------------------------
-    if (customer.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+    // 🔥 CHECK IF SMS IS BLOCKED FOR THIS BID
+    // If isSmsBlocked field exists AND is true, skip SMS
+    if (bid.isSmsBlocked === true) {
+      console.log(`🚫 SMS blocked for bid ${bidId} - customer has opted out`);
+      return; // Exit early, don't send SMS
+    }
+
+    const phoneToUse = bid.phone;
+
+    if (phoneToUse && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-      
+
       // Clean the phone number - remove ALL non-numeric characters
-      const cleanedPhone = customer.phone.replace(/\D/g, '');
-      
-      console.log(`📱 SMS Details for customer ${customer.name}:`, {
-        originalPhone: customer.phone,
+      const cleanedPhone = phoneToUse.replace(/\D/g, '');
+
+      console.log(`📱 SMS Details for customer ${customer.name || bid.firstName}:`, {
+        originalPhone: phoneToUse,
+        source: bid.phone ? 'from bid submission' : 'from customer profile',
         cleanedPhone: cleanedPhone,
-        phoneLength: cleanedPhone.length
+        phoneLength: cleanedPhone.length,
+        smsBlocked: bid.isSmsBlocked || false
       });
-      
+
       // Check if the phone number already has country code
       let fullPhone;
-      
+
       if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
         // Already has US country code
         fullPhone = `+${cleanedPhone}`;
@@ -126,7 +140,7 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
         console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
         return;
       }
-      
+
       // Validate phone number format (E.164 format for Twilio)
       if (!/^\+\d{10,15}$/.test(fullPhone)) {
         console.error(`❌ Invalid phone number format: ${fullPhone}`);
@@ -135,15 +149,16 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
       }
 
       // SMS text WITHOUT link
-      const smsText = `
-New Offer Received!
+      // SMS text with proper branding and commands
+      const smsText = `Bidawrap: New Offer Received!
 
 Shop: ${shop.businessName}
 Price: $${price || offer?.price}
 
-Check your email for details and to respond to this offer.
-      `;
+Check your email for details.
 
+Reply STOP to stop SMS for this bid
+Reply HELP for assistance`;
       try {
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
@@ -151,15 +166,16 @@ Check your email for details and to respond to this offer.
           to: fullPhone,
         });
 
-        console.log(`✅ SMS sent to customer ${customer.name}: ${twilioMessage.sid}`);
+        console.log(`✅ SMS sent to ${phoneToUse} (from ${bid.phone ? 'bid' : 'customer profile'}): ${twilioMessage.sid}`);
 
       } catch (twilioError) {
-        console.error(`❌ Twilio SMS Error for customer ${customer.name}:`, {
+        console.error(`❌ Twilio SMS Error:`, {
           errorCode: twilioError.code,
           errorMessage: twilioError.message,
-          phoneNumber: fullPhone
+          phoneNumber: fullPhone,
+          source: bid.phone ? 'bid' : 'customer'
         });
-        
+
         // Check for common Twilio errors
         if (twilioError.code === 21211) {
           console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
@@ -168,10 +184,11 @@ Check your email for details and to respond to this offer.
         }
       }
     } else {
-      console.log(`ℹ️ No SMS sent to customer ${customer.name} - missing phone or Twilio credentials`);
+      console.log(`ℹ️ No SMS sent - ${!phoneToUse ? 'no phone number available' : 'Twilio credentials missing'}`);
     }
-    
+
   } catch (err) {
     console.error("❌ notifyNewOffer FAILED:", err.message);
+    console.error(err.stack);
   }
 };

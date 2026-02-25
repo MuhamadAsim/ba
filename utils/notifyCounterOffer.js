@@ -10,9 +10,12 @@ export const notifyCounterOffer = async (offer, counterData) => {
     const shopId = offer.shopId;
     const customerId = offer.bidId.user_id;
 
-    // Fetch shop - ADDED countryCode and plan
-    const shop = await Shop.findById(shopId).select("email phone countryCode businessName ownerName plan");
+    // Fetch shop with SMS block status
+    const shop = await Shop.findById(shopId).select(
+      "email phone countryCode businessName ownerName plan isSmsBlocked"  // ← Added isSmsBlocked
+    );
     if (!shop) {
+      console.error(`❌ Shop not found: ${shopId}`);
       return;
     }
 
@@ -78,85 +81,102 @@ export const notifyCounterOffer = async (offer, counterData) => {
     console.log(`📧 Counter offer notification email sent to shop: ${shop.email}`);
 
     // ---------------------- TWILIO SMS ----------------------
-    if (shop.ownerPhone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
-      
-      // Clean the phone number - remove all non-numeric characters
-      const cleanedPhone = shop.ownerPhone.replace(/\D/g, '');
-      
-      // Get country code (default to +1 if not provided)
-      let countryCode = shop.countryCode || "+1";
-      
-      // Ensure country code starts with +
-      if (!countryCode.startsWith('+')) {
-        countryCode = '+' + countryCode;
-      }
-      
-      // Remove any plus from the country code for the full phone number
-      const countryCodeNumber = countryCode.replace('+', '');
-      
-      // Construct full phone number in E.164 format
-      const fullPhone = `+${countryCodeNumber}${cleanedPhone}`;
-      
-      console.log(`📱 SMS Details for ${shop.businessName}:`, {
-        originalPhone: shop.ownerPhone,
-        cleanedPhone: cleanedPhone,
-        countryCode: countryCode,
-        fullPhone: fullPhone,
-        shopPlan: shop.plan
-      });
+    // 🔥 CHECK IF SMS IS BLOCKED FOR THIS SHOP
+    // If isSmsBlocked field exists AND is true, skip SMS to shop
+    if (shop.isSmsBlocked === true) {
+      console.log(`🚫 Shop SMS blocked for shop ${shopId} - shop has opted out`);
+    } else {
+      // Use shop.phone field (not ownerPhone) as per your Shop model
+      if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
+        
+        // Clean the phone number - remove all non-numeric characters
+        const cleanedPhone = shop.phone.replace(/\D/g, '');
+        
+        // Get country code (default to 1 for US/CA)
+        let countryCode = shop.countryCode || "1";
+        
+        console.log(`📱 SMS Details for ${shop.businessName}:`, {
+          originalPhone: shop.phone,
+          cleanedPhone: cleanedPhone,
+          countryCode: countryCode,
+          shopPlan: shop.plan,
+          smsBlocked: shop.isSmsBlocked || false
+        });
+        
+        // Construct full phone number in E.164 format
+        let fullPhone;
+        
+        if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+          // Already has US country code
+          fullPhone = `+${cleanedPhone}`;
+        } else if (cleanedPhone.length === 10) {
+          // Add country code
+          fullPhone = `+${countryCode}${cleanedPhone}`;
+        } else if (cleanedPhone.length > 11) {
+          // International number, assume it has country code
+          fullPhone = `+${cleanedPhone}`;
+        } else {
+          console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
+          return;
+        }
+        
+        // Validate phone number format (E.164 format for Twilio)
+        if (!/^\+\d{10,15}$/.test(fullPhone)) {
+          console.error(`❌ Invalid phone number format for ${shop.businessName}: ${fullPhone}`);
+          console.error(`   Expected format: +[country code][phone number] (10-15 digits)`);
+          return;
+        }
 
-      // Validate phone number format (E.164 format for Twilio)
-      if (!/^\+\d{10,15}$/.test(fullPhone)) {
-        console.error(`❌ Invalid phone number format for ${shop.businessName}: ${fullPhone}`);
-        console.error(`   Expected format: +[country code][phone number] (10-15 digits)`);
-        return;
-      }
+        // 📱 SHOP SMS with proper branding and commands
+        const smsText = `Bidawrap: Counter offer received!
 
-      // SMS text WITHOUT link
-      const smsText = `
-${customerName} submitted a counter offer!
-
+Customer: ${customerName}
 Original: $${offer.price}
 Counter: $${counterData.counterPrice}
-${counterData.message ? `Message: ${counterData.message.substring(0, 50)}...` : ''}
+${counterData.message ? `Message: ${counterData.message.substring(0, 60)}${counterData.message.length > 60 ? '...' : ''}` : ''}
 
-Check your email for details and to respond to this counter offer.
-      `;
+Check email to respond.
 
-      try {
-        const twilioMessage = await twilioClient.messages.create({
-          body: smsText,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: fullPhone,
-        });
-        
-        console.log(`✅ Counter offer SMS sent to shop ${shop.businessName}: ${twilioMessage.sid}`);
+Reply STOP to stop SMS
+Reply HELP for assistance`;
 
-      } catch (twilioError) {
-        console.error(`❌ Twilio SMS Error for shop ${shop.businessName}:`, {
-          errorCode: twilioError.code,
-          errorMessage: twilioError.message,
-          phoneNumber: fullPhone
-        });
-        
-        // Check for common Twilio errors
-        if (twilioError.code === 21211) {
-          console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
-        } else if (twilioError.code === 21614) {
-          console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
-        } else if (twilioError.code === 21408) {
-          console.error(`   ⚠️ Not authorized to send to this number: ${fullPhone}`);
-        } else if (twilioError.code === 21612) {
-          console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
+        try {
+          const twilioMessage = await twilioClient.messages.create({
+            body: smsText,
+            from: process.env.TWILIO_PHONE_NUMBER,
+            to: fullPhone,
+          });
+          
+          console.log(`✅ Counter offer SMS sent to shop ${shop.businessName}: ${twilioMessage.sid}`);
+          console.log(`📱 SMS Content: "${smsText.replace(/\n/g, ' ')}"`);
+
+        } catch (twilioError) {
+          console.error(`❌ Twilio SMS Error for shop ${shop.businessName}:`, {
+            errorCode: twilioError.code,
+            errorMessage: twilioError.message,
+            phoneNumber: fullPhone
+          });
+          
+          // Check for common Twilio errors
+          if (twilioError.code === 21211) {
+            console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
+          } else if (twilioError.code === 21614) {
+            console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
+          } else if (twilioError.code === 21408) {
+            console.error(`   ⚠️ Not authorized to send to this number: ${fullPhone}`);
+          } else if (twilioError.code === 21612) {
+            console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
+          }
         }
+      } else {
+        console.log(`ℹ️ No SMS sent to shop ${shop.businessName} - ${!shop.phone ? 'no phone number' : 'Twilio credentials missing'}`);
       }
-    } else {
-      console.log(`ℹ️ No SMS sent to shop ${shop.businessName} - missing phone or Twilio credentials`);
     }
   } catch (err) {
     console.error("❌ Error notifying shop about counter offer:", {
-      error: err.message
+      error: err.message,
+      stack: err.stack
     });
   }
 };

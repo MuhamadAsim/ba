@@ -19,6 +19,8 @@ import stripewebhookRoutes from "./routes/stripeWebhookRoutes.js";
 import blogRoutes from "./routes/blogRoutes.js";
 import adminPlanRoutes from "./routes/adminPlanRoutes.js";
 import frontendRoutes from "./routes/frontendRoutes.js";
+import twilioRoutes from "./routes/twilioRoutes.js";
+
 
 
 
@@ -60,6 +62,8 @@ app.use("/api/support", adminChatRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/plans", adminPlanRoutes);
 app.use("/api/frontend", frontendRoutes);
+app.use("/api/twilio", express.urlencoded({ extended: false }), twilioRoutes);
+
 
 
 

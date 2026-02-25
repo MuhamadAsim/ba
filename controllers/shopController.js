@@ -1319,15 +1319,7 @@ export const makeOffer = async (req, res) => {
       workingHours
     } = req.body;
 
-    console.log("========================================");
-    console.log("🚀 makeOffer Controller - START");
-    console.log("========================================");
-    
-    console.log("📦 Offer request body:", req.body);
-    console.log("📁 Uploaded files count:", req.files?.length || 0);
-    console.log("📁 req.files structure:", req.files);
-    console.log("📁 req.file (singular):", req.file);
-    console.log("📁 req.body.attachments:", req.body.attachments);
+
     
     if (req.files && req.files.length > 0) {
       console.log("🔍 File details:");
@@ -1433,10 +1425,7 @@ export const makeOffer = async (req, res) => {
       return res.status(404).json({ message: "Shop not found or not authorized." });
     }
 
-    console.log("🏪 Shop found:", shop.businessName);
-    console.log("📋 Shop subscription status:", shop.subscriptionStatus);
-    console.log("🚫 Shop is blocked:", shop.isBlocked);
-
+    
     // 🔒 Subscription check
     const allowedStatuses = ["active", "trialing", "past_due"];
     const blockedStatuses = ["inactive", "canceled", "incomplete_expired", "unpaid", "paused"];
@@ -1753,6 +1742,14 @@ export const makeOffer = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
 
 
 
