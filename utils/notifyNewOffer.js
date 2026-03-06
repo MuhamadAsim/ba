@@ -5,13 +5,48 @@ import Offer from "../models/offerModel.js";
 import { sendEmail } from "./sendEmail.js";
 import twilio from "twilio";
 
+// ---------------------- Helper function to format US phone for Twilio ----------------------
+const formatUSPhoneForTwilio = (phone) => {
+  if (!phone) return { formatted: null, error: "No phone number provided" };
+  
+  // Clean the phone number - remove all non-numeric characters
+  const cleanedPhone = phone.replace(/\D/g, '');
+  
+  if (!cleanedPhone) return { formatted: null, error: "Phone number empty after cleaning" };
+  
+  console.log(`📞 Phone cleaning: "${phone}" → "${cleanedPhone}" (${cleanedPhone.length} digits)`);
+  
+  let formattedPhone;
+  
+  // Handle US numbers only
+  if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+    // Already has US country code
+    formattedPhone = `+${cleanedPhone}`;
+  } else if (cleanedPhone.length === 10) {
+    // Add US country code
+    formattedPhone = `+1${cleanedPhone}`;
+  } else {
+    return { 
+      formatted: null, 
+      error: `Invalid US phone number length: ${cleanedPhone.length} digits (expected 10 or 11)` 
+    };
+  }
+  
+  // Validate E.164 format
+  if (!/^\+\d{10,15}$/.test(formattedPhone)) {
+    return { formatted: null, error: `Invalid E.164 format: ${formattedPhone}` };
+  }
+  
+  return { formatted: formattedPhone, error: null };
+};
+
 export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
   try {
     // ------------------------------------
     // 1) Fetch Bid WITH phone number and SMS block status
     // ------------------------------------
     const bid = await Bid.findById(bidId).select(
-      "user_id serviceDescription requestCategory phone firstName lastName isSmsBlocked"  // ← Added isSmsBlocked
+      "user_id serviceDescription requestCategory phone firstName lastName isSmsBlocked"
     );
 
     if (!bid) {
@@ -101,55 +136,33 @@ export const notifyNewOffer = async (offer, bidId, shopId, price, note) => {
     // ------------------------------------
     // 7) SMS NOTIFICATION (Twilio) - WITH BLOCKING CHECK
     // ------------------------------------
-    // 🔥 CHECK IF SMS IS BLOCKED FOR THIS BID
-    // If isSmsBlocked field exists AND is true, skip SMS
     if (bid.isSmsBlocked === true) {
       console.log(`🚫 SMS blocked for bid ${bidId} - customer has opted out`);
-      return; // Exit early, don't send SMS
+      return;
     }
 
-    const phoneToUse = bid.phone;
+    const phoneToUse = bid.phone || customer.phone;
 
-    if (phoneToUse && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
+    if (phoneToUse && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-      // Clean the phone number - remove ALL non-numeric characters
-      const cleanedPhone = phoneToUse.replace(/\D/g, '');
+      // Format phone using helper function
+      const { formatted, error } = formatUSPhoneForTwilio(phoneToUse);
 
       console.log(`📱 SMS Details for customer ${customer.name || bid.firstName}:`, {
         originalPhone: phoneToUse,
-        source: bid.phone ? 'from bid submission' : 'from customer profile',
-        cleanedPhone: cleanedPhone,
-        phoneLength: cleanedPhone.length,
+        source: bid.phone ? 'from bid' : 'from customer profile',
+        formattedPhone: formatted || 'INVALID',
+        error: error || 'none',
         smsBlocked: bid.isSmsBlocked || false
       });
 
-      // Check if the phone number already has country code
-      let fullPhone;
-
-      if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
-        // Already has US country code
-        fullPhone = `+${cleanedPhone}`;
-      } else if (cleanedPhone.length === 10) {
-        // Add US country code
-        fullPhone = `+1${cleanedPhone}`;
-      } else if (cleanedPhone.length > 11) {
-        // International number, assume it has country code
-        fullPhone = `+${cleanedPhone}`;
-      } else {
-        console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
+      if (error || !formatted) {
+        console.error(`❌ Cannot send SMS - ${error || 'Invalid phone format'}`);
         return;
       }
 
-      // Validate phone number format (E.164 format for Twilio)
-      if (!/^\+\d{10,15}$/.test(fullPhone)) {
-        console.error(`❌ Invalid phone number format: ${fullPhone}`);
-        console.error(`   Expected format: +[country code][phone number] (10-15 digits)`);
-        return;
-      }
-
-      // SMS text WITHOUT link
-      // SMS text with proper branding and commands
+      // SMS text
       const smsText = `Bidawrap: New Offer Received!
 
 Shop: ${shop.businessName}
@@ -159,32 +172,32 @@ Check your email for details.
 
 Reply STOP to stop SMS for this bid
 Reply HELP for assistance`;
+
       try {
         const twilioMessage = await twilioClient.messages.create({
           body: smsText,
           from: process.env.TWILIO_PHONE_NUMBER,
-          to: fullPhone,
+          to: formatted,
         });
 
-        console.log(`✅ SMS sent to ${phoneToUse} (from ${bid.phone ? 'bid' : 'customer profile'}): ${twilioMessage.sid}`);
+        console.log(`✅ SMS sent to ${formatted}: ${twilioMessage.sid}`);
 
       } catch (twilioError) {
         console.error(`❌ Twilio SMS Error:`, {
           errorCode: twilioError.code,
           errorMessage: twilioError.message,
-          phoneNumber: fullPhone,
+          phoneNumber: formatted,
           source: bid.phone ? 'bid' : 'customer'
         });
 
-        // Check for common Twilio errors
         if (twilioError.code === 21211) {
-          console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
+          console.error(`   ⚠️ Invalid phone number format: ${formatted}`);
         } else if (twilioError.code === 21614) {
-          console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
+          console.error(`   ⚠️ Phone number is not SMS-capable: ${formatted}`);
         }
       }
     } else {
-      console.log(`ℹ️ No SMS sent - ${!phoneToUse ? 'no phone number available' : 'Twilio credentials missing'}`);
+      console.log(`ℹ️ No SMS sent - ${!phoneToUse ? 'no phone number' : 'Twilio credentials missing'}`);
     }
 
   } catch (err) {

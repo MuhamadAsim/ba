@@ -20,6 +20,45 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+// ---------------------- Helper function to format phone for Twilio ----------------------
+const formatPhoneForTwilio = (phone, countryCode = "1") => {
+  if (!phone) return null;
+  
+  // Clean the phone number - remove all non-numeric characters
+  const cleanedPhone = phone.replace(/\D/g, '');
+  
+  if (!cleanedPhone) return null;
+  
+  // Remove any + from country code
+  const cc = (countryCode || "1").replace('+', '');
+  
+  let formattedPhone;
+  
+  if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+    // Already has US country code
+    formattedPhone = `+${cleanedPhone}`;
+  } else if (cleanedPhone.length === 10) {
+    // Add country code
+    formattedPhone = `+${cc}${cleanedPhone}`;
+  } else if (cleanedPhone.length > 11) {
+    // International number, check if it already has country code
+    if (cleanedPhone.startsWith(cc)) {
+      formattedPhone = `+${cleanedPhone}`;
+    } else {
+      formattedPhone = `+${cc}${cleanedPhone}`;
+    }
+  } else {
+    return null;
+  }
+  
+  // Validate E.164 format
+  if (!/^\+\d{10,15}$/.test(formattedPhone)) {
+    return null;
+  }
+  
+  return formattedPhone;
+};
+
 // ---------------------- Notify Shops For Bid ----------------------
 export const notifyShopsForBid = async (newBid, customer) => {
   try {
@@ -48,7 +87,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       isEmailVerified: true,
       isVerified: true,
     }).select(
-      "email phone countryCode businessName ownerName location latitude longitude plan isSmsBlocked"  // ← Added isSmsBlocked
+      "email phone countryCode businessName ownerName location latitude longitude plan isSmsBlocked"
     ).populate({
       path: 'plan',
       select: 'features name'
@@ -113,14 +152,10 @@ export const notifyShopsForBid = async (newBid, customer) => {
 
     const customerInitials = getInitials(customerName);
 
-    // Add website link
-    const websiteLink = "https://bidawrap.com/partner/dashboard/bids";
-
     // Use initials in subject instead of full name
     const subject = `${customerInitials} posted a new bid`;
 
     const buildEmailHTML = () => {
-      // Use the direct URL without any email tracking
       const directBidLink = `https://bidawrap.com/partner/dashboard/bids`;
 
       return `
@@ -195,82 +230,41 @@ Reply HELP for assistance`;
           console.log(`📧 Email sent to ${shop.businessName}: ${shop.email}`);
 
           // ---------------------- SMS WITH BLOCKING CHECK ----------------------
-          // 🔥 CHECK IF SMS IS BLOCKED FOR THIS SHOP
-          // If isSmsBlocked field exists AND is true, skip SMS to shop
           if (shop.isSmsBlocked === true) {
             console.log(`🚫 SMS blocked for shop ${shop.businessName} - shop has opted out`);
           } else {
-            // Use shop.phone field (not ownerPhone)
-            if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN) {
-              // Clean the phone number - remove all non-numeric characters
-              const cleanedPhone = shop.phone.replace(/\D/g, '');
-
-              console.log(`📱 SMS Details for ${shop.businessName}:`, {
-                originalPhone: shop.phone,
-                cleanedPhone: cleanedPhone,
-                countryCode: shop.countryCode || '1',
-                shopPlan: shop.plan?.name || 'No plan',
-                notificationDelay: `${notificationDelayMinutes} minutes`,
-                smsBlocked: shop.isSmsBlocked || false,
-                smsTextLength: smsText.length
-              });
-
-              // Construct full phone number in E.164 format
-              let fullPhone;
-              const countryCode = shop.countryCode || "1";
+            if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
               
-              if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
-                // Already has US country code
-                fullPhone = `+${cleanedPhone}`;
-              } else if (cleanedPhone.length === 10) {
-                // Add country code
-                fullPhone = `+${countryCode}${cleanedPhone}`;
-              } else if (cleanedPhone.length > 11) {
-                // International number, assume it has country code
-                fullPhone = `+${cleanedPhone}`;
-              } else {
-                console.error(`❌ Invalid phone number length for ${shop.businessName}: ${cleanedPhone.length} digits`);
+              // Format phone using helper function
+              const formattedPhone = formatPhoneForTwilio(shop.phone, shop.countryCode);
+              
+              if (!formattedPhone) {
+                console.log(`❌ Invalid phone number for ${shop.businessName}: ${shop.phone}`);
                 return;
               }
 
-              // Validate phone number format (E.164 format for Twilio)
-              if (!/^\+\d{10,15}$/.test(fullPhone)) {
-                console.error(`❌ Invalid phone number format for ${shop.businessName}: ${fullPhone}`);
-                return;
-              }
+              console.log(`📱 Sending SMS to ${shop.businessName} at ${formattedPhone}`);
 
               try {
                 const message = await twilioClient.messages.create({
                   body: smsText,
                   from: process.env.TWILIO_PHONE_NUMBER,
-                  to: fullPhone,
+                  to: formattedPhone,
                 });
 
                 console.log(`✅ SMS sent to ${shop.businessName}:`, {
                   messageId: message.sid,
-                  to: fullPhone,
+                  to: formattedPhone,
                   delayApplied: `${notificationDelayMinutes} minutes`
                 });
-                console.log(`📱 SMS Content: "${smsText.replace(/\n/g, ' ')}"`);
 
               } catch (twilioError) {
                 console.error(`❌ Twilio SMS Error for ${shop.businessName}:`, {
                   errorCode: twilioError.code,
                   errorMessage: twilioError.message,
-                  phoneNumber: fullPhone,
+                  phoneNumber: formattedPhone,
                   delayApplied: `${notificationDelayMinutes} minutes`
                 });
-
-                // Check for common Twilio errors
-                if (twilioError.code === 21211) {
-                  console.error(`   ⚠️ Invalid phone number format. Please check: ${fullPhone}`);
-                } else if (twilioError.code === 21614) {
-                  console.error(`   ⚠️ Phone number is not SMS-capable: ${fullPhone}`);
-                } else if (twilioError.code === 21408) {
-                  console.error(`   ⚠️ Not authorized to send to this number: ${fullPhone}`);
-                } else if (twilioError.code === 21612) {
-                  console.error(`   ⚠️ Phone number has opted out of SMS: ${fullPhone}`);
-                }
               }
             } else {
               console.log(`ℹ️ No SMS sent to ${shop.businessName} - ${!shop.phone ? 'no phone number' : 'Twilio credentials missing'}`);
@@ -279,7 +273,6 @@ Reply HELP for assistance`;
         } catch (err) {
           console.error(`❌ Notification error for shop ${shop.businessName}:`, {
             error: err.message,
-            stack: err.stack,
             delayApplied: `${notificationDelayMinutes} minutes`
           });
         }
@@ -293,11 +286,10 @@ Reply HELP for assistance`;
               console.log(`⏰ Delayed notification for ${shop.businessName} (${notificationDelayMinutes} minutes delay)`);
               await sendNotifications();
               resolve();
-            }, notificationDelayMinutes * 60 * 1000); // Convert minutes to milliseconds
+            }, notificationDelayMinutes * 60 * 1000);
           })
         );
       } else {
-        // Send immediately if no delay
         notificationPromises.push(sendNotifications());
       }
     }
@@ -315,13 +307,6 @@ Reply HELP for assistance`;
       notificationsFailed: rejected,
       radiusUsed: `${radiusToUse} miles`,
       timestamp: new Date().toISOString()
-    });
-
-    // Log any rejected promises
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        console.error(`   ❌ Failed notification for shop ${nearbyShops[index]?.businessName}:`, result.reason);
-      }
     });
 
   } catch (error) {
