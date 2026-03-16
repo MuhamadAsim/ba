@@ -8,16 +8,16 @@ import twilio from "twilio";
 // ---------------------- Helper function to format US phone for Twilio ----------------------
 const formatUSPhoneForTwilio = (phone) => {
   if (!phone) return { formatted: null, error: "No phone number provided" };
-  
+
   // Clean the phone number - remove all non-numeric characters
   const cleanedPhone = phone.replace(/\D/g, '');
-  
+
   if (!cleanedPhone) return { formatted: null, error: "Phone number empty after cleaning" };
-  
+
   console.log(`📞 Phone cleaning: "${phone}" → "${cleanedPhone}" (${cleanedPhone.length} digits)`);
-  
+
   let formattedPhone;
-  
+
   // Handle US numbers only
   if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
     // Already has US country code
@@ -26,17 +26,17 @@ const formatUSPhoneForTwilio = (phone) => {
     // Add US country code
     formattedPhone = `+1${cleanedPhone}`;
   } else {
-    return { 
-      formatted: null, 
-      error: `Invalid US phone number length: ${cleanedPhone.length} digits (expected 10 or 11)` 
+    return {
+      formatted: null,
+      error: `Invalid US phone number length: ${cleanedPhone.length} digits (expected 10 or 11)`
     };
   }
-  
+
   // Validate E.164 format
   if (!/^\+\d{10,15}$/.test(formattedPhone)) {
     return { formatted: null, error: `Invalid E.164 format: ${formattedPhone}` };
   }
-  
+
   return { formatted: formattedPhone, error: null };
 };
 

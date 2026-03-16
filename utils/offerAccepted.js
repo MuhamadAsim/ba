@@ -8,17 +8,17 @@ import twilio from "twilio";
 // ---------------------- Helper function to format phone for Twilio ----------------------
 const formatPhoneForTwilio = (phone, countryCode = "1") => {
   if (!phone) return null;
-  
+
   // Clean the phone number - remove all non-numeric characters
   const cleanedPhone = phone.replace(/\D/g, '');
-  
+
   if (!cleanedPhone) return null;
-  
+
   // Remove any + from country code (since we'll add it ourselves)
   const cc = (countryCode || "1").replace('+', '');
-  
+
   let formattedPhone;
-  
+
   if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
     // Already has US country code
     formattedPhone = `+${cleanedPhone}`;
@@ -36,13 +36,13 @@ const formatPhoneForTwilio = (phone, countryCode = "1") => {
     console.error(`❌ Invalid phone number length: ${cleanedPhone.length} digits`);
     return null;
   }
-  
+
   // Validate E.164 format
   if (!/^\+\d{10,15}$/.test(formattedPhone)) {
     console.error(`❌ Invalid E.164 format: ${formattedPhone}`);
     return null;
   }
-  
+
   return formattedPhone;
 };
 
@@ -50,7 +50,7 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
   try {
     // Fetch shop with SMS block status
     const shop = await Shop.findById(shopId).select(
-      "email phone countryCode businessName ownerName plan isSmsBlocked"
+      "email phone ownerPhone countryCode businessName ownerName plan isSmsBlocked"
     );
     if (!shop) {
       console.error(`❌ Shop not found: ${shopId}`);
@@ -121,7 +121,7 @@ export const offerAccepted = async ({ shopId, customerId, subject, message, bid,
     if (shop.isSmsBlocked === true) {
       console.log(`🚫 SMS blocked for shop ${shop.businessName} - shop has opted out`);
     } else {
-      if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+      if (shop.ownerPhone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
         // 📱 SHOP SMS
@@ -140,10 +140,10 @@ Reply STOP to stop SMS
 Reply HELP for assistance`;
 
         // Format phone using helper function
-        const formattedPhone = formatPhoneForTwilio(shop.phone, shop.countryCode);
-        
+        const formattedPhone = formatPhoneForTwilio(shop.ownerPhone, shop.countryCode);
+
         if (!formattedPhone) {
-          console.error(`❌ Could not format phone for ${shop.businessName}: ${shop.phone}`);
+          console.error(`❌ Could not format phone for ${shop.businessName}: ${shop.ownerPhone}`);
           return;
         }
 
@@ -167,7 +167,7 @@ Reply HELP for assistance`;
         }
       } else {
         console.log(`ℹ️ No SMS sent to shop ${shop.businessName} -`, {
-          hasPhone: !!shop.phone,
+          hasPhone: !!shop.ownerPhone,
           hasTwilioSid: !!process.env.TWILIO_SID,
           hasTwilioAuth: !!process.env.TWILIO_AUTH_TOKEN,
           hasTwilioPhone: !!process.env.TWILIO_PHONE_NUMBER

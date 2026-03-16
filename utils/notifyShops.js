@@ -23,17 +23,17 @@ const getDistanceMiles = (lat1, lon1, lat2, lon2) => {
 // ---------------------- Helper function to format phone for Twilio ----------------------
 const formatPhoneForTwilio = (phone, countryCode = "1") => {
   if (!phone) return null;
-  
+
   // Clean the phone number - remove all non-numeric characters
   const cleanedPhone = phone.replace(/\D/g, '');
-  
+
   if (!cleanedPhone) return null;
-  
+
   // Remove any + from country code
   const cc = (countryCode || "1").replace('+', '');
-  
+
   let formattedPhone;
-  
+
   if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
     // Already has US country code
     formattedPhone = `+${cleanedPhone}`;
@@ -50,12 +50,12 @@ const formatPhoneForTwilio = (phone, countryCode = "1") => {
   } else {
     return null;
   }
-  
+
   // Validate E.164 format
   if (!/^\+\d{10,15}$/.test(formattedPhone)) {
     return null;
   }
-  
+
   return formattedPhone;
 };
 
@@ -87,7 +87,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
       isEmailVerified: true,
       isVerified: true,
     }).select(
-      "email phone countryCode businessName ownerName location latitude longitude plan isSmsBlocked"
+      "email phone ownerPhone countryCode businessName ownerName location latitude longitude plan isSmsBlocked"
     ).populate({
       path: 'plan',
       select: 'features name'
@@ -101,7 +101,7 @@ export const notifyShopsForBid = async (newBid, customer) => {
     // ---------------------- 3️⃣ FILTER BY RADIUS USING BID LOCATION ----------------------
     // Use bid's radius if available, otherwise fall back to MAX_RADIUS_MILES
     const radiusToUse = (newBid.radius && newBid.radius > 0) ? newBid.radius : MAX_RADIUS_MILES;
-    
+
     console.log(`🎯 Using radius: ${radiusToUse} miles ${newBid.radius ? '(from bid)' : '(default)'}`);
 
     const nearbyShops = shops.filter((shop) => {
@@ -215,7 +215,7 @@ Reply HELP for assistance`;
     for (const shop of nearbyShops) {
       // Get notification delay from plan (in minutes), default to 0 if no plan
       let notificationDelayMinutes = 0;
-      
+
       if (shop.plan && shop.plan.features && shop.plan.features.notificationDelay) {
         notificationDelayMinutes = shop.plan.features.notificationDelay;
       }
@@ -233,13 +233,13 @@ Reply HELP for assistance`;
           if (shop.isSmsBlocked === true) {
             console.log(`🚫 SMS blocked for shop ${shop.businessName} - shop has opted out`);
           } else {
-            if (shop.phone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
-              
+            if (shop.ownerPhone && process.env.TWILIO_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+
               // Format phone using helper function
-              const formattedPhone = formatPhoneForTwilio(shop.phone, shop.countryCode);
-              
+              const formattedPhone = formatPhoneForTwilio(shop.ownerPhone, shop.countryCode);
+
               if (!formattedPhone) {
-                console.log(`❌ Invalid phone number for ${shop.businessName}: ${shop.phone}`);
+                console.log(`❌ Invalid phone number for ${shop.businessName}: ${shop.ownerPhone}`);
                 return;
               }
 
@@ -267,7 +267,7 @@ Reply HELP for assistance`;
                 });
               }
             } else {
-              console.log(`ℹ️ No SMS sent to ${shop.businessName} - ${!shop.phone ? 'no phone number' : 'Twilio credentials missing'}`);
+              console.log(`ℹ️ No SMS sent to ${shop.businessName} - ${!shop.ownerPhone ? 'no phone number' : 'Twilio credentials missing'}`);
             }
           }
         } catch (err) {
