@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
 import Event from "../models/eventModel.js";
 import { notifyShopsForBid } from "../utils/notifyShops.js";
+import { notifyCustomerBidCreated } from "../utils/notifyCustomerBidCreated.js"; // ADD THIS IMPORT
 
 export const createBid = async (req, res) => {
   try {
@@ -240,7 +241,7 @@ export const createBid = async (req, res) => {
     await newBid.save();
 
     // ------------------------------------
-    // 🔥 SAVE EVENT (NEW FUNCTIONALITY) - Asynchronously
+    // 🔥 SAVE EVENT
     // ------------------------------------
     Event.create({
       customerId: user._id,
@@ -256,16 +257,21 @@ export const createBid = async (req, res) => {
       console.error("Failed to save event:", err);
     });
 
+    // ------------------------------------
+    // 📧📱 NOTIFY CUSTOMER ABOUT BID CREATION (ALWAYS SEND)
+    // ------------------------------------
+    // Send confirmation to customer even if blocked (they need to know it was submitted)
+    notifyCustomerBidCreated(newBid, user).catch(error => {
+      console.error("Customer notification failed:", error);
+    });
+
     // Only notify shops if the user is not blocked
     if (!user.isBlocked) {
       // ------------------------------------
-      // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY (DON'T WAIT!)
+      // 🚀 NOTIFY SHOPS ASYNCHRONOUSLY
       // ------------------------------------
-      // Start shop notifications in the background
-      // User doesn't need to wait for this to complete
       notifyShopsForBid(newBid, user).catch(error => {
         console.error("Shop notification failed (non-critical):", error);
-        // Don't throw - this is background work
       });
     } else {
       console.warn(`Bid ${newBid._id} created by blocked user ${user._id}. Shops will not be notified.`);
