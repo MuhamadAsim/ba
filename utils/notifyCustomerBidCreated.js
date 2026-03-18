@@ -125,7 +125,6 @@ Bid ID: ${bid._id.toString().slice(-8)}
 Service: ${bid.requestCategory}
 Vehicle: ${bid.vehicleYear} ${bid.vehicleMake} ${bid.vehicleModel}
 
-Track your bid: https://bidawrap.com/customer/my-bids
 
 You'll be notified when shops respond.`;
 
