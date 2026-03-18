@@ -1,7 +1,55 @@
 // utils/notifyCustomerBidCreated.js
 import { sendEmail } from "./sendEmail.js";
 import twilio from "twilio";
-import { formatPhoneForTwilio } from "./notifyShops.js"; // Reuse your formatter
+
+
+
+
+
+
+// ---------------------- Helper function to format phone for Twilio ----------------------
+const formatPhoneForTwilio = (phone, countryCode = "1") => {
+  if (!phone) return null;
+
+  // Clean the phone number - remove all non-numeric characters
+  const cleanedPhone = phone.replace(/\D/g, '');
+
+  if (!cleanedPhone) return null;
+
+  // Remove any + from country code
+  const cc = (countryCode || "1").replace('+', '');
+
+  let formattedPhone;
+
+  if (cleanedPhone.length === 11 && cleanedPhone.startsWith('1')) {
+    // Already has US country code
+    formattedPhone = `+${cleanedPhone}`;
+  } else if (cleanedPhone.length === 10) {
+    // Add country code
+    formattedPhone = `+${cc}${cleanedPhone}`;
+  } else if (cleanedPhone.length > 11) {
+    // International number, check if it already has country code
+    if (cleanedPhone.startsWith(cc)) {
+      formattedPhone = `+${cleanedPhone}`;
+    } else {
+      formattedPhone = `+${cc}${cleanedPhone}`;
+    }
+  } else {
+    return null;
+  }
+
+  // Validate E.164 format
+  if (!/^\+\d{10,15}$/.test(formattedPhone)) {
+    return null;
+  }
+
+  return formattedPhone;
+};
+
+
+
+
+
 
 export const notifyCustomerBidCreated = async (bid, customer) => {
   try {
