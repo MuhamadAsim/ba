@@ -55,7 +55,7 @@ export const notifyCustomerBidCreated = async (bid, customer) => {
   try {
     const customerName = customer.name || `${bid.firstName || ''} ${bid.lastName || ''}`.trim() || 'Customer';
     const customerEmail = customer.email || bid.email;
-    const customerPhone = customer.phone || bid.phone;
+    const customerPhone = bid.phone;
     
     console.log(`📣 Sending bid confirmation to customer: ${customerName}`);
 
