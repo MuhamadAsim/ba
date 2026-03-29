@@ -1372,6 +1372,8 @@ export const completeRegistration = async (req, res) => {
 
 
 
+
+
 export const updateShopProfile = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1381,131 +1383,102 @@ export const updateShopProfile = async (req, res) => {
 
     const files = req.files || {};
 
-    // Normalize file uploads
+    // ===========================
+    // 1. FILE UPLOADS HANDLING
+    // ===========================
     const profilePic = files.profilePic?.[0]?.path || shop.profilePic;
     const storeFrontPhoto = files.storeFrontPhoto?.[0]?.path || shop.storeFrontPhoto;
     const workSpacePhoto = files.workSpacePhoto?.[0]?.path || shop.workSpacePhoto;
     const insuranceCertificate =
       files.insuranceCertificate?.[0]?.path || shop.insuranceCertificate;
-    const certificateFiles = files.certificateFiles
-      ? files.certificateFiles.map((f) => f.path)
-      : shop.certificateFiles || [];
+    
+    // Handle certificate files (merge with existing or replace)
+    let certificateFiles = shop.certificateFiles || [];
+    if (files.certificateFiles && files.certificateFiles.length > 0) {
+      // If you want to replace: certificateFiles = files.certificateFiles.map((f) => f.path);
+      // If you want to append (safer for profile updates):
+      const newFiles = files.certificateFiles.map((f) => f.path);
+      certificateFiles = [...certificateFiles, ...newFiles];
+    }
 
-    // DEBUG: Log all incoming request body data
-    console.log("📥 Incoming update request body:", {
-      body: req.body,
-      hasInstagramLink: !!req.body.instagramLink,
-      hasFacebookLink: !!req.body.facebookLink,
-      hasLinkedinLink: !!req.body.linkedinLink,
-      hasTiktokLink: !!req.body.tiktokLink, // Debug TikTok
-      hasYoutubeLink: !!req.body.youtubeLink, // Debug YouTube
-      hasNotificationEmail: !!req.body.notificationEmail, // Debug notification email
-      notificationEmailValue: req.body.notificationEmail || "EMPTY",
-      tiktokLinkValue: req.body.tiktokLink || "EMPTY",
-      youtubeLinkValue: req.body.youtubeLink || "EMPTY",
-    });
-
-    // ✅ Handle notification email - use provided email or fallback to shop email
+    // ===========================
+    // 2. PARSE JSON FIELDS
+    // ===========================
+    
+    // Notification Email Logic
     let notificationEmail = req.body.notificationEmail;
-    if (!notificationEmail || notificationEmail.trim() === '') {
-      // If no notification email provided, use the shop's current notification email or login email
-      notificationEmail = shop.notificationEmail || shop.email;
-      console.log("📧 Using fallback notification email:", notificationEmail);
-    } else {
-      // Validate notification email format if provided
+    if (notificationEmail && notificationEmail.trim() !== '') {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(notificationEmail.trim())) {
-        return res.status(400).json({
-          message: "Invalid notification email format",
-        });
+        return res.status(400).json({ message: "Invalid notification email format" });
       }
       notificationEmail = notificationEmail.trim().toLowerCase();
+    } else {
+      // Fallback logic
+      notificationEmail = shop.notificationEmail || shop.email;
     }
 
-    // Parse JSON fields safely
+    // Services
     let parsedServices = [];
-    if (Array.isArray(req.body.services)) {
-      parsedServices = req.body.services;
-    } else if (typeof req.body.services === "string") {
-      try {
-        parsedServices = JSON.parse(req.body.services);
-      } catch {
-        parsedServices = [];
-      }
+    if (Array.isArray(req.body.services)) parsedServices = req.body.services;
+    else if (typeof req.body.services === "string") {
+      try { parsedServices = JSON.parse(req.body.services); } catch { parsedServices = []; }
     }
 
-    // Parse businessHours
-    let parsedBusinessHours = {};
+    // Business Hours
+    let parsedBusinessHours = shop.businessHours; // Default to existing
     if (req.body.businessHours) {
       if (typeof req.body.businessHours === "string") {
-        try {
-          parsedBusinessHours = JSON.parse(req.body.businessHours);
-        } catch {
-          parsedBusinessHours = {};
-        }
-      } else if (typeof req.body.businessHours === "object") {
+        try { parsedBusinessHours = JSON.parse(req.body.businessHours); } catch {}
+      } else {
         parsedBusinessHours = req.body.businessHours;
       }
     }
 
-    // Parse acceptedPayments
-    let parsedAcceptedPayments = [];
+    // Accepted Payments
+    let parsedAcceptedPayments = shop.acceptedPayments;
     if (req.body.acceptedPayments) {
-      if (Array.isArray(req.body.acceptedPayments)) {
-        parsedAcceptedPayments = req.body.acceptedPayments;
-      } else if (typeof req.body.acceptedPayments === "string") {
-        try {
-          parsedAcceptedPayments = JSON.parse(req.body.acceptedPayments);
-        } catch {
-          parsedAcceptedPayments = [];
-        }
+      if (Array.isArray(req.body.acceptedPayments)) parsedAcceptedPayments = req.body.acceptedPayments;
+      else if (typeof req.body.acceptedPayments === "string") {
+        try { parsedAcceptedPayments = JSON.parse(req.body.acceptedPayments); } catch {}
       }
     }
 
-    // Parse financingOffered
+    // Financing Offered
     let financingOffered = shop.financingOffered;
     if (req.body.financingOffered !== undefined) {
-      if (typeof req.body.financingOffered === "boolean") {
-        financingOffered = req.body.financingOffered;
-      } else if (typeof req.body.financingOffered === "string") {
-        financingOffered = req.body.financingOffered.toLowerCase() === "true";
-      }
+       financingOffered = String(req.body.financingOffered).toLowerCase() === 'true';
     }
 
-    // ✅ FIX: Handle social media links correctly (from flat fields to nested object)
-    // DEBUG: Log before creating socialMedia object
-    console.log("🔍 Creating socialMedia object with values:", {
+    // ===========================
+    // 3. SOCIAL MEDIA MAPPING
+    // ===========================
+    // Map flat frontend fields (instagramLink) to nested DB schema (socialMedia.instagram)
+    // Also handles migration: if DB has old data, this overwrites it cleanly.
+    const socialMedia = {
       instagram: req.body.instagramLink || shop.socialMedia?.instagram || "",
       facebook: req.body.facebookLink || shop.socialMedia?.facebook || "",
       linkedin: req.body.linkedinLink || shop.socialMedia?.linkedin || "",
       tiktok: req.body.tiktokLink || shop.socialMedia?.tiktok || "",
       youtube: req.body.youtubeLink || shop.socialMedia?.youtube || "",
-      shopTiktok: shop.socialMedia?.tiktok || "NO SHOP TIKTOK",
-      shopYoutube: shop.socialMedia?.youtube || "NO SHOP YOUTUBE",
-    });
-
-    // Add TikTok and YouTube fields:
-    const socialMedia = {
-      instagram: req.body.instagramLink || shop.socialMedia?.instagram || "",
-      facebook: req.body.facebookLink || shop.socialMedia?.facebook || "",
-      linkedin: req.body.linkedinLink || shop.socialMedia?.linkedin || "",
-      tiktok: req.body.tiktokLink || shop.socialMedia?.tiktok || "", // Add this
-      youtube: req.body.youtubeLink || shop.socialMedia?.youtube || "", // Add this
     };
 
-    // DEBUG: Log socialMedia object
-    console.log("✅ Final socialMedia object:", socialMedia);
-
-    // Merge all updates
-    const updatedData = {
+    // ===========================
+    // 4. CONSTRUCT UPDATE DATA
+    // ===========================
+    const updateData = {
+      // Spread the body first (allows updating simple fields like businessName, ownerName)
       ...req.body,
-      notificationEmail, // ✅ ADD notification email to update
+      
+      // Override with our parsed/sanitized data
+      notificationEmail,
       services: parsedServices,
       businessHours: parsedBusinessHours,
       acceptedPayments: parsedAcceptedPayments,
-      financingOffered: financingOffered,
-      // ✅ ADD: Proper social media structure
-      socialMedia: socialMedia,
+      financingOffered,
+      socialMedia,
+      
+      // Files
       profilePic,
       storeFrontPhoto,
       workSpacePhoto,
@@ -1513,66 +1486,84 @@ export const updateShopProfile = async (req, res) => {
       certificateFiles,
     };
 
-    // ✅ Remove flat social media fields to avoid conflicts
-    // Add TikTok and YouTube to delete list:
-    delete updatedData.instagramLink;
-    delete updatedData.facebookLink;
-    delete updatedData.linkedinLink;
-    delete updatedData.tiktokLink; // Add this
-    delete updatedData.youtubeLink; // Add this
-    // Keep notificationEmail in the data since we added it above
+    // ===========================
+    // 5. CLEANUP & SAFETY CHECKS
+    // ===========================
 
-    // DEBUG: Log data before update
-    console.log("📤 Data to update database:", {
-      notificationEmail: updatedData.notificationEmail,
-      shopEmail: shop.email,
-      socialMediaInUpdate: updatedData.socialMedia,
-      tiktokValue: updatedData.socialMedia.tiktok,
-      youtubeValue: updatedData.socialMedia.youtube,
-      otherFields: Object.keys(updatedData).filter(key => !['socialMedia', '_id', 'notificationEmail'].includes(key))
-    });
+    // A. Remove flat social fields (to prevent them being saved as top-level properties)
+    delete updateData.instagramLink;
+    delete updateData.facebookLink;
+    delete updateData.linkedinLink;
+    delete updateData.tiktokLink;
+    delete updateData.youtubeLink;
 
+    // B. Protect System Fields (Prevent user from changing these via profile update)
+    delete updateData.plan; // Plan changes should go through subscription controller
+    delete updateData.subscriptionStatus;
+    delete updateData.stripeCustomerId;
+    delete updateData.stripeSubscriptionId;
+    delete updateData.currentSubscription;
+    delete updateData.bidUsage; // Controlled by system
+    delete updateData.email; // Email change usually requires verification flow
+    delete updateData.password; // Password change needs separate endpoint
+    delete updateData.isVerified;
+    delete updateData.isBlocked;
+
+    // ===========================
+    // 6. PLAN FIELD VALIDATION (CRITICAL FOR MIGRATION)
+    // ===========================
+    // If frontend sends 'plan' explicitly in body (e.g. changing plan),
+    // validate it is a valid ObjectId for the NEW Schema.
+    // If it's a legacy string ("basic"), ignore it to prevent CastError.
+    if (req.body.plan) {
+      if (mongoose.Types.ObjectId.isValid(req.body.plan)) {
+        updateData.plan = req.body.plan;
+      } else {
+        console.warn(`⚠️ Ignored invalid Plan ID (legacy format?): ${req.body.plan}`);
+        delete updateData.plan;
+      }
+    }
+
+    // ===========================
+    // 7. EXECUTE UPDATE
+    // ===========================
     const updatedShop = await Shop.findByIdAndUpdate(
-      id, 
-      { $set: updatedData }, 
-      { new: true }
+      id,
+      { $set: updateData },
+      { new: true, runValidators: true, context: 'query' }
     );
 
-    // DEBUG: Log after update
-    console.log("✅ Shop updated successfully:", {
-      shopId: updatedShop._id,
-      notificationEmail: updatedShop.notificationEmail,
-      updatedSocialMedia: updatedShop.socialMedia,
-      updatedTiktok: updatedShop.socialMedia?.tiktok || "EMPTY IN DB",
-      updatedYoutube: updatedShop.socialMedia?.youtube || "EMPTY IN DB",
-    });
-
+    // ===========================
+    // 8. FORMAT RESPONSE
+    // ===========================
     res.status(200).json({
       message: "Shop profile updated successfully",
       shop: {
         ...updatedShop._doc,
-        // Add flat social media fields for frontend compatibility
-        // Add TikTok and YouTube:
+        // Map back to flat fields for Frontend compatibility
         instagramLink: updatedShop.socialMedia?.instagram || "",
         facebookLink: updatedShop.socialMedia?.facebook || "",
         linkedinLink: updatedShop.socialMedia?.linkedin || "",
-        tiktokLink: updatedShop.socialMedia?.tiktok || "", // Add this
-        youtubeLink: updatedShop.socialMedia?.youtube || "", // Add this
-        // Ensure notificationEmail is included in response
+        tiktokLink: updatedShop.socialMedia?.tiktok || "",
+        youtubeLink: updatedShop.socialMedia?.youtube || "",
         notificationEmail: updatedShop.notificationEmail || updatedShop.email,
       },
     });
+
   } catch (error) {
     console.error("🔥 Update shop profile error:", error);
-    console.error("🔥 Error details:", {
-      message: error.message,
-      stack: error.stack,
-      requestBody: req.body,
-      requestFiles: req.files,
-    });
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+
+
+
+
+
+
+
+
 
 
 
